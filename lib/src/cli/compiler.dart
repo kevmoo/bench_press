@@ -5,48 +5,36 @@ import 'package:path/path.dart' as p;
 import 'sdk.dart';
 
 /// The result of compiling a benchmark source file for a specific target.
-final class CompilationResult {
+final class const CompilationResult({
   /// Whether the compilation exited successfully with code 0.
-  final bool success;
+  required final bool success,
 
   /// The target runtime compiled for.
-  final TargetRuntime runtime;
+  required final TargetRuntime runtime,
 
   /// The original Dart source file path.
-  final String sourcePath;
+  required final String sourcePath,
 
   /// The primary output binary or bytecode artifact path (e.g. `.exe`, `.wasm`,
   /// `.js`), or the source file path for JIT.
-  final String? artifactPath;
+  final String? artifactPath,
 
   /// The runner script path (e.g. `.mjs` for Wasm, `.js` for JavaScript), or
   /// `null` if the artifact is directly executable.
-  final String? runnerScriptPath;
+  final String? runnerScriptPath,
 
   /// Total time spent compiling.
-  final Duration compilationDuration;
+  required final Duration compilationDuration,
 
   /// Subprocess standard output stream from the compiler.
-  final String stdout;
+  required final String stdout,
 
   /// Subprocess standard error stream from the compiler.
-  final String stderr;
+  required final String stderr,
 
   /// Subprocess exit code.
-  final int exitCode;
-
-  const CompilationResult({
-    required this.success,
-    required this.runtime,
-    required this.sourcePath,
-    this.artifactPath,
-    this.runnerScriptPath,
-    required this.compilationDuration,
-    required this.stdout,
-    required this.stderr,
-    required this.exitCode,
-  });
-
+  required final int exitCode,
+}) {
   @override
   String toString() =>
       'CompilationResult($runtime, success: $success, '
@@ -56,11 +44,7 @@ final class CompilationResult {
 
 /// Orchestrates compilation of Dart benchmark source files into native, Wasm,
 /// and JavaScript artifacts.
-final class TargetCompiler {
-  final DartSdk sdk;
-
-  const TargetCompiler({this.sdk = const DartSdk()});
-
+final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
   /// Compiles [sourceFile] for [runtime] into [outputDir].
   ///
   /// For [TargetRuntime.jit], no compilation is performed and an immediate

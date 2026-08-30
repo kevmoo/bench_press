@@ -7,7 +7,7 @@ import 'schema.dart';
 
 /// Generates formatted, mdformat-compliant Markdown tables and performance
 /// telemetry reports.
-abstract final class MarkdownReporter {
+abstract final class MarkdownReporter() {
   /// Renders a full comprehensive Markdown report for a [BenchmarkSuiteResult].
   static String renderSuite(BenchmarkSuiteResult suite, {String? title}) {
     final buffer = StringBuffer();

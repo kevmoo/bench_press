@@ -8,8 +8,8 @@ final List<String> _words = List<String>.generate(
 );
 
 /// String concatenation using the '+' operator.
-final class StringPlusConcatBenchmark extends Benchmark {
-  StringPlusConcatBenchmark() : super('string/plus_concat');
+final class StringPlusConcatBenchmark() extends Benchmark {
+  this : super('string/plus_concat');
 
   @override
   void run() {
@@ -22,8 +22,8 @@ final class StringPlusConcatBenchmark extends Benchmark {
 }
 
 /// String concatenation using [StringBuffer].
-final class StringBufferBenchmark extends Benchmark {
-  StringBufferBenchmark() : super('string/string_buffer');
+final class StringBufferBenchmark() extends Benchmark {
+  this : super('string/string_buffer');
 
   @override
   void run() {
@@ -36,8 +36,8 @@ final class StringBufferBenchmark extends Benchmark {
 }
 
 /// String construction using string interpolation.
-final class StringInterpolationBenchmark extends Benchmark {
-  StringInterpolationBenchmark() : super('string/interpolation');
+final class StringInterpolationBenchmark() extends Benchmark {
+  this : super('string/interpolation');
 
   @override
   void run() {
@@ -50,8 +50,8 @@ final class StringInterpolationBenchmark extends Benchmark {
 }
 
 /// String construction using [Iterable.join].
-final class StringJoinBenchmark extends Benchmark {
-  StringJoinBenchmark() : super('string/join');
+final class StringJoinBenchmark() extends Benchmark {
+  this : super('string/join');
 
   @override
   void run() {

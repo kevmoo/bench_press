@@ -5,8 +5,8 @@ import 'package:checks/checks.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
 
-final class _SampleBench extends Benchmark {
-  _SampleBench() : super('sample_sync');
+final class _SampleBench() extends Benchmark {
+  this : super('sample_sync');
 
   @override
   void run() {
@@ -18,8 +18,8 @@ final class _SampleBench extends Benchmark {
   }
 }
 
-final class _SampleAsyncBench extends AsyncBenchmark {
-  _SampleAsyncBench() : super('sample_async');
+final class _SampleAsyncBench() extends AsyncBenchmark {
+  this : super('sample_async');
 
   @override
   Future<void> run() async {

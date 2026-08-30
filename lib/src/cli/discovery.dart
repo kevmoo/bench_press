@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 /// Represents the detected structural category of a benchmark file.
-enum BenchmarkFileKind {
+enum BenchmarkFileKind() {
   /// The file provides a standalone `main(...)` entrypoint.
   standaloneMain,
 
@@ -15,15 +15,13 @@ enum BenchmarkFileKind {
 }
 
 /// Represents a discovered benchmark file and its structural metadata.
-final class DiscoveredBenchmarkFile {
+final class const DiscoveredBenchmarkFile({
   /// The underlying Dart source file.
-  final File file;
+  required final File file,
 
   /// The detected benchmark file structural category.
-  final BenchmarkFileKind kind;
-
-  const DiscoveredBenchmarkFile({required this.file, required this.kind});
-
+  required final BenchmarkFileKind kind,
+}) {
   /// Absolute normalized path of the file.
   String get path => p.normalize(file.absolute.path);
 
@@ -36,7 +34,7 @@ final class DiscoveredBenchmarkFile {
 
 /// Discovers benchmark files in repositories and directories, and generates
 /// executable runner wrappers when needed.
-abstract final class BenchmarkDiscovery {
+abstract final class BenchmarkDiscovery() {
   /// Discovers benchmark files within [targetPath] (which may be a specific
   /// file or a directory).
   ///

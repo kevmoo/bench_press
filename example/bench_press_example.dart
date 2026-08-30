@@ -6,8 +6,8 @@ import 'package:bench_press/bench_press.dart';
 ///
 /// Subclass [Benchmark], provide a name, and implement [run].
 /// Optionally override [setup] and [teardown] for resource lifecycles.
-final class FibonacciBenchmark extends Benchmark {
-  FibonacciBenchmark() : super('fibonacci_recursive');
+final class FibonacciBenchmark() extends Benchmark {
+  this : super('fibonacci_recursive');
 
   int _fib(int n) => n <= 1 ? n : _fib(n - 1) + _fib(n - 2);
 
@@ -22,8 +22,8 @@ final class FibonacciBenchmark extends Benchmark {
 ///
 /// Subclass [AsyncBenchmark] when benchmarking asynchronous pipelines
 /// (such as I/O, streams, or asynchronous workers).
-final class AsyncDelayBenchmark extends AsyncBenchmark {
-  AsyncDelayBenchmark()
+final class AsyncDelayBenchmark() extends AsyncBenchmark {
+  this
     : super(
         'async_microtask_batch',
         config: const BenchmarkConfig(

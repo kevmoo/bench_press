@@ -4,25 +4,19 @@ import 'blackhole.dart';
 import 'harness.dart';
 
 /// Result from executing a single calibrated measurement batch.
-final class BatchMeasurement {
+final class const BatchMeasurement({
   /// The calibrated iteration count executed during the batch.
-  final int iterations;
+  required final int iterations,
 
   /// Total elapsed time in microseconds for the entire batch.
-  final int totalElapsedMicroseconds;
+  required final int totalElapsedMicroseconds,
 
   /// Derived per-operation latency in nanoseconds.
-  final double perOpNanoseconds;
-
-  const BatchMeasurement({
-    required this.iterations,
-    required this.totalElapsedMicroseconds,
-    required this.perOpNanoseconds,
-  });
-}
+  required final double perOpNanoseconds,
+});
 
 /// Executes monomorphic inner measurement batch loops.
-abstract final class BatchRunner {
+abstract final class BatchRunner() {
   /// Runs a single synchronous measurement batch for [benchmark] with
   /// [iterations].
   static BatchMeasurement runSync(Benchmark benchmark, int iterations) {

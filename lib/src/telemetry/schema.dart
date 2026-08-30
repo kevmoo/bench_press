@@ -11,36 +11,27 @@ const int currentTelemetrySchemaVersion = 1;
 const String defaultTelemetryFileName = 'benchmark_results.json';
 
 /// Captures machine and runtime environment details for telemetry provenance.
-final class EnvironmentInfo {
+final class const EnvironmentInfo({
   /// The Dart runtime SDK version string.
-  final String dartVersion;
+  required final String dartVersion,
 
   /// The host operating system identifier (e.g. 'linux', 'macos', 'windows').
-  final String os;
+  required final String os,
 
   /// The host machine architecture (e.g. 'x64', 'arm64', 'ia32').
-  final String arch;
+  required final String arch,
 
   /// Optional processor description or model name.
-  final String? cpu;
+  final String? cpu,
 
   /// Optional machine hostname.
-  final String? hostname;
+  final String? hostname,
 
   /// Additional environment metadata key-value pairs.
-  final Map<String, Object?> extra;
-
-  const EnvironmentInfo({
-    required this.dartVersion,
-    required this.os,
-    required this.arch,
-    this.cpu,
-    this.hostname,
-    this.extra = const {},
-  });
-
+  final Map<String, Object?> extra = const {},
+}) {
   /// Captures the current runtime host environment.
-  factory EnvironmentInfo.current({
+  factory current({
     String? cpu,
     String? hostname,
     Map<String, Object?> extra = const {},
@@ -73,7 +64,7 @@ final class EnvironmentInfo {
   };
 
   /// Constructs an [EnvironmentInfo] from a JSON map.
-  factory EnvironmentInfo.fromJson(Map<String, Object?> json) {
+  factory fromJson(Map<String, Object?> json) {
     return EnvironmentInfo(
       dartVersion: (json['dart_version'] as String?) ?? 'unknown',
       os: (json['os'] as String?) ?? 'unknown',
@@ -90,47 +81,36 @@ final class EnvironmentInfo {
 }
 
 /// Telemetry record for a single benchmark workload executed against a target.
-final class BenchmarkEntry {
+final class const BenchmarkEntry({
   /// The unique benchmark workload name (e.g. 'json_decode/small').
-  final String name;
+  required final String name,
 
   /// The compilation/execution target (e.g. 'jit', 'aot', 'wasm', 'js').
-  final String target;
+  required final String target,
 
   /// The execution mode ('sync' or 'async').
-  final String mode;
+  required final String mode,
 
   /// The number of measurement trial samples recorded.
-  final int samples;
+  required final int samples,
 
   /// Distribution summary metrics computed from the trial samples.
-  final BenchmarkMetrics metrics;
+  required final BenchmarkMetrics metrics,
 
   /// The raw trial sample latencies in nanoseconds.
-  final List<double> rawTrialsNs;
+  final List<double> rawTrialsNs = const [],
 
   /// Diagnostic metadata from the warmup convergence phase.
-  final Map<String, Object?>? warmup;
+  final Map<String, Object?>? warmup,
 
   /// Calibrated batch iterations used in the inner measurement loop.
-  final int? calibratedBatchIterations;
-
-  const BenchmarkEntry({
-    required this.name,
-    required this.target,
-    required this.mode,
-    required this.samples,
-    required this.metrics,
-    this.rawTrialsNs = const [],
-    this.warmup,
-    this.calibratedBatchIterations,
-  });
-
+  final int? calibratedBatchIterations,
+}) {
   /// The unique composite key identifying this benchmark and target pair.
   String get key => '$name:$target';
 
   /// Constructs a [BenchmarkEntry] from a [BenchmarkResult].
-  factory BenchmarkEntry.fromResult(
+  factory fromResult(
     BenchmarkResult result, {
     String target = 'jit',
     String mode = 'sync',
@@ -167,7 +147,7 @@ final class BenchmarkEntry {
   };
 
   /// Constructs a [BenchmarkEntry] from a JSON map with schema validation.
-  factory BenchmarkEntry.fromJson(Map<String, Object?> json) {
+  factory fromJson(Map<String, Object?> json) {
     final rawName = json['name'];
     if (rawName is! String || rawName.isEmpty) {
       throw const FormatException(
@@ -219,28 +199,21 @@ final class BenchmarkEntry {
 }
 
 /// A complete, standalone collection of benchmark telemetry results.
-final class BenchmarkSuiteResult {
+final class const BenchmarkSuiteResult({
   /// The schema version (must equal [currentTelemetrySchemaVersion]).
-  final int version;
+  final int version = currentTelemetrySchemaVersion,
 
   /// The timestamp when the benchmark suite execution completed.
-  final DateTime timestamp;
+  required final DateTime timestamp,
 
   /// The environment metadata where the benchmarks were executed.
-  final EnvironmentInfo environment;
+  required final EnvironmentInfo environment,
 
   /// The list of benchmark entries recorded.
-  final List<BenchmarkEntry> benchmarks;
-
-  const BenchmarkSuiteResult({
-    this.version = currentTelemetrySchemaVersion,
-    required this.timestamp,
-    required this.environment,
-    required this.benchmarks,
-  });
-
+  required final List<BenchmarkEntry> benchmarks,
+}) {
   /// Constructs a [BenchmarkSuiteResult] from a list of [BenchmarkResult]s.
-  factory BenchmarkSuiteResult.fromResults(
+  factory fromResults(
     List<BenchmarkResult> results, {
     EnvironmentInfo? environment,
     DateTime? timestamp,
@@ -335,7 +308,7 @@ final class BenchmarkSuiteResult {
       const JsonEncoder.withIndent('  ').convert(toJson());
 
   /// Parses a [BenchmarkSuiteResult] from a JSON map with schema validation.
-  factory BenchmarkSuiteResult.fromJson(Map<String, Object?> json) {
+  factory fromJson(Map<String, Object?> json) {
     final version = (json['version'] as num?)?.toInt();
     if (version != currentTelemetrySchemaVersion) {
       throw FormatException(
@@ -380,7 +353,7 @@ final class BenchmarkSuiteResult {
   }
 
   /// Parses a [BenchmarkSuiteResult] from formatted JSON text.
-  factory BenchmarkSuiteResult.fromJsonString(String jsonString) {
+  factory fromJsonString(String jsonString) {
     final decoded = jsonDecode(jsonString);
     if (decoded is! Map<String, Object?>) {
       throw const FormatException('Telemetry JSON root must be an object/map');

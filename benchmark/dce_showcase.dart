@@ -9,8 +9,8 @@ const int _iterations = 100;
 /// code elimination (DCE) pass detects that the calculation results are unused
 /// and eliminates the loop body. This produces misleadingly low latencies
 /// (~0 ns or empty loop baseline) rather than measuring real work.
-final class UnprotectedDeadCodeBenchmark extends Benchmark {
-  UnprotectedDeadCodeBenchmark() : super('dce/unprotected_dead_code');
+final class UnprotectedDeadCodeBenchmark() extends Benchmark {
+  this : super('dce/unprotected_dead_code');
 
   @override
   void run() {
@@ -29,8 +29,8 @@ final class UnprotectedDeadCodeBenchmark extends Benchmark {
 /// `@pragma('wasm:prefer-inline')`, `@pragma('dart2js:prefer-inline')`).
 /// The compiler is forced to retain the full computation without incurring
 /// per-iteration heap allocations.
-final class ProtectedBlackholeBenchmark extends Benchmark {
-  ProtectedBlackholeBenchmark() : super('dce/protected_blackhole');
+final class ProtectedBlackholeBenchmark() extends Benchmark {
+  this : super('dce/protected_blackhole');
 
   @override
   void run() {
@@ -46,8 +46,8 @@ final class ProtectedBlackholeBenchmark extends Benchmark {
 ///
 /// Feeds intermediate objects into [Blackhole.consume] and executes a terminal
 /// [Blackhole.drain] checksum to ensure all slots are referenced and cleared.
-final class ProtectedBlackholeDrainBenchmark extends Benchmark {
-  ProtectedBlackholeDrainBenchmark() : super('dce/protected_blackhole_drain');
+final class ProtectedBlackholeDrainBenchmark() extends Benchmark {
+  this : super('dce/protected_blackhole_drain');
 
   @override
   void run() {

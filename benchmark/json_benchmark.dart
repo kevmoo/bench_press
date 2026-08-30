@@ -3,23 +3,14 @@ import 'dart:convert';
 import 'package:bench_press/bench_press.dart';
 
 /// A realistic structured data record for JSON serialization benchmarks.
-final class UserProfile {
-  final int id;
-  final String name;
-  final String email;
-  final bool isActive;
-  final double score;
-  final List<String> tags;
-
-  const UserProfile({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.isActive,
-    required this.score,
-    required this.tags,
-  });
-
+final class const UserProfile({
+  required final int id,
+  required final String name,
+  required final String email,
+  required final bool isActive,
+  required final double score,
+  required final List<String> tags,
+}) {
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -29,7 +20,7 @@ final class UserProfile {
     'tags': tags,
   };
 
-  factory UserProfile.fromJson(Map<String, Object?> json) => UserProfile(
+  factory fromJson(Map<String, Object?> json) => UserProfile(
     id: json['id'] as int,
     name: json['name'] as String,
     email: json['email'] as String,
@@ -76,8 +67,8 @@ final Map<String, Object?> _sampleMap = _sampleUser.toJson();
 final String _sampleJsonString = jsonEncode(_sampleMap);
 
 /// Standard JSON encode using dart:convert.
-final class JsonEncodeStandardBenchmark extends Benchmark {
-  JsonEncodeStandardBenchmark() : super('json_encode/dart_convert');
+final class JsonEncodeStandardBenchmark() extends Benchmark {
+  this : super('json_encode/dart_convert');
 
   @override
   void run() {
@@ -87,8 +78,8 @@ final class JsonEncodeStandardBenchmark extends Benchmark {
 }
 
 /// Custom direct buffer JSON serialization.
-final class JsonEncodeCustomBenchmark extends Benchmark {
-  JsonEncodeCustomBenchmark() : super('json_encode/custom_buffer');
+final class JsonEncodeCustomBenchmark() extends Benchmark {
+  this : super('json_encode/custom_buffer');
 
   @override
   void run() {
@@ -98,8 +89,8 @@ final class JsonEncodeCustomBenchmark extends Benchmark {
 }
 
 /// Standard JSON decode using dart:convert.
-final class JsonDecodeStandardBenchmark extends Benchmark {
-  JsonDecodeStandardBenchmark() : super('json_decode/dart_convert');
+final class JsonDecodeStandardBenchmark() extends Benchmark {
+  this : super('json_decode/dart_convert');
 
   @override
   void run() {
@@ -109,8 +100,8 @@ final class JsonDecodeStandardBenchmark extends Benchmark {
 }
 
 /// Custom JSON parsing into structured model.
-final class JsonDecodeModelBenchmark extends Benchmark {
-  JsonDecodeModelBenchmark() : super('json_decode/typed_model');
+final class JsonDecodeModelBenchmark() extends Benchmark {
+  this : super('json_decode/typed_model');
 
   @override
   void run() {

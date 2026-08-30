@@ -175,11 +175,11 @@ AsyncBenchmark _applyConfigToAsyncBenchmark(
   return _ConfiguredAsyncBenchmark(benchmark, config);
 }
 
-final class _ConfiguredBenchmark extends Benchmark {
-  final Benchmark _delegate;
-
-  _ConfiguredBenchmark(this._delegate, BenchmarkConfig config)
-    : super(_delegate.name, config: config);
+final class _ConfiguredBenchmark(
+  final Benchmark _delegate,
+  BenchmarkConfig config,
+) extends Benchmark {
+  this : super(_delegate.name, config: config);
 
   @override
   void setup() => _delegate.setup();
@@ -191,11 +191,11 @@ final class _ConfiguredBenchmark extends Benchmark {
   void teardown() => _delegate.teardown();
 }
 
-final class _ConfiguredAsyncBenchmark extends AsyncBenchmark {
-  final AsyncBenchmark _delegate;
-
-  _ConfiguredAsyncBenchmark(this._delegate, BenchmarkConfig config)
-    : super(_delegate.name, config: config);
+final class _ConfiguredAsyncBenchmark(
+  final AsyncBenchmark _delegate,
+  BenchmarkConfig config,
+) extends AsyncBenchmark {
+  this : super(_delegate.name, config: config);
 
   @override
   Future<void> setup() => _delegate.setup();

@@ -6,7 +6,7 @@ import 'markdown_reporter.dart';
 import 'schema.dart';
 
 /// Extracts baseline benchmark telemetry JSON records from Git history.
-abstract final class GitBaselineExtractor {
+abstract final class GitBaselineExtractor() {
   /// Extracts the raw file contents at [filePath] from git commit [gitRef].
   ///
   /// Returns `null` if git is unavailable, [gitRef] does not exist, [filePath]
@@ -104,32 +104,25 @@ abstract final class GitBaselineExtractor {
 }
 
 /// Holds the comparison state between a Git baseline and current telemetry.
-final class GitBaselineDiffResult {
+final class const GitBaselineDiffResult({
   /// The Git reference (commit hash, branch, or tag) queried for baseline.
-  final String gitRef;
+  required final String gitRef,
 
   /// The target telemetry file path queried in git history.
-  final String filePath;
+  required final String filePath,
 
   /// The extracted baseline suite result, or `null` if unavailable.
-  final BenchmarkSuiteResult? baseline;
+  required final BenchmarkSuiteResult? baseline,
 
   /// The current working suite result.
-  final BenchmarkSuiteResult current;
-
+  required final BenchmarkSuiteResult current,
+}) {
   /// Whether a valid baseline was successfully retrieved.
   bool get hasBaseline => baseline != null;
-
-  const GitBaselineDiffResult({
-    required this.gitRef,
-    required this.filePath,
-    required this.baseline,
-    required this.current,
-  });
 }
 
 /// Generates Git-backed Before-vs-After delta comparison reports.
-abstract final class GitDiffReporter {
+abstract final class GitDiffReporter() {
   /// Compares [current] suite against the baseline at [gitRef]:[filePath].
   static GitBaselineDiffResult loadDiff({
     required String gitRef,

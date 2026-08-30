@@ -3,7 +3,7 @@ import 'package:meta/meta.dart';
 /// An opaque compiler barrier that consumes benchmark results and prevents
 /// optimizing compilers (Dart VM AOT, Dart2Wasm, dart2js) from eliminating
 /// loop bodies via Dead Code Elimination (DCE).
-abstract final class Blackhole {
+abstract final class Blackhole() {
   static final List<Object?> _sink = List<Object?>.filled(8, null);
   static int _index = 0;
   static int _checksum = 0;

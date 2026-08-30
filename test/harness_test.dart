@@ -2,12 +2,10 @@ import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
-final class _SampleBenchmark extends Benchmark {
+final class _SampleBenchmark(super.name) extends Benchmark {
   int setupCount = 0;
   int runCount = 0;
   int teardownCount = 0;
-
-  _SampleBenchmark(super.name);
 
   @override
   void setup() => setupCount++;
@@ -19,12 +17,10 @@ final class _SampleBenchmark extends Benchmark {
   void teardown() => teardownCount++;
 }
 
-final class _SampleAsyncBenchmark extends AsyncBenchmark {
+final class _SampleAsyncBenchmark(super.name) extends AsyncBenchmark {
   int setupCount = 0;
   int runCount = 0;
   int teardownCount = 0;
-
-  _SampleAsyncBenchmark(super.name);
 
   @override
   Future<void> setup() async => setupCount++;

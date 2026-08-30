@@ -2,14 +2,14 @@ import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
-final class _CountingBenchmark extends Benchmark {
+final class _CountingBenchmark(
+  super.name, {
+  super.config,
+  final bool shouldThrowInRun = false,
+}) extends Benchmark {
   int setupCalls = 0;
   int runCalls = 0;
   int teardownCalls = 0;
-  final bool shouldThrowInRun;
-
-  _CountingBenchmark(super.name, {super.config, this.shouldThrowInRun = false});
-
   @override
   void setup() {
     setupCalls++;
@@ -34,18 +34,14 @@ final class _CountingBenchmark extends Benchmark {
   }
 }
 
-final class _AsyncCountingBenchmark extends AsyncBenchmark {
+final class _AsyncCountingBenchmark(
+  super.name, {
+  super.config,
+  final bool shouldThrowInRun = false,
+}) extends AsyncBenchmark {
   int setupCalls = 0;
   int runCalls = 0;
   int teardownCalls = 0;
-  final bool shouldThrowInRun;
-
-  _AsyncCountingBenchmark(
-    super.name, {
-    super.config,
-    this.shouldThrowInRun = false,
-  });
-
   @override
   Future<void> setup() async {
     setupCalls++;

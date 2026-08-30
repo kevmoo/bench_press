@@ -2,10 +2,8 @@ import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
-final class _CountingBenchmark extends Benchmark {
+final class _CountingBenchmark(super.name) extends Benchmark {
   int count = 0;
-
-  _CountingBenchmark(super.name);
 
   @override
   void run() {
@@ -14,10 +12,8 @@ final class _CountingBenchmark extends Benchmark {
   }
 }
 
-final class _CountingAsyncBenchmark extends AsyncBenchmark {
+final class _CountingAsyncBenchmark(super.name) extends AsyncBenchmark {
   int count = 0;
-
-  _CountingAsyncBenchmark(super.name);
 
   @override
   Future<void> run() async {

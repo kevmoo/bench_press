@@ -4,12 +4,10 @@ import 'config.dart';
 
 /// Exception thrown when a benchmark operation violates operational timing
 /// bounds.
-final class CalibrationException implements Exception {
-  final String message;
-  final double perOpDurationMicroseconds;
-
-  CalibrationException(this.message, this.perOpDurationMicroseconds);
-
+final class CalibrationException(
+  final String message,
+  final double perOpDurationMicroseconds,
+) implements Exception {
   @override
   String toString() =>
       'CalibrationException: $message (Measured: '
@@ -17,18 +15,13 @@ final class CalibrationException implements Exception {
 }
 
 /// Represents the calibrated batch parameters for an inner measurement loop.
-final class CalibratedBatch {
-  final int iterations;
-  final double estimatedOpDurationMicroseconds;
-
-  const CalibratedBatch({
-    required this.iterations,
-    required this.estimatedOpDurationMicroseconds,
-  });
-}
+final class const CalibratedBatch({
+  required final int iterations,
+  required final double estimatedOpDurationMicroseconds,
+});
 
 /// Utility for calibrating inner loop iteration counts.
-abstract final class BenchmarkCalibrator {
+abstract final class BenchmarkCalibrator() {
   /// Calibrates batch size for synchronous action to reach target duration.
   static CalibratedBatch calibrateSync(
     void Function() action,

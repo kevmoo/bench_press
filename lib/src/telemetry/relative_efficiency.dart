@@ -1,7 +1,7 @@
 import 'schema.dart';
 
 /// Utilities for assigning status badges to relative efficiency scores.
-abstract final class EfficiencyBadge {
+abstract final class EfficiencyBadge() {
   /// Returns the emoji badge prefix associated with [score].
   static String iconForScore(int score) => switch (score) {
     >= 100 => '🥇',
@@ -21,24 +21,18 @@ abstract final class EfficiencyBadge {
 
 /// Represents the `[Worst / Avg / Best]` relative efficiency triplet for a
 /// target across multiple benchmark workloads.
-final class EfficiencyTriplet {
+final class const EfficiencyTriplet({
   /// The lowest relative efficiency score observed across workloads.
-  final int worst;
+  required final int worst,
 
   /// The arithmetic mean relative efficiency score across workloads.
-  final int avg;
+  required final int avg,
 
   /// The highest relative efficiency score observed across workloads.
-  final int best;
-
-  const EfficiencyTriplet({
-    required this.worst,
-    required this.avg,
-    required this.best,
-  });
-
+  required final int best,
+}) {
   /// Computes the triplet from a list of individual workload efficiency scores.
-  factory EfficiencyTriplet.fromScores(List<int> scores) {
+  factory fromScores(List<int> scores) {
     if (scores.isEmpty) {
       return const EfficiencyTriplet(worst: 0, avg: 0, best: 0);
     }
@@ -71,72 +65,49 @@ final class EfficiencyTriplet {
 
 /// Relative efficiency breakdown for a single benchmark workload across
 /// targets.
-final class WorkloadEfficiency {
+final class const WorkloadEfficiency({
   /// The benchmark workload identifier.
-  final String benchmarkName;
+  required final String benchmarkName,
 
   /// The minimum latency in nanoseconds observed across all evaluated targets.
-  final double minLatencyNs;
+  required final double minLatencyNs,
 
   /// The target that achieved the peak (lowest) latency on this workload.
-  final String peakTarget;
+  required final String peakTarget,
 
   /// Efficiency scores (0–100) keyed by target name.
-  final Map<String, int> targetScores;
-
-  const WorkloadEfficiency({
-    required this.benchmarkName,
-    required this.minLatencyNs,
-    required this.peakTarget,
-    required this.targetScores,
-  });
-}
+  required final Map<String, int> targetScores,
+});
 
 /// Aggregate efficiency summary for a specific compilation/execution target.
-final class TargetEfficiencySummary {
+final class const TargetEfficiencySummary({
   /// The target name (e.g. 'aot', 'wasm', 'jit', 'js').
-  final String target;
+  required final String target,
 
   /// The `[Worst / Avg / Best]` relative efficiency triplet across workloads.
-  final EfficiencyTriplet triplet;
+  required final EfficiencyTriplet triplet,
 
   /// Number of workloads where this target achieved peak (100%) performance.
-  final int peakWins;
+  required final int peakWins,
 
   /// Total number of workloads evaluated for this target.
-  final int totalWorkloads;
+  required final int totalWorkloads,
 
   /// Arithmetic mean operations per second across all workloads.
-  final double meanOpsPerSec;
-
-  const TargetEfficiencySummary({
-    required this.target,
-    required this.triplet,
-    required this.peakWins,
-    required this.totalWorkloads,
-    required this.meanOpsPerSec,
-  });
-}
+  required final double meanOpsPerSec,
+});
 
 /// Multi-target relative efficiency matrix and ranking analyzer.
-final class RelativeEfficiencyAnalysis {
+final class const RelativeEfficiencyAnalysis({
   /// Efficiency breakdowns for each individual benchmark workload.
-  final List<WorkloadEfficiency> workloadEfficiencies;
+  required final List<WorkloadEfficiency> workloadEfficiencies,
 
   /// Aggregated summary statistics and triplets for each target.
-  final List<TargetEfficiencySummary> targetSummaries;
-
-  const RelativeEfficiencyAnalysis({
-    required this.workloadEfficiencies,
-    required this.targetSummaries,
-  });
-
+  required final List<TargetEfficiencySummary> targetSummaries,
+}) {
   /// Analyzes a [BenchmarkSuiteResult] to compute the relative efficiency
   /// matrix.
-  factory RelativeEfficiencyAnalysis.fromSuite(
-    BenchmarkSuiteResult suite, {
-    bool useMinLatency = false,
-  }) {
+  factory fromSuite(BenchmarkSuiteResult suite, {bool useMinLatency = false}) {
     final workloads = <WorkloadEfficiency>[];
     for (final name in suite.benchmarkNames) {
       final workload = _evaluateWorkload(suite, name, useMinLatency);

@@ -17,22 +17,21 @@ import 'sdk.dart';
 const String benchPressVersion = '0.1.0-wip';
 
 /// The top-level command runner for `bench_press`.
-final class BenchPressCommandRunner extends CommandRunner<int> {
-  final DartSdk sdk;
-  final TargetCompiler compiler;
-  final BenchmarkProcessRunner processRunner;
+final class BenchPressCommandRunner({
+  final DartSdk sdk = const DartSdk(),
+  TargetCompiler? compiler,
+  BenchmarkProcessRunner? processRunner,
+}) extends CommandRunner<int> {
+  final TargetCompiler compiler = compiler ?? TargetCompiler(sdk: sdk);
+  final BenchmarkProcessRunner processRunner =
+      processRunner ?? BenchmarkProcessRunner(sdk: sdk);
 
-  BenchPressCommandRunner({
-    this.sdk = const DartSdk(),
-    TargetCompiler? compiler,
-    BenchmarkProcessRunner? processRunner,
-  }) : compiler = compiler ?? TargetCompiler(sdk: sdk),
-       processRunner = processRunner ?? BenchmarkProcessRunner(sdk: sdk),
-       super(
-         'bench_press',
-         'A modern, statistically sound, compiler-aware multi-runtime '
-             'benchmarking framework for Dart.',
-       ) {
+  this
+    : super(
+        'bench_press',
+        'A modern, statistically sound, compiler-aware multi-runtime '
+            'benchmarking framework for Dart.',
+      ) {
     argParser.addFlag(
       'version',
       negatable: false,
@@ -75,11 +74,11 @@ final class BenchPressCommandRunner extends CommandRunner<int> {
 }
 
 /// The `run` subcommand orchestrating multi-runtime benchmark execution.
-final class RunCommand extends Command<int> {
-  final DartSdk sdk;
-  final TargetCompiler compiler;
-  final BenchmarkProcessRunner processRunner;
-
+final class RunCommand({
+  required final DartSdk sdk,
+  required final TargetCompiler compiler,
+  required final BenchmarkProcessRunner processRunner,
+}) extends Command<int> {
   @override
   final String name = 'run';
 
@@ -87,11 +86,7 @@ final class RunCommand extends Command<int> {
   final String description =
       'Run benchmarks across one or more target runtimes (JIT, AOT, Wasm, JS).';
 
-  RunCommand({
-    required this.sdk,
-    required this.compiler,
-    required this.processRunner,
-  }) {
+  this {
     argParser
       ..addMultiOption(
         'target',
@@ -335,11 +330,11 @@ final class RunCommand extends Command<int> {
 }
 
 /// The `validate` subcommand providing fast 2-second smoke verification.
-final class ValidateCommand extends Command<int> {
-  final DartSdk sdk;
-  final TargetCompiler compiler;
-  final BenchmarkProcessRunner processRunner;
-
+final class ValidateCommand({
+  required final DartSdk sdk,
+  required final TargetCompiler compiler,
+  required final BenchmarkProcessRunner processRunner,
+}) extends Command<int> {
   @override
   final String name = 'validate';
 
@@ -348,11 +343,7 @@ final class ValidateCommand extends Command<int> {
       'Quick smoke test across compilers to verify syntax and runtime '
       'health in ~2s.';
 
-  ValidateCommand({
-    required this.sdk,
-    required this.compiler,
-    required this.processRunner,
-  }) {
+  this {
     argParser
       ..addMultiOption(
         'target',
@@ -455,7 +446,7 @@ final class ValidateCommand extends Command<int> {
 }
 
 /// The `report` subcommand rendering markdown reports from stored telemetry.
-final class ReportCommand extends Command<int> {
+final class ReportCommand() extends Command<int> {
   @override
   final String name = 'report';
 
@@ -463,7 +454,7 @@ final class ReportCommand extends Command<int> {
   final String description =
       'Render a formatted Markdown report from stored JSON telemetry.';
 
-  ReportCommand() {
+  this {
     argParser
       ..addOption(
         'from-json',
@@ -512,7 +503,7 @@ final class ReportCommand extends Command<int> {
 }
 
 /// The `diff` subcommand computing isolated Before-vs-After delta tables.
-final class DiffCommand extends Command<int> {
+final class DiffCommand() extends Command<int> {
   @override
   final String name = 'diff';
 
@@ -521,7 +512,7 @@ final class DiffCommand extends Command<int> {
       'Diff two JSON telemetry files or diff current telemetry against '
       'a Git ref.';
 
-  DiffCommand() {
+  this {
     argParser
       ..addOption(
         'baseline',

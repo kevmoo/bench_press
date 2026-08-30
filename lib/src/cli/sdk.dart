@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 /// Represents a supported benchmark compilation and execution runtime target.
-enum TargetRuntime {
+enum TargetRuntime(
+  /// The canonical CLI name for this runtime target.
+  final String name,
+) {
   /// Dart VM Just-In-Time execution (standard `dart run` or in-isolate).
   jit('jit'),
 
@@ -15,11 +18,6 @@ enum TargetRuntime {
 
   /// JavaScript compiled artifact (`dart compile js -O4`).
   js('js');
-
-  /// The canonical CLI name for this runtime target.
-  final String name;
-
-  TargetRuntime(this.name);
 
   /// Attempts to parse a runtime target from [name].
   static TargetRuntime? tryParse(String name) {
@@ -68,15 +66,13 @@ enum TargetRuntime {
 
 /// Provides reliable, cross-platform discovery of the Dart SDK and external
 /// runtime engines (Node.js, D8).
-final class DartSdk {
+final class const DartSdk({
   /// Custom override path to the Dart SDK root directory.
-  final String? customSdkPath;
+  final String? customSdkPath,
 
   /// Custom environment variable map override.
-  final Map<String, String>? environment;
-
-  const DartSdk({this.customSdkPath, this.environment});
-
+  final Map<String, String>? environment,
+}) {
   Map<String, String> get _env => environment ?? Platform.environment;
 
   /// Returns the resolved absolute path to the active Dart SDK root directory,

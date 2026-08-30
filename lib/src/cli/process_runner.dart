@@ -10,42 +10,31 @@ import 'sdk.dart';
 import 'suite_runner.dart';
 
 /// The result of executing a benchmark target in a subprocess or isolate.
-final class ProcessExecutionResult {
+final class const ProcessExecutionResult({
   /// Whether the process/isolate executed and returned valid telemetry.
-  final bool success;
+  required final bool success,
 
   /// The target runtime executed.
-  final TargetRuntime runtime;
+  required final TargetRuntime runtime,
 
   /// Process exit code (0 for success).
-  final int exitCode;
+  required final int exitCode,
 
   /// Parsed telemetry suite result, or `null` if execution failed.
-  final BenchmarkSuiteResult? suiteResult;
+  final BenchmarkSuiteResult? suiteResult,
 
   /// Execution duration.
-  final Duration executionDuration;
+  required final Duration executionDuration,
 
   /// Subprocess standard output stream.
-  final String stdout;
+  required final String stdout,
 
   /// Subprocess standard error stream.
-  final String stderr;
+  required final String stderr,
 
   /// Optional error or failure diagnostic message.
-  final String? errorMessage;
-
-  const ProcessExecutionResult({
-    required this.success,
-    required this.runtime,
-    required this.exitCode,
-    this.suiteResult,
-    required this.executionDuration,
-    required this.stdout,
-    required this.stderr,
-    this.errorMessage,
-  });
-
+  final String? errorMessage,
+}) {
   @override
   String toString() =>
       'ProcessExecutionResult($runtime, success: $success, '
@@ -55,11 +44,9 @@ final class ProcessExecutionResult {
 
 /// Spawns and supervises benchmark target subprocesses across VM JIT, AOT,
 /// Node.js, and D8, streaming telemetry back to the orchestrator.
-final class BenchmarkProcessRunner {
-  final DartSdk sdk;
-
-  const BenchmarkProcessRunner({this.sdk = const DartSdk()});
-
+final class const BenchmarkProcessRunner({
+  final DartSdk sdk = const DartSdk(),
+}) {
   /// Executes a compiled or JIT benchmark [compilationResult].
   Future<ProcessExecutionResult> execute({
     required CompilationResult compilationResult,

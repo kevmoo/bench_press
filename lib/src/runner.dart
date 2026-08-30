@@ -10,34 +10,25 @@ import 'stats/metrics.dart';
 
 /// The comprehensive result of executing a benchmark through its full
 /// lifecycle.
-final class BenchmarkResult {
+final class const BenchmarkResult({
   /// The unique identifier or name of the benchmark.
-  final String name;
+  required final String name,
 
   /// Statistical summary metrics computed from the measurement trials.
-  final BenchmarkMetrics metrics;
+  required final BenchmarkMetrics metrics,
 
   /// Diagnostic metadata from the warmup phase.
-  final WarmupResult warmupResult;
+  required final WarmupResult warmupResult,
 
   /// The raw per-operation latencies (in nanoseconds) recorded for each trial.
-  final List<double> rawTrialLatenciesNs;
+  required final List<double> rawTrialLatenciesNs,
 
   /// The calibrated batch parameters used for inner loop timing.
-  final CalibratedBatch calibratedBatch;
+  required final CalibratedBatch calibratedBatch,
 
   /// The configuration options applied during execution.
-  final BenchmarkConfig config;
-
-  const BenchmarkResult({
-    required this.name,
-    required this.metrics,
-    required this.warmupResult,
-    required this.rawTrialLatenciesNs,
-    required this.calibratedBatch,
-    required this.config,
-  });
-
+  required final BenchmarkConfig config,
+}) {
   /// Converts the benchmark result to a canonical JSON representation.
   Map<String, Object?> toJson() => {
     'name': name,
@@ -64,7 +55,7 @@ final class BenchmarkResult {
 
 /// Orchestrates the end-to-end benchmark lifecycle: setup -> calibration ->
 /// warmup -> measurement trials -> summary metrics calculation -> teardown.
-abstract final class BenchmarkRunner {
+abstract final class BenchmarkRunner() {
   /// Runs a synchronous [Benchmark] through its full lifecycle.
   static BenchmarkResult run(Benchmark benchmark) {
     benchmark.setup();

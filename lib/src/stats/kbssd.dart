@@ -3,32 +3,24 @@ import 'dart:math' as math;
 import '../config.dart';
 
 /// Result metadata produced by the KBSSD warmup detector.
-final class WarmupResult {
+final class const WarmupResult({
   /// Whether steady-state convergence was attained before budget exhaustion.
-  final bool isStable;
+  required final bool isStable,
 
   /// The total number of warmup iterations executed.
-  final int totalWarmupIterations;
+  required final int totalWarmupIterations,
 
   /// The iteration index at which convergence occurred (or the historically
   /// lowest MMD iteration if fallback was triggered).
-  final int convergedAtIteration;
+  required final int convergedAtIteration,
 
   /// The lowest Maximum Mean Discrepancy (MMD) metric observed across sliding
   /// windows.
-  final double bestMmd;
+  required final double bestMmd,
 
   /// Total elapsed seconds spent in the warmup phase.
-  final double elapsedSeconds;
-
-  const WarmupResult({
-    required this.isStable,
-    required this.totalWarmupIterations,
-    required this.convergedAtIteration,
-    required this.bestMmd,
-    required this.elapsedSeconds,
-  });
-
+  required final double elapsedSeconds,
+}) {
   @override
   String toString() =>
       'WarmupResult(isStable: $isStable, '
@@ -44,20 +36,16 @@ final class WarmupResult {
 /// Deviation (MAD) dynamic thresholding, a practical Standard Error of the Mean
 /// (SEM) steady-state check (`1.96 * SEM <= 0.03 * Mean`), and a bounded
 /// patience budget fallback.
-final class KbssdWarmupDetector {
-  final BenchmarkConfig config;
-  final int windowSize;
+final class KbssdWarmupDetector({
+  final BenchmarkConfig config = const BenchmarkConfig(),
+  final int windowSize = 10,
+}) {
   final List<double> _samples = [];
 
   double _bestMmd = double.infinity;
   int _bestIteration = 0;
   bool _isConverged = false;
   int _convergedIteration = 0;
-
-  KbssdWarmupDetector({
-    this.config = const BenchmarkConfig(),
-    this.windowSize = 10,
-  });
 
   /// The samples observed so far.
   List<double> get samples => List.unmodifiable(_samples);

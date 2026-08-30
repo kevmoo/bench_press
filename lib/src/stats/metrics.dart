@@ -1,60 +1,44 @@
 import 'dart:math' as math;
 
 /// Statistical summary metrics computed from a set of measurement trials.
-final class BenchmarkMetrics {
+final class const BenchmarkMetrics({
   /// Arithmetic mean of per-operation latency in nanoseconds.
-  final double meanNs;
+  required final double meanNs,
 
   /// Median per-operation latency in nanoseconds (50th percentile).
-  final double medianNs;
+  required final double medianNs,
 
   /// Minimum observed latency in nanoseconds.
   ///
   /// Represents the best estimator of true hardware execution speed in the
   /// presence of external scheduling jitter or GC pauses.
-  final double minNs;
+  required final double minNs,
 
   /// Maximum observed latency in nanoseconds.
-  final double maxNs;
+  required final double maxNs,
 
   /// Sample standard deviation of per-operation latency in nanoseconds.
-  final double stddevNs;
+  required final double stddevNs,
 
   /// Coefficient of variation (stddev / mean).
-  final double cv;
+  required final double cv,
 
   /// 95th percentile latency in nanoseconds.
-  final double p95Ns;
+  required final double p95Ns,
 
   /// 99th percentile latency in nanoseconds.
-  final double p99Ns;
+  required final double p99Ns,
 
   /// Operations executed per second (1e9 / meanNs).
-  final double opsPerSec;
+  required final double opsPerSec,
 
   /// Whether the warmup phase reached steady-state convergence before
   /// measurement began.
-  final bool isStable;
-
-  const BenchmarkMetrics({
-    required this.meanNs,
-    required this.medianNs,
-    required this.minNs,
-    required this.maxNs,
-    required this.stddevNs,
-    required this.cv,
-    required this.p95Ns,
-    required this.p99Ns,
-    required this.opsPerSec,
-    required this.isStable,
-  });
-
+  required final bool isStable,
+}) {
   /// Computes distribution metrics from a list of per-operation latency samples
   /// measured in nanoseconds.
-  factory BenchmarkMetrics.fromSamples(
-    List<double> samplesNs, {
-    bool isStable = true,
-  }) {
+  factory fromSamples(List<double> samplesNs, {bool isStable = true}) {
     if (samplesNs.isEmpty) {
       return BenchmarkMetrics(
         meanNs: 0.0,
@@ -140,7 +124,7 @@ final class BenchmarkMetrics {
   };
 
   /// Constructs a [BenchmarkMetrics] instance from a JSON-compatible map.
-  factory BenchmarkMetrics.fromJson(Map<String, Object?> json) {
+  factory fromJson(Map<String, Object?> json) {
     if (json case {
       'mean_ns': final num mean,
       'median_ns': final num median,

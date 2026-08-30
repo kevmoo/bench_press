@@ -4,40 +4,31 @@ import 'kbssd.dart';
 
 /// Represents Fieller's confidence interval for a ratio of two independent
 /// means ($\mu_A / \mu_B$).
-final class FiellerInterval {
+final class const FiellerInterval({
   /// Point estimate ratio of means ($\bar{x}_A / \bar{x}_B$).
-  final double ratio;
+  required final double ratio,
 
   /// Lower bound of the confidence interval.
-  final double lowerBound;
+  required final double lowerBound,
 
   /// Upper bound of the confidence interval.
-  final double upperBound;
+  required final double upperBound,
 
   /// Fieller's $g$ parameter ($t^2 \cdot V_B / \bar{x}_B^2$).
   ///
   /// For a valid bounded interval, $g < 1.0$ is required.
-  final double g;
+  required final double g,
 
   /// Whether the confidence interval is finite and valid ($g < 1.0$ and
   /// non-degenerate denominator).
-  final bool isValid;
+  required final bool isValid,
 
   /// The nominal confidence level (default: 0.95).
-  final double confidenceLevel;
-
-  const FiellerInterval({
-    required this.ratio,
-    required this.lowerBound,
-    required this.upperBound,
-    required this.g,
-    required this.isValid,
-    this.confidenceLevel = 0.95,
-  });
-
+  final double confidenceLevel = 0.95,
+}) {
   /// Computes Fieller's confidence interval for the ratio of means of two
   /// independent sample distributions [sampleA] and [sampleB].
-  factory FiellerInterval.compute({
+  factory compute({
     required List<double> sampleA,
     required List<double> sampleB,
     double confidenceLevel = 0.95,
