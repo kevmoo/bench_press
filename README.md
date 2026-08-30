@@ -57,11 +57,10 @@ for (var i = 0; i < count; i++) {
 Measuring high-frequency operations (< 1 µs) directly with individual timer
 calls introduces severe measurement noise and quantization error.
 
-* **Batch Calibration**: Automatically scales batch size $$N$$ so that each
-  timed batch takes $$\ge 10\text{ ms}$$ (minimizing timer quantization to
-  < 0.1%).
+* **Batch Calibration**: Automatically scales batch size `N` so that each
+  timed batch takes >= 10 ms (minimizing timer quantization to < 0.1%).
 * **Single Monotonic Timer Read**: Reads the monotonic clock once per batch and
-  computes mean iteration latency by dividing by $$N$$.
+  computes mean iteration latency by dividing by `N`.
 * **Zero Polymorphic Dispatch**: Runs a tight, monomorphic loop without
   per-iteration function pointers or dynamic dispatch.
 * **No Empty Loop Subtraction**: `bench_press` intentionally avoids subtracting
@@ -80,15 +79,14 @@ determine when a benchmark has achieved true steady-state execution:
 * **MAD Dynamic Thresholding**: Scales convergence thresholds dynamically using
   Median Absolute Deviation.
 * **SEM Practical Steady-State Check**: Accepts convergence if:
-  $$1.96 \times \text{SEM} \le 0.03 \times \text{Mean}$$
+  `1.96 * SEM <= 0.03 * Mean`
 * **Patience Budget Fallback**: If warmup does not converge within the budget
   (e.g., 200 iterations), it selects the lowest MMD window, flags
   `isStable: false`, and logs a warning.
 
 ### 2. Calibration Guards
 
-* **Runtime Bounds**: Enforces runtime bounds ($$10\ \mu\text{s}$$ to
-  $$200\text{ ms}$$).
+* **Runtime Bounds**: Enforces runtime bounds (10 µs to 200 ms).
 * **Spectre Coarse Timer Virtualization**: Accommodates timer virtualization
   under browser environments (`dart.library.js_interop`).
 * **Bypass Flag**: Use `--force-run` to bypass calibration safety bounds during
@@ -97,8 +95,8 @@ determine when a benchmark has achieved true steady-state execution:
 ### 3. Fieller's Confidence Intervals
 
 When computing speedup ratios between baseline and candidate branches,
-`bench_press` computes exact 95% confidence intervals using Fieller's theorem:
-$$\text{CI}_{95\%}\left(\frac{\mu_{\text{baseline}}}{\mu_{\text{candidate}}}\right)$$
+`bench_press` computes exact 95% confidence intervals using Fieller's theorem
+on the speedup ratio (mean_baseline / mean_candidate).
 
 ## Telemetry & JSON Persistence
 
