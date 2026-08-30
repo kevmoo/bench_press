@@ -165,12 +165,7 @@ final class const BenchmarkProcessRunner({
       case TargetRuntime.wasm:
         final script = runnerScriptPath ?? artifactPath;
         if (sdk.nodeExecutable != null) {
-          final args = <String>[
-            '--experimental-wasm-gc',
-            ...vmFlags,
-            script,
-            ...benchArgs,
-          ];
+          final args = <String>[...vmFlags, script, ...benchArgs];
           return (sdk.nodeExecutable!, args);
         } else if (sdk.d8Executable != null) {
           final args = <String>[

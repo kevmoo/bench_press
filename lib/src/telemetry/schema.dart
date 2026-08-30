@@ -36,19 +36,27 @@ final class const EnvironmentInfo({
     String? hostname,
     Map<String, Object?> extra = const {},
   }) {
+    var version = 'unknown';
+    var os = 'unknown';
+    var resolvedHostname = hostname;
+    try {
+      version = Platform.version;
+      os = Platform.operatingSystem;
+      resolvedHostname ??= Platform.localHostname;
+    } on Object {
+      // On web/JS runtimes dart:io Platform access is unsupported.
+    }
+    final arch = version.contains('arm64') || version.contains('aarch64')
+        ? 'arm64'
+        : (version.contains('x64') || version.contains('x86_64')
+              ? 'x64'
+              : 'unknown');
     return EnvironmentInfo(
-      dartVersion: Platform.version,
-      os: Platform.operatingSystem,
-      arch:
-          Platform.version.contains('arm64') ||
-              Platform.version.contains('aarch64')
-          ? 'arm64'
-          : (Platform.version.contains('x64') ||
-                    Platform.version.contains('x86_64')
-                ? 'x64'
-                : 'unknown'),
+      dartVersion: version,
+      os: os,
+      arch: arch,
       cpu: cpu,
-      hostname: hostname ?? Platform.localHostname,
+      hostname: resolvedHostname,
       extra: extra,
     );
   }

@@ -170,7 +170,6 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
           'compile',
           'wasm',
           ...pkgFlag,
-          '--omit-type-checks',
           ...extraFlags,
           sourcePath,
           '-o',
