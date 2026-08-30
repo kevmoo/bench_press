@@ -70,14 +70,19 @@ final String _sampleJsonString = jsonEncode(_sampleMap);
 final BenchmarkGroup jsonSerializationGroup = BenchmarkGroup(
   'JSON Serialization',
   [
-    BenchmarkVariant('dart_convert', () {
-      final encoded = jsonEncode(_sampleMap);
-      Blackhole.consume(encoded);
-    }, isBaseline: true),
+    BenchmarkVariant(
+      'dart_convert',
+      () {
+        final encoded = jsonEncode(_sampleMap);
+        Blackhole.consume(encoded);
+      },
+      isBaseline: true,
+      throughput: Throughput.bytes(_sampleJsonString.length),
+    ),
     BenchmarkVariant('custom_buffer', () {
       final encoded = _sampleUser.toCustomJson();
       Blackhole.consume(encoded);
-    }),
+    }, throughput: Throughput.bytes(_sampleJsonString.length)),
   ],
 );
 
@@ -85,15 +90,20 @@ final BenchmarkGroup jsonSerializationGroup = BenchmarkGroup(
 final BenchmarkGroup jsonDeserializationGroup = BenchmarkGroup(
   'JSON Deserialization',
   [
-    BenchmarkVariant('dart_convert', () {
-      final decoded = jsonDecode(_sampleJsonString);
-      Blackhole.consume(decoded);
-    }, isBaseline: true),
+    BenchmarkVariant(
+      'dart_convert',
+      () {
+        final decoded = jsonDecode(_sampleJsonString);
+        Blackhole.consume(decoded);
+      },
+      isBaseline: true,
+      throughput: Throughput.bytes(_sampleJsonString.length),
+    ),
     BenchmarkVariant('typed_model', () {
       final map = jsonDecode(_sampleJsonString) as Map<String, Object?>;
       final user = UserProfile.fromJson(map);
       Blackhole.consume(user);
-    }),
+    }, throughput: Throughput.bytes(_sampleJsonString.length)),
   ],
 );
 

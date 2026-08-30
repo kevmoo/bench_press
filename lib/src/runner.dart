@@ -7,6 +7,7 @@ import 'config.dart';
 import 'harness.dart';
 import 'stats/kbssd.dart';
 import 'stats/metrics.dart';
+import 'throughput.dart';
 
 /// The comprehensive result of executing a benchmark through its full
 /// lifecycle.
@@ -34,6 +35,9 @@ final class const BenchmarkResult({
 
   /// Whether this variant was designated as the baseline for its group.
   final bool isBaseline = false,
+
+  /// Declared throughput processed per invocation (bytes or element count).
+  final Throughput? throughput,
 }) {
   /// Converts the benchmark result to a canonical JSON representation.
   Map<String, Object?> toJson() => {
@@ -41,6 +45,7 @@ final class const BenchmarkResult({
     'metrics': metrics.toJson(),
     if (group != null) 'group': group,
     if (isBaseline) 'is_baseline': isBaseline,
+    if (throughput != null) 'throughput': throughput!.toJson(),
     'warmup': {
       'is_stable': warmupResult.isStable,
       'total_iterations': warmupResult.totalWarmupIterations,
@@ -118,6 +123,7 @@ abstract final class BenchmarkRunner() {
         config: config,
         group: benchmark.group,
         isBaseline: benchmark.isBaseline,
+        throughput: benchmark.throughput,
       );
     } finally {
       benchmark.teardown();
@@ -178,6 +184,7 @@ abstract final class BenchmarkRunner() {
         config: config,
         group: benchmark.group,
         isBaseline: benchmark.isBaseline,
+        throughput: benchmark.throughput,
       );
     } finally {
       await benchmark.teardown();
@@ -248,6 +255,7 @@ abstract final class BenchmarkRunner() {
         config: config,
         group: variant.group,
         isBaseline: variant.isBaseline,
+        throughput: variant.throughput,
       );
     } finally {
       variant.teardown?.call();

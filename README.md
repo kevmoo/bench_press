@@ -185,17 +185,55 @@ Future<void> main() async {
 import 'dart:convert';
 import 'package:bench_press/bench_press.dart';
 
-final variant = BenchmarkVariant('json/encode_variant', () {
-  final json = jsonEncode({'key': 'value', 'count': 100});
-  Blackhole.consume(json);
-});
+final variant = BenchmarkVariant(
+  'json/encode_variant',
+  () {
+    final json = jsonEncode({'key': 'value', 'count': 100});
+    Blackhole.consume(json);
+  },
+  throughput: const Throughput.bytes(32),
+);
 
 Future<void> main() async {
   await variant.report();
 }
 ```
 
-### 4. Model 1: Intra-Run Apples-to-Apples Comparison Groups
+### 4. Data & Element Throughput (`Throughput.bytes` / `Throughput.elements`)
+
+For codecs, serializers, crypto, and collection benchmarks, declare `throughput` to automatically calculate and format data rates (`MB/s`, `GB/s`) or item processing rates (`items/s`, `records/s`):
+
+```dart
+// Byte-volume data throughput (codecs, crypto, compression)
+final class JsonParserBenchmark extends Benchmark {
+  final List<int> _bytes;
+  JsonParserBenchmark(this._bytes) : super('json/parse');
+
+  @override
+  Throughput get throughput => Throughput.bytes(_bytes.length);
+
+  @override
+  void run() => Blackhole.consume(jsonDecode(utf8.decode(_bytes)));
+}
+
+// Discrete element throughput (collections, event queues, AST nodes)
+final class ListSortBenchmark extends Benchmark {
+  final List<int> _numbers;
+  ListSortBenchmark(this._numbers) : super('list/sort');
+
+  @override
+  Throughput get throughput =>
+      Throughput.elements(_numbers.length, unit: 'items');
+
+  @override
+  void run() {
+    final copy = List<int>.of(_numbers)..sort();
+    Blackhole.consume(copy);
+  }
+}
+```
+
+### 5. Model 1: Intra-Run Apples-to-Apples Comparison Groups
 
 Use `BenchmarkGroup` to evaluate competing algorithmic implementations executed within the **exact same process and thermal envelope**:
 
@@ -245,7 +283,7 @@ When grouped benchmarks are executed, `bench_press` automatically renders a dire
 | `join` | 727,566 ops/s | 1.37 µs | **4.46x faster** | 4.46x | **[4.37x – 4.55x]** | Fast |
 <!-- mdformat on -->
 
-### 5. Benchmark Suites
+### 6. Benchmark Suites
 
 Export a top-level `benchmarks` list to enable CLI auto-discovery:
 
@@ -342,7 +380,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Dart SDK
         uses: dart-lang/setup-dart@v1
@@ -350,7 +388,7 @@ jobs:
           sdk: dev
 
       - name: Setup Node.js (WasmGC runner)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
