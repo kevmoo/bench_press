@@ -129,5 +129,92 @@ void main(List<String> args) => mainBenchmark(JsBenchmark(), args);
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('CompilationResult toString produces descriptive output', () {
+      const result = CompilationResult(
+        success: true,
+        runtime: TargetRuntime.aot,
+        sourcePath: '/path/to/bench.dart',
+        artifactPath: '/path/to/bench.exe',
+        compilationDuration: Duration(milliseconds: 150),
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      );
+
+      check(result.toString()).contains('CompilationResult(aot');
+      check(result.toString()).contains('success: true');
+      check(result.toString()).contains('150ms');
+    });
+
+    test('returns failure when compiling invalid Dart source', () async {
+      final tempDir = Directory.systemTemp.createTempSync('invalid_dart_');
+      try {
+        final source = File(p.join(tempDir.path, 'invalid.dart'))
+          ..writeAsStringSync('void main() { this is not valid dart syntax }');
+
+        const compiler = TargetCompiler();
+        final result = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+        );
+
+        check(result.success).isFalse();
+        check(result.exitCode).not((it) => it.equals(0));
+        check(result.artifactPath).isNull();
+        check(result.stderr).isNotEmpty();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('compile handles execution exception gracefully', () async {
+      final tempDir = Directory.systemTemp.createTempSync('exception_test_');
+      try {
+        final source = File(p.join(tempDir.path, 'dummy.dart'))
+          ..writeAsStringSync('void main() {}');
+
+        const compiler = TargetCompiler();
+        final result = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+          workingDirectory: '/non_existent_working_dir_12345',
+        );
+
+        check(result.success).isFalse();
+        check(result.stderr).contains('Compiler execution failed');
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('compile passes extra compilerFlags', () async {
+      final tempDir = Directory.systemTemp.createTempSync('flags_test_');
+      try {
+        final source = File(p.join(tempDir.path, 'flagged_bench.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class FlagBench extends Benchmark {
+  FlagBench() : super('flag_bench');
+  @override
+  void run() => Blackhole.consume(1);
+}
+
+void main(List<String> args) => mainBenchmark(FlagBench(), args);
+''');
+
+        const compiler = TargetCompiler();
+        final result = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+          compilerFlags: ['--define=CUSTOM_DEFINE=true'],
+        );
+
+        check(result.success).isTrue();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }

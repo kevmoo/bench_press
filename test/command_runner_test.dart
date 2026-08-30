@@ -388,5 +388,53 @@ void main(List<String> args) => mainBenchmark(DiffTarget(), args);
         }
       },
     );
+
+    test('run subcommand exits with error on invalid target', () async {
+      final runner = BenchPressCommandRunner();
+      final exitCode = await runner.run([
+        'run',
+        '-t',
+        'invalid_target',
+        'benchmark/',
+      ]);
+      check(exitCode).not((it) => it.equals(0));
+    });
+
+    test('diff subcommand exits with error on missing baseline file', () async {
+      final runner = BenchPressCommandRunner();
+      final exitCode = await runner.run([
+        'diff',
+        '-b',
+        '/non_existent_path_base_123.json',
+        '-c',
+        '/non_existent_path_cur_123.json',
+      ]);
+      check(exitCode).not((it) => it.equals(0));
+    });
+
+    test('report subcommand exits with error on malformed JSON file', () async {
+      final tempDir = Directory.systemTemp.createTempSync('bad_json_test_');
+      try {
+        final badFile = File(p.join(tempDir.path, 'bad.json'))
+          ..writeAsStringSync('{ this is not valid json }');
+
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run(['report', '-f', badFile.path]);
+        check(exitCode).not((it) => it.equals(0));
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('validate subcommand exits with error on invalid target', () async {
+      final runner = BenchPressCommandRunner();
+      final exitCode = await runner.run([
+        'validate',
+        '-t',
+        'invalid_target',
+        'benchmark/',
+      ]);
+      check(exitCode).not((it) => it.equals(0));
+    });
   });
 }

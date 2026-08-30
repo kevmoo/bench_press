@@ -253,6 +253,107 @@ void main() {
       check(fullReport).contains('🚀 🥇 Peak');
       check(fullReport).contains('### All Benchmarks');
     });
+
+    test('renderDeltaTable formats throughput delta when available', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      const baseEntry = BenchmarkEntry(
+        name: 'io_task',
+        target: 'jit',
+        mode: 'sync',
+        samples: 3,
+        metrics: BenchmarkMetrics(
+          meanNs: 1000.0,
+          medianNs: 1000.0,
+          minNs: 950.0,
+          maxNs: 1050.0,
+          stddevNs: 10.0,
+          cv: 0.01,
+          p95Ns: 1020.0,
+          p99Ns: 1040.0,
+          opsPerSec: 1000000.0,
+          isStable: true,
+        ),
+        rawTrialsNs: [950.0, 1000.0, 1050.0],
+        throughput: Throughput.bytes(1024),
+      );
+
+      const curEntry = BenchmarkEntry(
+        name: 'io_task',
+        target: 'jit',
+        mode: 'sync',
+        samples: 3,
+        metrics: BenchmarkMetrics(
+          meanNs: 500.0,
+          medianNs: 500.0,
+          minNs: 480.0,
+          maxNs: 520.0,
+          stddevNs: 5.0,
+          cv: 0.01,
+          p95Ns: 510.0,
+          p99Ns: 515.0,
+          opsPerSec: 2000000.0,
+          isStable: true,
+        ),
+        rawTrialsNs: [480.0, 500.0, 520.0],
+        throughput: Throughput.bytes(1024),
+      );
+
+      final baseSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [baseEntry],
+      );
+
+      final curSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [curEntry],
+      );
+
+      final delta = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: curSuite,
+      );
+
+      check(delta).contains('| Throughput |');
+      check(delta).contains('2.00x');
+    });
+
+    test('renderGroupComparisonTable falls back to first variant when none '
+        'marked isBaseline', () {
+      final v1 = _createGroupEntryWithSamples(
+        name: 'v1_first',
+        target: 'jit',
+        meanNs: 100.0,
+        samples: [98.0, 100.0, 102.0],
+        group: 'NoMarkedBaseline',
+        isBaseline: false,
+      );
+
+      final v2 = _createGroupEntryWithSamples(
+        name: 'v2_second',
+        target: 'jit',
+        meanNs: 50.0,
+        samples: [49.0, 50.0, 51.0],
+        group: 'NoMarkedBaseline',
+        isBaseline: false,
+      );
+
+      final table = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'NoMarkedBaseline',
+        target: 'jit',
+        entries: [v1, v2],
+      );
+
+      check(table).contains('`v1_first` (Baseline)');
+      check(table).contains('`v2_second`');
+      check(table).contains('**2.00x faster**');
+    });
   });
 }
 

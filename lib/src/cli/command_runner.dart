@@ -154,9 +154,13 @@ final class RunCommand({
 
   @override
   Future<int> run() async {
-    final targets = TargetRuntime.parseTargets(
-      argResults!.multiOption('target'),
-    );
+    final List<TargetRuntime> targets;
+    try {
+      targets = TargetRuntime.parseTargets(argResults!.multiOption('target'));
+    } on FormatException catch (e) {
+      stderr.writeln(e.message);
+      return ExitCode.usage.code;
+    }
     final targetPath = _resolveTargetPath(argResults!.rest);
     final files = BenchmarkDiscovery.discover(targetPath);
 
@@ -385,9 +389,13 @@ final class ValidateCommand({
 
   @override
   Future<int> run() async {
-    final targets = TargetRuntime.parseTargets(
-      argResults!.multiOption('target'),
-    );
+    final List<TargetRuntime> targets;
+    try {
+      targets = TargetRuntime.parseTargets(argResults!.multiOption('target'));
+    } on FormatException catch (e) {
+      stderr.writeln(e.message);
+      return ExitCode.usage.code;
+    }
     final targetPath = argResults!.rest.isNotEmpty
         ? argResults!.rest.first
         : (Directory('benchmark').existsSync() ? 'benchmark' : '.');
