@@ -52,7 +52,9 @@ abstract final class BenchmarkCalibrator {
         _validateOperationalBounds(perOpUs, config);
 
         final targetUs = config.targetBatchDuration.inMicroseconds;
-        final targetIters = math.max(1, (targetUs / perOpUs).round());
+        final targetIters = perOpUs > 0.0
+            ? math.max(1, (targetUs / perOpUs).round())
+            : iterations;
         return CalibratedBatch(
           iterations: targetIters,
           estimatedOpDurationMicroseconds: perOpUs,
@@ -86,7 +88,9 @@ abstract final class BenchmarkCalibrator {
         _validateOperationalBounds(perOpUs, config);
 
         final targetUs = config.targetBatchDuration.inMicroseconds;
-        final targetIters = math.max(1, (targetUs / perOpUs).round());
+        final targetIters = perOpUs > 0.0
+            ? math.max(1, (targetUs / perOpUs).round())
+            : iterations;
         return CalibratedBatch(
           iterations: targetIters,
           estimatedOpDurationMicroseconds: perOpUs,

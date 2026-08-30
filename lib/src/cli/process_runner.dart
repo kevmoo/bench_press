@@ -225,7 +225,7 @@ final class BenchmarkProcessRunner {
       final pkgConfig = sdk.packageConfigPath;
       final packageConfigUri = pkgConfig != null ? Uri.file(pkgConfig) : null;
 
-      await Isolate.spawnUri(
+      final isolate = await Isolate.spawnUri(
         uri,
         args,
         null,
@@ -241,7 +241,11 @@ final class BenchmarkProcessRunner {
         }
       });
 
-      await Future.any([exitPort.first, errorCompleter.future]);
+      try {
+        await Future.any([exitPort.first, errorCompleter.future]);
+      } finally {
+        isolate.kill(priority: Isolate.immediate);
+      }
       stopwatch.stop();
 
       BenchmarkSuiteResult? suite;

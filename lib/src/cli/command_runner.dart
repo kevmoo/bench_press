@@ -237,10 +237,11 @@ final class RunCommand extends Command<int> {
           compilerFlags: compilerFlags,
           vmFlags: vmFlags,
         );
-        if (result == null) return null;
-        accumulated = accumulated == null
-            ? result
-            : accumulated.deepMerge(result);
+        if (result != null) {
+          accumulated = accumulated == null
+              ? result
+              : accumulated.deepMerge(result);
+        }
       }
     }
     return accumulated;

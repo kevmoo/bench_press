@@ -193,19 +193,21 @@ abstract final class BenchmarkRunner {
         config,
       );
 
+      final probe = variant.action();
+      final isAsync = probe is Future;
+      if (isAsync) {
+        await probe;
+      }
+
       final warmupDetector = KbssdWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
-        final batchStopwatch = Stopwatch()..start();
-        for (var i = 0; i < calibrated.iterations; i++) {
-          await variant.executeAsync();
-        }
-        batchStopwatch.stop();
-        Blackhole.drain();
-
-        final elapsedUs = batchStopwatch.elapsedMicroseconds;
-        final perOpNs = (elapsedUs * 1000.0) / calibrated.iterations;
+        final perOpNs = await _measureVariantBatch(
+          variant,
+          calibrated.iterations,
+          isAsync: isAsync,
+        );
         warmupDetector.addSample(perOpNs);
 
         final elapsedSec = warmupStopwatch.elapsedMicroseconds / 1000000.0;
@@ -221,15 +223,11 @@ abstract final class BenchmarkRunner {
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
-        final batchStopwatch = Stopwatch()..start();
-        for (var j = 0; j < calibrated.iterations; j++) {
-          await variant.executeAsync();
-        }
-        batchStopwatch.stop();
-        Blackhole.drain();
-
-        final elapsedUs = batchStopwatch.elapsedMicroseconds;
-        final perOpNs = (elapsedUs * 1000.0) / calibrated.iterations;
+        final perOpNs = await _measureVariantBatch(
+          variant,
+          calibrated.iterations,
+          isAsync: isAsync,
+        );
         trials.add(perOpNs);
       }
 
@@ -249,5 +247,24 @@ abstract final class BenchmarkRunner {
     } finally {
       variant.teardown?.call();
     }
+  }
+
+  static Future<double> _measureVariantBatch(
+    BenchmarkVariant variant,
+    int iterations, {
+    required bool isAsync,
+  }) async {
+    if (!isAsync) {
+      final measurement = BatchRunner.runVariantSync(variant, iterations);
+      return measurement.perOpNanoseconds;
+    }
+    final batchStopwatch = Stopwatch()..start();
+    for (var i = 0; i < iterations; i++) {
+      await variant.executeAsync();
+    }
+    batchStopwatch.stop();
+    Blackhole.drain();
+    final elapsedUs = batchStopwatch.elapsedMicroseconds;
+    return (elapsedUs * 1000.0) / iterations;
   }
 }

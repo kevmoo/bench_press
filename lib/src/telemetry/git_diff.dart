@@ -15,9 +15,10 @@ abstract final class GitBaselineExtractor {
     String? workingDirectory,
   }) {
     try {
+      final posixPath = filePath.replaceAll('\\', '/');
       final result = Process.runSync('git', [
         'show',
-        '$gitRef:$filePath',
+        '$gitRef:$posixPath',
       ], workingDirectory: workingDirectory);
       if (result.exitCode == 0) {
         final stdout = result.stdout;
@@ -38,9 +39,10 @@ abstract final class GitBaselineExtractor {
     String? workingDirectory,
   }) async {
     try {
+      final posixPath = filePath.replaceAll('\\', '/');
       final result = await Process.run('git', [
         'show',
-        '$gitRef:$filePath',
+        '$gitRef:$posixPath',
       ], workingDirectory: workingDirectory);
       if (result.exitCode == 0) {
         final stdout = result.stdout;
