@@ -380,7 +380,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Dart SDK
         uses: dart-lang/setup-dart@v1
@@ -388,7 +388,7 @@ jobs:
           sdk: dev
 
       - name: Setup Node.js (WasmGC runner)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
