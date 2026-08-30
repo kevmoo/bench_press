@@ -19,7 +19,7 @@ enum TargetRuntime {
   /// The canonical CLI name for this runtime target.
   final String name;
 
-  const TargetRuntime(this.name);
+  TargetRuntime(this.name);
 
   /// Attempts to parse a runtime target from [name].
   static TargetRuntime? tryParse(String name) {
