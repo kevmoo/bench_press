@@ -93,23 +93,18 @@ Future<void> mainBenchmarkSuite(
 
   final results = <BenchmarkResult>[];
   for (final item in benchmarks) {
-    if (item is Benchmark) {
-      final bench = _applyConfigToBenchmark(item, config);
-      final result = BenchmarkRunner.run(bench);
-      results.add(result);
-    } else if (item is AsyncBenchmark) {
-      final bench = _applyConfigToAsyncBenchmark(item, config);
-      final result = await BenchmarkRunner.runAsync(bench);
-      results.add(result);
-    } else if (item is BenchmarkVariant) {
-      final result = await BenchmarkRunner.runVariant(item, config: config);
-      results.add(result);
-    } else {
-      throw ArgumentError(
+    final result = switch (item) {
+      Benchmark b => BenchmarkRunner.run(_applyConfigToBenchmark(b, config)),
+      AsyncBenchmark b => await BenchmarkRunner.runAsync(
+        _applyConfigToAsyncBenchmark(b, config),
+      ),
+      BenchmarkVariant b => await BenchmarkRunner.runVariant(b, config: config),
+      _ => throw ArgumentError(
         'Unsupported benchmark type: ${item.runtimeType}. '
         'Expected Benchmark, AsyncBenchmark, or BenchmarkVariant.',
-      );
-    }
+      ),
+    };
+    results.add(result);
   }
 
   final suiteResult = BenchmarkSuiteResult.fromResults(

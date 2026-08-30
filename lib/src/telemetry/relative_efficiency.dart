@@ -3,20 +3,20 @@ import 'schema.dart';
 /// Utilities for assigning status badges to relative efficiency scores.
 abstract final class EfficiencyBadge {
   /// Returns the emoji badge prefix associated with [score].
-  static String iconForScore(int score) {
-    if (score >= 100) return '🥇';
-    if (score >= 90) return '🟢';
-    if (score >= 70) return '🟡';
-    return '🔴';
-  }
+  static String iconForScore(int score) => switch (score) {
+    >= 100 => '🥇',
+    >= 90 => '🟢',
+    >= 70 => '🟡',
+    _ => '🔴',
+  };
 
   /// Formats [score] with its full descriptive badge.
-  static String format(int score) {
-    if (score >= 100) return '🥇 Peak 100';
-    if (score >= 90) return '🟢 $score%';
-    if (score >= 70) return '🟡 $score%';
-    return '🔴 $score%';
-  }
+  static String format(int score) => switch (score) {
+    >= 100 => '🥇 Peak 100',
+    >= 90 => '🟢 $score%',
+    >= 70 => '🟡 $score%',
+    _ => '🔴 $score%',
+  };
 }
 
 /// Represents the `[Worst / Avg / Best]` relative efficiency triplet for a

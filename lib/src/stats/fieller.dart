@@ -187,38 +187,25 @@ double studentTQuantile(double p, double df) {
   if ((p - 0.975).abs() < 1e-4) {
     final intDf = df.round();
     if ((df - intDf).abs() < 0.05) {
-      switch (intDf) {
-        case 1:
-          return 12.7062;
-        case 2:
-          return 4.3027;
-        case 3:
-          return 3.1824;
-        case 4:
-          return 2.7764;
-        case 5:
-          return 2.5706;
-        case 6:
-          return 2.4469;
-        case 7:
-          return 2.3646;
-        case 8:
-          return 2.3060;
-        case 9:
-          return 2.2622;
-        case 10:
-          return 2.2281;
-        case 15:
-          return 2.1314;
-        case 20:
-          return 2.0860;
-        case 30:
-          return 2.0423;
-        case 60:
-          return 2.0003;
-        case 120:
-          return 1.9799;
-      }
+      final exactT = switch (intDf) {
+        1 => 12.7062,
+        2 => 4.3027,
+        3 => 3.1824,
+        4 => 2.7764,
+        5 => 2.5706,
+        6 => 2.4469,
+        7 => 2.3646,
+        8 => 2.3060,
+        9 => 2.2622,
+        10 => 2.2281,
+        15 => 2.1314,
+        20 => 2.0860,
+        30 => 2.0423,
+        60 => 2.0003,
+        120 => 1.9799,
+        _ => null,
+      };
+      if (exactT != null) return exactT;
     }
   }
 

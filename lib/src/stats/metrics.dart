@@ -140,19 +140,33 @@ final class BenchmarkMetrics {
   };
 
   /// Constructs a [BenchmarkMetrics] instance from a JSON-compatible map.
-  factory BenchmarkMetrics.fromJson(Map<String, Object?> json) =>
-      BenchmarkMetrics(
-        meanNs: (json['mean_ns'] as num).toDouble(),
-        medianNs: (json['median_ns'] as num).toDouble(),
-        minNs: (json['min_ns'] as num).toDouble(),
-        maxNs: (json['max_ns'] as num).toDouble(),
-        stddevNs: (json['stddev_ns'] as num).toDouble(),
-        cv: (json['cv'] as num).toDouble(),
-        p95Ns: (json['p95_ns'] as num).toDouble(),
-        p99Ns: (json['p99_ns'] as num).toDouble(),
-        opsPerSec: (json['ops_per_sec'] as num).toDouble(),
+  factory BenchmarkMetrics.fromJson(Map<String, Object?> json) {
+    if (json case {
+      'mean_ns': final num mean,
+      'median_ns': final num median,
+      'min_ns': final num min,
+      'max_ns': final num max,
+      'stddev_ns': final num stddev,
+      'cv': final num cv,
+      'p95_ns': final num p95,
+      'p99_ns': final num p99,
+      'ops_per_sec': final num opsPerSec,
+    }) {
+      return BenchmarkMetrics(
+        meanNs: mean.toDouble(),
+        medianNs: median.toDouble(),
+        minNs: min.toDouble(),
+        maxNs: max.toDouble(),
+        stddevNs: stddev.toDouble(),
+        cv: cv.toDouble(),
+        p95Ns: p95.toDouble(),
+        p99Ns: p99.toDouble(),
+        opsPerSec: opsPerSec.toDouble(),
         isStable: (json['is_stable'] as bool?) ?? true,
       );
+    }
+    throw const FormatException('Invalid or incomplete BenchmarkMetrics JSON');
+  }
 
   @override
   String toString() =>

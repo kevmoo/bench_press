@@ -306,27 +306,18 @@ abstract final class MarkdownReporter {
     );
   }
 
-  static (String, int) _classifyMovement(double speedup) {
-    if (speedup >= 1.05) {
-      return ('🚀 Faster', 1);
-    } else if (speedup <= 0.95) {
-      return ('⚠️ Regression', -1);
-    } else {
-      return ('➖ Neutral', 0);
-    }
-  }
+  static (String, int) _classifyMovement(double speedup) => switch (speedup) {
+    >= 1.05 => ('🚀 Faster', 1),
+    <= 0.95 => ('⚠️ Regression', -1),
+    _ => ('➖ Neutral', 0),
+  };
 
-  static String _formatLatency(double ns) {
-    if (ns < 1000.0) {
-      return '${ns.toStringAsFixed(1)} ns';
-    } else if (ns < 1000000.0) {
-      return '${(ns / 1000.0).toStringAsFixed(2)} µs';
-    } else if (ns < 1000000000.0) {
-      return '${(ns / 1000000.0).toStringAsFixed(2)} ms';
-    } else {
-      return '${(ns / 1000000000.0).toStringAsFixed(2)} s';
-    }
-  }
+  static String _formatLatency(double ns) => switch (ns) {
+    < 1000.0 => '${ns.toStringAsFixed(1)} ns',
+    < 1000000.0 => '${(ns / 1000.0).toStringAsFixed(2)} µs',
+    < 1000000000.0 => '${(ns / 1000000.0).toStringAsFixed(2)} ms',
+    _ => '${(ns / 1000000000.0).toStringAsFixed(2)} s',
+  };
 
   static String _formatDelta(double diffNs) {
     if (diffNs.abs() < 1e-9) return '0.0 ns';
