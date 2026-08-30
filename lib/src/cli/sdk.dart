@@ -48,11 +48,9 @@ enum TargetRuntime(
       } else {
         final target = tryParse(clean);
         if (target == null) {
-          throw ArgumentError.value(
-            part,
-            'target',
-            'Unknown target runtime. Expected one of: '
-                '${TargetRuntime.values.map((t) => t.name).join(", ")}, all',
+          throw FormatException(
+            'Unknown target runtime "$part". Expected one of: '
+            '${TargetRuntime.values.map((t) => t.name).join(", ")}, all',
           );
         }
         results.add(target);

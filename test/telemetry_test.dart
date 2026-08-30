@@ -226,6 +226,82 @@ void main() {
         tempDir.deleteSync(recursive: true);
       }
     });
+    test(
+      'toString formatting on telemetry models produces clean descriptions',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+        check(env.toString()).contains('EnvironmentInfo(dart: 3.14.0');
+
+        const metrics = BenchmarkMetrics(
+          meanNs: 100.0,
+          medianNs: 100.0,
+          minNs: 90.0,
+          maxNs: 110.0,
+          stddevNs: 5.0,
+          cv: 0.05,
+          p95Ns: 108.0,
+          p99Ns: 109.0,
+          opsPerSec: 10000000.0,
+          isStable: true,
+        );
+        check(metrics.toString()).contains('BenchmarkMetrics(');
+        check(metrics.toString()).contains('mean: 100.0 ns');
+
+        final entry = _createEntry('sample_task', 'jit', 100.0);
+        check(entry.toString()).contains('BenchmarkEntry(sample_task:jit');
+
+        final suite = BenchmarkSuiteResult(
+          version: currentTelemetrySchemaVersion,
+          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+          environment: env,
+          benchmarks: [entry],
+        );
+        check(suite.toString()).contains('BenchmarkSuiteResult(v1');
+      },
+    );
+
+    test(
+      'BenchmarkEntry preserves group, isBaseline, and throughput in JSON',
+      () {
+        const metrics = BenchmarkMetrics(
+          meanNs: 100.0,
+          medianNs: 100.0,
+          minNs: 90.0,
+          maxNs: 110.0,
+          stddevNs: 5.0,
+          cv: 0.05,
+          p95Ns: 108.0,
+          p99Ns: 109.0,
+          opsPerSec: 10000000.0,
+          isStable: true,
+        );
+
+        const entry = BenchmarkEntry(
+          name: 'grouped_task',
+          target: 'aot',
+          mode: 'sync',
+          samples: 10,
+          metrics: metrics,
+          group: 'CryptoGroup',
+          isBaseline: true,
+          throughput: Throughput.bytes(1024),
+        );
+
+        final json = entry.toJson();
+        check(json['group']).equals('CryptoGroup');
+        check(json['is_baseline']).equals(true);
+        check(json['throughput']).isNotNull();
+
+        final deserialized = BenchmarkEntry.fromJson(json);
+        check(deserialized.group).equals('CryptoGroup');
+        check(deserialized.isBaseline).isTrue();
+        check(deserialized.throughput).equals(const Throughput.bytes(1024));
+      },
+    );
   });
 }
 
