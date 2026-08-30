@@ -101,32 +101,24 @@ where $g = \frac{t_{\text{crit}}^2 s_B^2}{n_B \bar{x}_B^2}$. If $g \ge 1$ (indic
 
 ## 5. Multi-Runtime Orchestration Architecture
 
-```
-                 ┌───────────────────────────┐
-                 │    CLI Command Runner     │
-                 │   (bench_press run/diff)  │
-                 └─────────────┬─────────────┘
-                               │
-               ┌───────────────┴───────────────┐
-               ▼                               ▼
-     ┌───────────────────┐           ┌───────────────────┐
-     │  Target Compiler  │           │ Discovery Manager │
-     └─────────┬─────────┘           └─────────┬─────────┘
-               │                               │
- ┌─────────────┼─────────────┬─────────────┐   │
- ▼             ▼             ▼             ▼   ▼
-JIT           AOT          WasmGC          JS
-(dart run) (dart compile) (dart compile) (dart2js)
- │             │             │             │
- └─────────────┼─────────────┼─────────────┘
-               ▼
-     ┌───────────────────┐
-     │  Process Runner   │ (Subprocess Isolation & IPC)
-     └─────────┬─────────┘
-               ▼
-     ┌───────────────────┐
-     │ Telemetry Schema  │ (Versioned JSON + Markdown)
-     └───────────────────┘
+```mermaid
+flowchart TD
+    CLI["CLI Command Runner<br><code>bench_press run / diff</code>"] --> Compiler["Target Compiler"]
+    CLI --> Discovery["Discovery Manager"]
+
+    Discovery -.->|"file paths"| Compiler
+
+    Compiler --> JIT["JIT<br><code>dart run</code>"]
+    Compiler --> AOT["AOT<br><code>dart compile exe</code>"]
+    Compiler --> Wasm["WasmGC<br><code>dart compile wasm</code>"]
+    Compiler --> JS["JS<br><code>dart compile js</code>"]
+
+    JIT --> Runner["Process Runner<br><i>Subprocess Isolation & IPC</i>"]
+    AOT --> Runner
+    Wasm --> Runner
+    JS --> Runner
+
+    Runner --> Telemetry["Telemetry Schema<br><i>Versioned JSON & Markdown Reports</i>"]
 ```
 
 1. **Discovery**: Scans designated benchmark directories or files matching `*benchmark*.dart`.
