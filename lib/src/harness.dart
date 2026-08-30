@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'config.dart';
 import 'runner.dart';
+import 'throughput.dart';
 
 /// Base class for synchronous benchmarks.
 abstract class Benchmark(
@@ -10,6 +11,10 @@ abstract class Benchmark(
   final String? group,
   final bool isBaseline = false,
 }) {
+  /// Declared throughput processed per [run] invocation (bytes or element
+  /// count).
+  Throughput? get throughput => null;
+
   /// Executed once before any warmup or measurement iterations begin.
   void setup() {}
 
@@ -29,6 +34,7 @@ abstract class Benchmark(
     required Map<String, dynamic Function()> candidates,
     void Function()? setup,
     void Function()? teardown,
+    Throughput? throughput,
     BenchmarkConfig config = const BenchmarkConfig(),
   }) => BenchmarkGroup.compare(
     name: name,
@@ -36,6 +42,7 @@ abstract class Benchmark(
     candidates: candidates,
     setup: setup,
     teardown: teardown,
+    throughput: throughput,
     config: config,
   );
 }
@@ -47,6 +54,10 @@ abstract class AsyncBenchmark(
   final String? group,
   final bool isBaseline = false,
 }) {
+  /// Declared throughput processed per [run] invocation (bytes or element
+  /// count).
+  Throughput? get throughput => null;
+
   /// Executed once before any warmup or measurement iterations begin.
   Future<void> setup() async {}
 
@@ -68,6 +79,7 @@ final class BenchmarkVariant(
   final void Function()? teardown,
   final String? group,
   final bool isBaseline = false,
+  final Throughput? throughput,
 }) {
   /// Executes the variant action, awaiting asynchronous [Future] returns safely
   /// without dynamic casting errors.
@@ -106,6 +118,7 @@ final class BenchmarkGroup(
         teardown: v.teardown,
         group: v.group ?? name,
         isBaseline: v.isBaseline,
+        throughput: v.throughput,
       ),
     ),
   );
@@ -117,6 +130,7 @@ final class BenchmarkGroup(
     required Map<String, dynamic Function()> candidates,
     void Function()? setup,
     void Function()? teardown,
+    Throughput? throughput,
     BenchmarkConfig config = const BenchmarkConfig(),
   }) {
     final list = <BenchmarkVariant>[
@@ -127,6 +141,7 @@ final class BenchmarkGroup(
         teardown: teardown,
         group: name,
         isBaseline: true,
+        throughput: throughput,
       ),
       for (final entry in candidates.entries)
         BenchmarkVariant(
@@ -136,6 +151,7 @@ final class BenchmarkGroup(
           teardown: teardown,
           group: name,
           isBaseline: false,
+          throughput: throughput,
         ),
     ];
     return BenchmarkGroup(name, list, config: config);

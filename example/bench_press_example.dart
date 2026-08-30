@@ -56,6 +56,7 @@ final BenchmarkVariant variantBenchmark = BenchmarkVariant(
     }
     Blackhole.consume(sb.toString());
   },
+  throughput: const Throughput.elements(250, unit: 'tokens'),
 );
 
 /// 4. Model 1: Intra-Run Apples-to-Apples Comparison Group
@@ -65,24 +66,29 @@ final BenchmarkVariant variantBenchmark = BenchmarkVariant(
 final BenchmarkGroup stringBuildingGroup = BenchmarkGroup(
   'String Construction',
   [
-    BenchmarkVariant('plus_concat', () {
-      var s = '';
-      for (var i = 0; i < 50; i++) {
-        s += 'token';
-      }
-      Blackhole.consume(s);
-    }, isBaseline: true), // Reference baseline
+    BenchmarkVariant(
+      'plus_concat',
+      () {
+        var s = '';
+        for (var i = 0; i < 50; i++) {
+          s += 'token';
+        }
+        Blackhole.consume(s);
+      },
+      isBaseline: true,
+      throughput: const Throughput.elements(50, unit: 'tokens'),
+    ),
     BenchmarkVariant('string_buffer', () {
       final sb = StringBuffer();
       for (var i = 0; i < 50; i++) {
         sb.write('token');
       }
       Blackhole.consume(sb.toString());
-    }),
+    }, throughput: const Throughput.elements(50, unit: 'tokens')),
     BenchmarkVariant('join', () {
       final list = List.filled(50, 'token');
       Blackhole.consume(list.join());
-    }),
+    }, throughput: const Throughput.elements(50, unit: 'tokens')),
   ],
 );
 

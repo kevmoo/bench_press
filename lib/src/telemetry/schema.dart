@@ -3,6 +3,9 @@ import 'dart:io';
 
 import '../runner.dart';
 import '../stats/metrics.dart';
+import '../throughput.dart';
+
+export '../throughput.dart' show ByteThroughput, ElementThroughput, Throughput;
 
 /// The current telemetry schema version.
 const int currentTelemetrySchemaVersion = 1;
@@ -119,6 +122,9 @@ final class const BenchmarkEntry({
 
   /// Whether this entry was designated as the baseline for its group.
   final bool isBaseline = false,
+
+  /// Declared throughput processed per invocation (bytes or element count).
+  final Throughput? throughput,
 }) {
   /// The unique composite key identifying this benchmark and target pair.
   String get key => '$name:$target';
@@ -146,6 +152,7 @@ final class const BenchmarkEntry({
       calibratedBatchIterations: result.calibratedBatch.iterations,
       group: result.group,
       isBaseline: result.isBaseline,
+      throughput: result.throughput,
     );
   }
 
@@ -158,6 +165,7 @@ final class const BenchmarkEntry({
     'metrics': metrics.toJson(),
     if (group != null) 'group': group,
     if (isBaseline) 'is_baseline': isBaseline,
+    if (throughput != null) 'throughput': throughput!.toJson(),
     if (rawTrialsNs.isNotEmpty) 'raw_trials_ns': rawTrialsNs,
     if (warmup != null) 'warmup': warmup,
     if (calibratedBatchIterations != null)
@@ -200,6 +208,11 @@ final class const BenchmarkEntry({
     final group = json['group'] as String?;
     final isBaseline = (json['is_baseline'] as bool?) ?? false;
 
+    final rawThroughput = json['throughput'];
+    final throughput = rawThroughput is Map<String, Object?>
+        ? Throughput.fromJson(rawThroughput)
+        : null;
+
     return BenchmarkEntry(
       name: rawName,
       target: rawTarget,
@@ -211,6 +224,7 @@ final class const BenchmarkEntry({
       calibratedBatchIterations: calibratedBatch,
       group: group,
       isBaseline: isBaseline,
+      throughput: throughput,
     );
   }
 

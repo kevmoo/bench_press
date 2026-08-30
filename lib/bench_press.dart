@@ -45,3 +45,4 @@ export 'src/telemetry/schema.dart'
         EnvironmentInfo,
         currentTelemetrySchemaVersion,
         defaultTelemetryFileName;
+export 'src/throughput.dart' show ByteThroughput, ElementThroughput, Throughput;

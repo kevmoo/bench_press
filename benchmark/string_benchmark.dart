@@ -11,31 +11,36 @@ final List<String> _words = List<String>.generate(
 final BenchmarkGroup stringConstructionGroup = BenchmarkGroup(
   'String Construction',
   [
-    BenchmarkVariant('plus_concat', () {
-      var result = '';
-      for (var i = 0; i < _itemCount; i++) {
-        result += _words[i];
-      }
-      Blackhole.consume(result);
-    }, isBaseline: true),
+    BenchmarkVariant(
+      'plus_concat',
+      () {
+        var result = '';
+        for (var i = 0; i < _itemCount; i++) {
+          result += _words[i];
+        }
+        Blackhole.consume(result);
+      },
+      isBaseline: true,
+      throughput: const Throughput.elements(_itemCount, unit: 'tokens'),
+    ),
     BenchmarkVariant('string_buffer', () {
       final sb = StringBuffer();
       for (var i = 0; i < _itemCount; i++) {
         sb.write(_words[i]);
       }
       Blackhole.consume(sb.toString());
-    }),
+    }, throughput: const Throughput.elements(_itemCount, unit: 'tokens')),
     BenchmarkVariant('interpolation', () {
       var result = '';
       for (var i = 0; i < _itemCount; i++) {
         result = '$result${_words[i]}';
       }
       Blackhole.consume(result);
-    }),
+    }, throughput: const Throughput.elements(_itemCount, unit: 'tokens')),
     BenchmarkVariant('join', () {
       final result = _words.join();
       Blackhole.consume(result);
-    }),
+    }, throughput: const Throughput.elements(_itemCount, unit: 'tokens')),
   ],
 );
 

@@ -79,13 +79,26 @@ abstract final class MarkdownReporter() {
     final baselineEntry = _resolveBaseline(entries);
     final baselineName = baselineEntry.name;
     final maxSpeedup = _findMaxSpeedup(entries, baselineEntry);
+    final hasThroughput = entries.any((e) => e.throughput != null);
 
     buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
-    buffer.writeln(
-      '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`$baselineName`) | '
-      'Speedup Ratio | 95% Confidence Interval | Status |',
-    );
-    buffer.writeln('| :--- | :---: | :---: | :---: | :---: | :---: | :---: |');
+    if (hasThroughput) {
+      buffer.writeln(
+        '| Implementation | Ops/sec | Throughput | Mean Latency | vs. Baseline (`$baselineName`) | '
+        'Speedup Ratio | 95% Confidence Interval | Status |',
+      );
+      buffer.writeln(
+        '| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
+      );
+    } else {
+      buffer.writeln(
+        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`$baselineName`) | '
+        'Speedup Ratio | 95% Confidence Interval | Status |',
+      );
+      buffer.writeln(
+        '| :--- | :---: | :---: | :---: | :---: | :---: | :---: |',
+      );
+    }
 
     for (final entry in entries) {
       buffer.writeln(
@@ -93,6 +106,7 @@ abstract final class MarkdownReporter() {
           entry: entry,
           baselineEntry: baselineEntry,
           maxSpeedup: maxSpeedup,
+          hasThroughput: hasThroughput,
         ),
       );
     }
@@ -130,6 +144,7 @@ abstract final class MarkdownReporter() {
     required BenchmarkEntry entry,
     required BenchmarkEntry baselineEntry,
     required double maxSpeedup,
+    required bool hasThroughput,
   }) {
     final isBaseline = (entry == baselineEntry);
     final implCol = isBaseline
@@ -137,10 +152,14 @@ abstract final class MarkdownReporter() {
         : '`${entry.name}`';
     final opsCol = _formatOps(entry.metrics.opsPerSec);
     final meanCol = _formatLatency(entry.metrics.meanNs);
+    final tpCol = entry.throughput?.formatRate(entry.metrics.meanNs) ?? '-';
 
     if (isBaseline) {
-      return '| $implCol | $opsCol | $meanCol | 1.00x (ref) | 1.00x | '
-          '[1.00x – 1.00x] | Ref |';
+      return hasThroughput
+          ? '| $implCol | $opsCol | $tpCol | $meanCol | 1.00x (ref) | 1.00x | '
+                '[1.00x – 1.00x] | Ref |'
+          : '| $implCol | $opsCol | $meanCol | 1.00x (ref) | 1.00x | '
+                '[1.00x – 1.00x] | Ref |';
     }
 
     final baseMean = baselineEntry.metrics.meanNs;
@@ -158,6 +177,10 @@ abstract final class MarkdownReporter() {
     final ciCol = _formatGroupFiellerCi(baselineEntry, entry, speedup >= 1.05);
     final statusCol = _classifyGroupStatus(speedup, maxSpeedup);
 
+    if (hasThroughput) {
+      return '| $implCol | $opsCol | $tpCol | $meanCol | $vsBaselineCol | '
+          '$ratioCol | $ciCol | $statusCol |';
+    }
     return '| $implCol | $opsCol | $meanCol | $vsBaselineCol | $ratioCol | '
         '$ciCol | $statusCol |';
   }
@@ -222,18 +245,32 @@ abstract final class MarkdownReporter() {
       buffer.writeln();
     }
 
+    final hasThroughput = suite.benchmarks.any((b) => b.throughput != null);
+
     buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
-    buffer.writeln(
-      '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
-      'StdDev | Stability |',
-    );
-    buffer.writeln(
-      '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |',
-    );
+    if (hasThroughput) {
+      buffer.writeln(
+        '| Benchmark | Target | Ops/sec | Throughput | Mean Latency | '
+        'Median | Min | StdDev | Stability |',
+      );
+      buffer.writeln(
+        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
+        ':---: |',
+      );
+    } else {
+      buffer.writeln(
+        '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
+        'StdDev | Stability |',
+      );
+      buffer.writeln(
+        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |',
+      );
+    }
 
     for (final b in suite.benchmarks) {
       final m = b.metrics;
       final opsStr = _formatOps(m.opsPerSec);
+      final tpStr = b.throughput?.formatRate(m.meanNs) ?? '-';
       final meanStr = _formatLatency(m.meanNs);
       final medianStr = _formatLatency(m.medianNs);
       final minStr = _formatLatency(m.minNs);
@@ -241,10 +278,17 @@ abstract final class MarkdownReporter() {
       final stdDevStr = '±${_formatLatency(m.stddevNs)} ($cvPct%)';
       final statusStr = m.isStable ? '✅ Stable' : '⚠️ Unstable';
 
-      buffer.writeln(
-        '| ${b.name} | `${b.target}` | $opsStr | $meanStr | $medianStr | '
-        '$minStr | $stdDevStr | $statusStr |',
-      );
+      if (hasThroughput) {
+        buffer.writeln(
+          '| ${b.name} | `${b.target}` | $opsStr | $tpStr | $meanStr | '
+          '$medianStr | $minStr | $stdDevStr | $statusStr |',
+        );
+      } else {
+        buffer.writeln(
+          '| ${b.name} | `${b.target}` | $opsStr | $meanStr | $medianStr | '
+          '$minStr | $stdDevStr | $statusStr |',
+        );
+      }
     }
 
     buffer.writeln('<!-- mdformat on -->');
