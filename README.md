@@ -408,6 +408,19 @@ jobs:
         run: dart run bin/bench_press.dart validate benchmark/
 ```
 
+## References & Prior Art
+
+`bench_press` builds upon established statistical and virtual machine benchmarking literature:
+
+- **Warmup & Steady-State Convergence**:
+  - Georges et al., [Statistically Rigorous Java Performance Evaluation](https://doi.org/10.1145/1297027.1297033) (OOPSLA 2007)
+  - Kalibera & Jones, [Rigorous Benchmarking in Reasonable Time](https://doi.org/10.1145/2464157.2464160) (ISMM 2013)
+  - Barrett et al., [Virtual Machine Warmup Blows Hot and Cold](https://doi.org/10.1145/3133882) (OOPSLA 2017)
+- **Kernel Two-Sample Testing (MMD)**:
+  - Gretton et al., [A Kernel Two-Sample Test](https://jmlr.org/papers/v13/gretton12a.html) (JMLR 2012)
+- **Ratio Confidence Intervals**:
+  - Fieller, [Some Problems in Interval Estimation](https://doi.org/10.1111/j.2517-6161.1954.tb00159.x) (JRSS 1954)
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
