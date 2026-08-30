@@ -25,6 +25,7 @@ export 'src/cli/suite_runner.dart'
         mainBenchmark,
         mainBenchmarkSuite,
         wrapJsonInMarkers;
+export 'src/cli/terminal.dart' show useAnsi;
 export 'src/config.dart' show BenchmarkConfig;
 export 'src/harness.dart' show AsyncBenchmark, Benchmark, BenchmarkVariant;
 export 'src/runner.dart' show BenchmarkResult, BenchmarkRunner;

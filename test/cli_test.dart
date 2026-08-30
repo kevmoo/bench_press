@@ -150,5 +150,59 @@ void main(List<String> args) => mainBenchmark(NoopBench(), args);
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('--version prints version on stdout and exits with code 0', () async {
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        '--version',
+      ]);
+
+      check(result.exitCode).equals(0);
+      check(result.stdout.toString()).contains('bench_press version:');
+      check(result.stderr.toString().trim()).isEmpty();
+    });
+
+    test('--help prints usage on stdout and exits with code 0', () async {
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        '--help',
+      ]);
+
+      check(result.exitCode).equals(0);
+      check(result.stdout.toString()).contains('A modern, statistically sound');
+      check(result.stdout.toString()).contains('Available commands:');
+    });
+
+    test(
+      'invalid option prints error and usage to stderr with exit code 64',
+      () async {
+        final result = await Process.run('dart', [
+          'run',
+          'bin/bench_press.dart',
+          '--non-existent-option-xyz',
+        ]);
+
+        check(result.exitCode).equals(64);
+        check(result.stderr.toString())
+            .contains('Could not find an option named');
+        check(result.stderr.toString())
+            .contains('Usage: bench_press <command>');
+      },
+    );
+
+    test('missing input file in report command exits with code 66', () async {
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        'report',
+        '-f',
+        'non_existent_telemetry_file_12345.json',
+      ]);
+
+      check(result.exitCode).equals(66);
+      check(result.stderr.toString()).contains('does not exist');
+    });
   });
 }

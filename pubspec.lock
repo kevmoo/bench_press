@@ -138,7 +138,7 @@ packages:
     source: hosted
     version: "4.1.2"
   io:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: io
       sha256: "2635216ca6a737e60de577ffa1a48a0bec76ca8a62917cfc1bb88c14c570646f"
@@ -282,7 +282,7 @@ packages:
     source: hosted
     version: "1.10.2"
   stack_trace:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: stack_trace
       sha256: "277654b3034d17ac6f9f1cb5595db011b1d5d41e8806866db28e0abaa101c490"

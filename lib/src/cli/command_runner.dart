@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
+import 'package:io/io.dart';
 import 'package:path/path.dart' as p;
 
 import '../telemetry/git_diff.dart';
@@ -62,24 +64,13 @@ final class BenchPressCommandRunner extends CommandRunner<int> {
   }
 
   @override
-  Future<int> run(Iterable<String> args) async {
-    try {
-      final results = parse(args);
-      if (results['version'] == true) {
-        stdout.writeln('bench_press version: $benchPressVersion');
-        return 0;
-      }
-      final exitCode = await runCommand(results);
-      return exitCode ?? 0;
-    } on UsageException catch (e) {
-      stderr.writeln(e.message);
-      stderr.writeln();
-      stderr.writeln(e.usage);
-      return 64;
-    } on Object catch (e) {
-      stderr.writeln('Error: $e');
-      return 1;
+  Future<int?> runCommand(ArgResults topLevelResults) async {
+    if (topLevelResults.flag('version')) {
+      stdout.writeln('bench_press version: $benchPressVersion');
+      return ExitCode.success.code;
     }
+    final code = await super.runCommand(topLevelResults);
+    return code ?? ExitCode.success.code;
   }
 }
 
@@ -164,28 +155,28 @@ final class RunCommand extends Command<int> {
   @override
   Future<int> run() async {
     final targets = TargetRuntime.parseTargets(
-      argResults!['target'] as List<String>,
+      argResults!.multiOption('target'),
     );
     final targetPath = _resolveTargetPath(argResults!.rest);
     final files = BenchmarkDiscovery.discover(targetPath);
 
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
-      return 1;
+      return ExitCode.noInput.code;
     }
 
     final accumulated = await _executeDiscoveredFiles(files, targets);
     if (accumulated == null || accumulated.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
-      return 1;
+      return ExitCode.software.code;
     }
 
-    final outputPath = argResults!['output'] as String;
-    final shouldSave = argResults!['save'] as bool;
-    final format = argResults!['format'] as String;
-    final title = argResults!['title'] as String?;
-    final diffRef = argResults!['diff'] as String?;
-    final failOnUnstable = argResults!['fail-on-unstable'] as bool;
+    final outputPath = argResults!.option('output')!;
+    final shouldSave = argResults!.flag('save');
+    final format = argResults!.option('format')!;
+    final title = argResults!.option('title');
+    final diffRef = argResults!.option('diff');
+    final failOnUnstable = argResults!.flag('fail-on-unstable');
 
     final finalSuite = shouldSave
         ? accumulated.mergeAndSave(File(outputPath))
@@ -206,7 +197,7 @@ final class RunCommand extends Command<int> {
       return 2;
     }
 
-    return 0;
+    return ExitCode.success.code;
   }
 
   Future<BenchmarkSuiteResult?> _executeDiscoveredFiles(
@@ -216,11 +207,11 @@ final class RunCommand extends Command<int> {
     final buildDir = Directory(
       p.join('.dart_tool', 'bench_press', 'generated'),
     );
-    final trials = int.tryParse(argResults!['trials'] as String? ?? '');
-    final forceRun = argResults!['force-run'] as bool;
-    final isolateMode = argResults!['isolate-mode'] as bool;
-    final compilerFlags = argResults!['compiler-flag'] as List<String>;
-    final vmFlags = argResults!['vm-flag'] as List<String>;
+    final trials = int.tryParse(argResults!.option('trials') ?? '');
+    final forceRun = argResults!.flag('force-run');
+    final isolateMode = argResults!.flag('isolate-mode');
+    final compilerFlags = argResults!.multiOption('compiler-flag');
+    final vmFlags = argResults!.multiOption('vm-flag');
 
     BenchmarkSuiteResult? accumulated;
 
@@ -378,7 +369,7 @@ final class ValidateCommand extends Command<int> {
   @override
   Future<int> run() async {
     final targets = TargetRuntime.parseTargets(
-      argResults!['target'] as List<String>,
+      argResults!.multiOption('target'),
     );
     final targetPath = argResults!.rest.isNotEmpty
         ? argResults!.rest.first
@@ -387,10 +378,10 @@ final class ValidateCommand extends Command<int> {
     final files = BenchmarkDiscovery.discover(targetPath);
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
-      return 1;
+      return ExitCode.noInput.code;
     }
 
-    final compilerFlags = argResults!['compiler-flag'] as List<String>;
+    final compilerFlags = argResults!.multiOption('compiler-flag');
     final buildDir = Directory(
       p.join('.dart_tool', 'bench_press', 'validate_wrappers'),
     );
@@ -417,7 +408,7 @@ final class ValidateCommand extends Command<int> {
       }
     }
 
-    return allPassed ? 0 : 1;
+    return allPassed ? ExitCode.success.code : ExitCode.software.code;
   }
 
   Future<bool> _validateTarget({
@@ -492,16 +483,16 @@ final class ReportCommand extends Command<int> {
   Future<int> run() async {
     final inputPath = argResults!.rest.isNotEmpty
         ? argResults!.rest.first
-        : (argResults!['from-json'] as String);
+        : (argResults!.option('from-json')!);
 
     final file = File(inputPath);
     if (!file.existsSync()) {
       stderr.writeln('Telemetry file "$inputPath" does not exist.');
-      return 1;
+      return ExitCode.noInput.code;
     }
 
-    final title = argResults!['title'] as String?;
-    final outputPath = argResults!['output'] as String?;
+    final title = argResults!.option('title');
+    final outputPath = argResults!.option('output');
 
     try {
       final report = MarkdownReporter.renderFromFile(file, title: title);
@@ -512,10 +503,10 @@ final class ReportCommand extends Command<int> {
       } else {
         stdout.writeln(report);
       }
-      return 0;
+      return ExitCode.success.code;
     } on Object catch (e) {
       stderr.writeln('Failed to render report: $e');
-      return 1;
+      return ExitCode.software.code;
     }
   }
 }
@@ -561,16 +552,16 @@ final class DiffCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final baselineArg = argResults!['baseline'] as String;
-    final currentArg = argResults!['current'] as String;
-    final targetFileArg = argResults!['target-file'] as String;
-    final title = argResults!['title'] as String?;
-    final outputPath = argResults!['output'] as String?;
+    final baselineArg = argResults!.option('baseline')!;
+    final currentArg = argResults!.option('current')!;
+    final targetFileArg = argResults!.option('target-file')!;
+    final title = argResults!.option('title');
+    final outputPath = argResults!.option('output');
 
     final currentFile = File(currentArg);
     if (!currentFile.existsSync()) {
       stderr.writeln('Current telemetry file "$currentArg" does not exist.');
-      return 1;
+      return ExitCode.noInput.code;
     }
 
     String report;
@@ -598,6 +589,6 @@ final class DiffCommand extends Command<int> {
     } else {
       stdout.writeln(report);
     }
-    return 0;
+    return ExitCode.success.code;
   }
 }

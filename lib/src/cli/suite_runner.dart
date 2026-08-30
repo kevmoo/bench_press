@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:io/io.dart';
 
 import '../config.dart';
 import '../harness.dart';
@@ -80,11 +81,14 @@ Future<void> mainBenchmarkSuite(
     parsed = parser.parse(cleanArgs);
   } on FormatException catch (e) {
     stderr.writeln('Argument error: ${e.message}');
-    exit(1);
+    stderr.writeln();
+    stderr.writeln(parser.usage);
+    exitCode = ExitCode.usage.code;
+    return;
   }
 
-  final target = parsed['target'] as String;
-  final isValidate = parsed['validate'] as bool;
+  final target = parsed.option('target') ?? 'jit';
+  final isValidate = parsed.flag('validate');
   final config = _buildConfigFromArgs(parsed, isValidate: isValidate);
 
   final results = <BenchmarkResult>[];
@@ -117,7 +121,7 @@ Future<void> mainBenchmarkSuite(
   final jsonText = const JsonEncoder.withIndent('  ')
       .convert(suiteResult.toJson());
 
-  final jsonOutputPath = parsed['json-output'] as String?;
+  final jsonOutputPath = parsed.option('json-output');
   if (jsonOutputPath != null && jsonOutputPath.isNotEmpty) {
     try {
       final file = File(jsonOutputPath);
@@ -146,11 +150,11 @@ BenchmarkConfig _buildConfigFromArgs(
     );
   }
 
-  final trials = int.tryParse(parsed['trials'] as String? ?? '');
-  final minWarmup = int.tryParse(parsed['min-warmup'] as String? ?? '');
-  final maxWarmup = int.tryParse(parsed['max-warmup'] as String? ?? '');
-  final batchMs = int.tryParse(parsed['target-batch-ms'] as String? ?? '');
-  final forceRun = parsed['force-run'] as bool;
+  final trials = int.tryParse(parsed.option('trials') ?? '');
+  final minWarmup = int.tryParse(parsed.option('min-warmup') ?? '');
+  final maxWarmup = int.tryParse(parsed.option('max-warmup') ?? '');
+  final batchMs = int.tryParse(parsed.option('target-batch-ms') ?? '');
+  final forceRun = parsed.flag('force-run');
 
   return BenchmarkConfig(
     trials: trials ?? 15,
