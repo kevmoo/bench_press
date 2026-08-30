@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'config.dart';
+import 'runner.dart';
 
 /// Base class for synchronous benchmarks.
 abstract class Benchmark(
@@ -15,6 +16,9 @@ abstract class Benchmark(
 
   /// Executed once after all measurement trials complete.
   void teardown() {}
+
+  /// Executes this benchmark through the full lifecycle [BenchmarkRunner].
+  BenchmarkResult report() => BenchmarkRunner.run(this);
 }
 
 /// Base class for asynchronous benchmarks.
@@ -30,6 +34,9 @@ abstract class AsyncBenchmark(
 
   /// Executed once after all measurement trials complete.
   Future<void> teardown() async {}
+
+  /// Executes this benchmark through the full lifecycle [BenchmarkRunner].
+  Future<BenchmarkResult> report() => BenchmarkRunner.runAsync(this);
 }
 
 /// Compositional multi-algorithm comparison variant.
@@ -52,4 +59,9 @@ final class BenchmarkVariant(
   void executeSync() {
     action();
   }
+
+  /// Executes this variant through the full lifecycle [BenchmarkRunner].
+  Future<BenchmarkResult> report({
+    BenchmarkConfig config = const BenchmarkConfig(),
+  }) => BenchmarkRunner.runVariant(this, config: config);
 }
