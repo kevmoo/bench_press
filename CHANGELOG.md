@@ -3,7 +3,7 @@
 - Initial release of `bench_press`: A modern, statistically sound, compiler-aware multi-runtime benchmarking framework for Dart and Flutter.
 - **Layer 0 (Primitives & Sinks)**:
   - `Blackhole` DCE barrier with an opaque 8-slot static array, cross-backend inlining pragmas (`@pragma('vm:prefer-inline')`, `@pragma('wasm:prefer-inline')`, `@pragma('dart2js:prefer-inline')`), and terminal `Blackhole.drain()` checksum.
-  - Calibrated monomorphic inner batch loop ($$\ge 10\text{ ms}$$ batches) with single monotonic timer read per batch and zero polymorphic dispatch.
+  - Calibrated monomorphic inner batch loop (>= 10 ms batches) with single monotonic timer read per batch and zero polymorphic dispatch.
 - **Layer 1 (Harnesses & Primitives)**:
   - `Throughput` sealed hierarchy (`Throughput.bytes` for auto `B/s`, `KB/s`, `MB/s`, `GB/s` formatting, and `Throughput.elements` for `items/s`, `records/s`, `tokens/s`).
   - `Benchmark` synchronous harness with lifecycle hooks (`setup`, `run`, `teardown`, and `.report()`).

@@ -5,8 +5,6 @@ import '../runner.dart';
 import '../stats/metrics.dart';
 import '../throughput.dart';
 
-export '../throughput.dart' show ByteThroughput, ElementThroughput, Throughput;
-
 /// The current telemetry schema version.
 const int currentTelemetrySchemaVersion = 1;
 

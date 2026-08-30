@@ -348,22 +348,41 @@ abstract final class MarkdownReporter() {
     required String currentLabel,
   }) {
     final buffer = StringBuffer();
+    final hasThroughput = matched.any(
+      (pair) => pair.$1.throughput != null || pair.$2.throughput != null,
+    );
     var fasterCount = 0;
     var slowerCount = 0;
     var neutralCount = 0;
     var speedupProduct = 1.0;
 
     buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
-    buffer.writeln(
-      '| Benchmark | Target | $baselineLabel | $currentLabel | '
-      'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
-    );
-    buffer.writeln(
-      '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
-    );
+    if (hasThroughput) {
+      buffer.writeln(
+        '| Benchmark | Target | Throughput | $baselineLabel | $currentLabel | '
+        'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
+      );
+      buffer.writeln(
+        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
+        ':---: | :---: |',
+      );
+    } else {
+      buffer.writeln(
+        '| Benchmark | Target | $baselineLabel | $currentLabel | '
+        'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
+      );
+      buffer.writeln(
+        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
+        ':---: |',
+      );
+    }
 
     for (final (base, cur) in matched) {
-      final (rowStr, speedup, trend) = _formatDeltaRow(base, cur);
+      final (rowStr, speedup, trend) = _formatDeltaRow(
+        base,
+        cur,
+        hasThroughput: hasThroughput,
+      );
       buffer.writeln(rowStr);
       speedupProduct *= speedup;
       if (trend > 0) fasterCount++;
@@ -387,8 +406,9 @@ abstract final class MarkdownReporter() {
 
   static (String, double, int) _formatDeltaRow(
     BenchmarkEntry base,
-    BenchmarkEntry cur,
-  ) {
+    BenchmarkEntry cur, {
+    bool hasThroughput = false,
+  }) {
     final baseMean = base.metrics.meanNs;
     final curMean = cur.metrics.meanNs;
     final diffNs = curMean - baseMean;
@@ -404,6 +424,15 @@ abstract final class MarkdownReporter() {
     final pctStr = _formatPercent(deltaPct);
     final speedupStr = '${speedup.toStringAsFixed(2)}x';
     final ciStr = _formatFiellerCi(base, cur);
+
+    if (hasThroughput) {
+      final tp = cur.throughput ?? base.throughput;
+      final tpStr = tp?.formatRate(curMean) ?? '-';
+      final row =
+          '| ${cur.name} | `${cur.target}` | $tpStr | $baseStr | $curStr | '
+          '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
+      return (row, speedup, trend);
+    }
 
     final row =
         '| ${cur.name} | `${cur.target}` | $baseStr | $curStr | $diffStr | '

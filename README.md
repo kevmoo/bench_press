@@ -283,7 +283,7 @@ When grouped benchmarks are executed, `bench_press` automatically renders a dire
 | `join` | 727,566 ops/s | 1.37 µs | **4.46x faster** | 4.46x | **[4.37x – 4.55x]** | Fast |
 <!-- mdformat on -->
 
-### 5. Benchmark Suites
+### 6. Benchmark Suites
 
 Export a top-level `benchmarks` list to enable CLI auto-discovery:
 
