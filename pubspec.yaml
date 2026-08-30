@@ -1,0 +1,16 @@
+name: bench_press
+description: A modern, statistically sound, compiler-aware multi-runtime benchmarking framework for Dart and Flutter.
+version: 0.1.0-wip
+repository: https://github.com/kevmoo/bench_press
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  args: ^2.5.0
+  meta: ^1.15.0
+
+dev_dependencies:
+  checks: ^0.3.0
+  dart_flutter_team_lints: ^3.2.0
+  test: ^1.25.0

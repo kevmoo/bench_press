@@ -1,0 +1,9 @@
+.dart_tool/
+.packages
+build/
+*.wasm
+*.js
+*.exe
+*.aot
+*.dwarf
+benchmark_results.json
