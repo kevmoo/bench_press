@@ -186,6 +186,20 @@ final class KbssdWarmupDetector {
     final n = b.length;
     if (m < 2 || n < 2) return 0.0;
 
+    final twoSigmaSq = _computeTwoSigmaSq(a, b);
+    final sumAA = _kernelSelfSum(a, twoSigmaSq);
+    final sumBB = _kernelSelfSum(b, twoSigmaSq);
+    final sumAB = _kernelCrossSum(a, b, twoSigmaSq);
+
+    final mmdSq =
+        (sumAA / (m * (m - 1))) +
+        (sumBB / (n * (n - 1))) -
+        (2.0 * sumAB / (m * n));
+
+    return math.sqrt(math.max(0.0, mmdSq));
+  }
+
+  static double _computeTwoSigmaSq(List<double> a, List<double> b) {
     final combined = [...a, ...b];
     final diffs = <double>[];
     for (var i = 0; i < combined.length; i++) {
@@ -197,43 +211,35 @@ final class KbssdWarmupDetector {
     if (sigma <= 1e-9) {
       sigma = 1.0;
     }
-    final twoSigmaSq = 2.0 * sigma * sigma;
+    return 2.0 * sigma * sigma;
+  }
 
-    double kernel(double x, double y) {
-      final diff = x - y;
-      return math.exp(-(diff * diff) / twoSigmaSq);
-    }
-
-    var sumAA = 0.0;
-    for (var i = 0; i < m; i++) {
-      for (var j = 0; j < m; j++) {
+  static double _kernelSelfSum(List<double> values, double twoSigmaSq) {
+    var sum = 0.0;
+    final len = values.length;
+    for (var i = 0; i < len; i++) {
+      for (var j = 0; j < len; j++) {
         if (i != j) {
-          sumAA += kernel(a[i], a[j]);
+          final diff = values[i] - values[j];
+          sum += math.exp(-(diff * diff) / twoSigmaSq);
         }
       }
     }
+    return sum;
+  }
 
-    var sumBB = 0.0;
-    for (var i = 0; i < n; i++) {
-      for (var j = 0; j < n; j++) {
-        if (i != j) {
-          sumBB += kernel(b[i], b[j]);
-        }
+  static double _kernelCrossSum(
+    List<double> a,
+    List<double> b,
+    double twoSigmaSq,
+  ) {
+    var sum = 0.0;
+    for (var i = 0; i < a.length; i++) {
+      for (var j = 0; j < b.length; j++) {
+        final diff = a[i] - b[j];
+        sum += math.exp(-(diff * diff) / twoSigmaSq);
       }
     }
-
-    var sumAB = 0.0;
-    for (var i = 0; i < m; i++) {
-      for (var j = 0; j < n; j++) {
-        sumAB += kernel(a[i], b[j]);
-      }
-    }
-
-    final mmdSq =
-        (sumAA / (m * (m - 1))) +
-        (sumBB / (n * (n - 1))) -
-        (2.0 * sumAB / (m * n));
-
-    return math.sqrt(math.max(0.0, mmdSq));
+    return sum;
   }
 }
