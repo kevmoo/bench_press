@@ -1,6 +1,36 @@
 ## 0.1.0-wip
 
-- Initial release of `bench_press`.
-- Layer 0 primitives: `Blackhole` DCE barrier with cross-backend inlining pragmas.
-- Layer 1 harnesses: `Benchmark`, `AsyncBenchmark`, and `BenchmarkVariant` with Dart primary constructors.
-- Layer 2 statistical engine: Calibrated monomorphic batch measurement loop and KBSSD steady-state warmup detection.
+- Initial release of `bench_press`: A modern, statistically sound, compiler-aware multi-runtime benchmarking framework for Dart and Flutter.
+- **Layer 0 (Primitives & Sinks)**:
+  - `Blackhole` DCE barrier with an opaque 8-slot static array, cross-backend inlining pragmas (`@pragma('vm:prefer-inline')`, `@pragma('wasm:prefer-inline')`, `@pragma('dart2js:prefer-inline')`), and terminal `Blackhole.drain()` checksum.
+  - Calibrated monomorphic inner batch loop ($$\ge 10\text{ ms}$$ batches) with single monotonic timer read per batch and zero polymorphic dispatch.
+- **Layer 1 (Harnesses)**:
+  - `Benchmark` synchronous harness with lifecycle hooks (`setup`, `run`, `teardown`, and `.report()`).
+  - `AsyncBenchmark` asynchronous harness with safe `Future<void>` handling.
+  - `BenchmarkVariant` compositional functional comparison harness.
+  - Dart primary constructors throughout.
+- **Layer 2 (Statistical Engine)**:
+  - Kallithea-Borg Self-Stopping Detection (KBSSD) steady-state warmup convergence using sliding window Maximum Mean Discrepancy (MMD) and Median Absolute Deviation (MAD) dynamic thresholding.
+  - Standard Error of the Mean (SEM) practical steady-state gating ($$1.96 \times \text{SEM} \le 0.03 \times \text{Mean}$$) and patience budget fallback.
+  - Operational calibration guards ($$10\ \mu\text{s} - 200\text{ ms}$$ bounds, Web Spectre timer virtualization accommodations, `--force-run` bypass).
+  - Summary metrics: Mean, Median, Min (hardware baseline), Max, StdDev, CV, p95, p99, Ops/sec.
+  - Fieller's theorem for exact 95% ratio confidence intervals.
+- **Layer 3 (Telemetry & Reporting)**:
+  - Standardized JSON schema (`benchmark_results.json`) with deterministic deep merging by `(name, target)`.
+  - Relative Efficiency Index triplets `[Worst / Avg / Best]` with performance badges (🥇 Peak 100, 🟢 $\ge 90$, 🟡 70–89, 🔴 < 70).
+  - Markdown report generation with mdformat wrapping protection.
+  - Zero-token rehydration (`--from-json`) and git-backed in-memory diffing (`--diff <ref>`).
+- **Layer 4 (CLI Orchestrator)**:
+  - `bin/bench_press.dart` CLI with `run`, `validate`, `report`, and `diff` subcommands.
+  - Target compilers for VM JIT, AOT (`dart compile exe`), WasmGC (`dart compile wasm`), and JS (`dart compile js`).
+  - Subprocess execution managers for native binaries, Node.js, D8, and Dart VM.
+  - Fast local iteration via Dart isolates (`--isolate-mode`).
+  - Benchmark discovery with auto-generated compilation wrappers for top-level `benchmarks` lists.
+- **Phase 5 (CI, Showcase Suite & Documentation)**:
+  - GitHub Actions CI workflow (`.github/workflows/ci.yaml`) targeting `ubuntu-latest` with Dart and Node.js 22 WasmGC runner.
+  - Reference showcase benchmark suite in `benchmark/`:
+    - `json_benchmark.dart`: JSON serialization & parsing comparing standard `dart:convert` vs custom parsing.
+    - `string_benchmark.dart`: String manipulation workloads comparing `+` concatenation vs `StringBuffer`.
+    - `dce_showcase.dart`: DCE demonstration showing `Blackhole.consume` loop safety vs unprotected dead code.
+  - Comprehensive runnable example in `example/bench_press_example.dart`.
+  - Complete developer documentation and architecture guide in `README.md`.
