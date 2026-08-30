@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import '../stats/fieller.dart';
-import 'relative_efficiency.dart';
 import 'schema.dart';
 
 /// Generates formatted, mdformat-compliant Markdown tables and performance
@@ -23,13 +22,6 @@ abstract final class MarkdownReporter() {
     buffer.writeln();
 
     buffer.writeln(renderSummaryTable(suite));
-    buffer.writeln();
-
-    if (suite.targets.length > 1) {
-      buffer.writeln(renderEfficiencyTable(suite));
-      buffer.writeln();
-    }
-
     return buffer.toString().trimRight();
   }
 
@@ -67,92 +59,6 @@ abstract final class MarkdownReporter() {
         '| ${b.name} | `${b.target}` | $opsStr | $meanStr | $medianStr | '
         '$minStr | $stdDevStr | $statusStr |',
       );
-    }
-
-    buffer.writeln('<!-- mdformat on -->');
-    return buffer.toString();
-  }
-
-  /// Renders Relative Efficiency Index summary and per-workload breakdown
-  /// tables for [suite].
-  static String renderEfficiencyTable(
-    BenchmarkSuiteResult suite, {
-    String? title,
-  }) {
-    final analysis = RelativeEfficiencyAnalysis.fromSuite(suite);
-    final buffer = StringBuffer();
-
-    final heading = title ?? 'Relative Efficiency Matrix';
-    buffer.writeln('### $heading');
-    buffer.writeln();
-    buffer.writeln(
-      '> **Formula**: E = round((MinLatency / Latency) * 100) | '
-      'Triplets: `[Worst / Avg / Best]` relative efficiency scores',
-    );
-    buffer.writeln();
-
-    buffer.write(_renderTargetSummaryTable(analysis.targetSummaries));
-
-    if (analysis.workloadEfficiencies.length > 1) {
-      buffer.writeln();
-      buffer.write(
-        _renderWorkloadBreakdownTable(
-          analysis.workloadEfficiencies,
-          suite.targets,
-        ),
-      );
-    }
-
-    return buffer.toString();
-  }
-
-  static String _renderTargetSummaryTable(
-    List<TargetEfficiencySummary> summaries,
-  ) {
-    final buffer = StringBuffer();
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
-    buffer.writeln(
-      '| Target | Relative Efficiency [Worst / Avg / Best] | Peak Wins | '
-      'Mean Ops/sec |',
-    );
-    buffer.writeln('| :--- | :---: | :---: | :---: |');
-
-    for (final summary in summaries) {
-      final tripletStr = summary.triplet.formatWithBadge();
-      final peakStr = summary.peakWins > 0 ? '🥇 ${summary.peakWins}' : '0';
-      final opsStr = _formatOps(summary.meanOpsPerSec);
-      buffer.writeln(
-        '| `${summary.target}` | $tripletStr | $peakStr | $opsStr |',
-      );
-    }
-    buffer.writeln('<!-- mdformat on -->');
-    return buffer.toString();
-  }
-
-  static String _renderWorkloadBreakdownTable(
-    List<WorkloadEfficiency> workloads,
-    List<String> targets,
-  ) {
-    final buffer = StringBuffer();
-    buffer.writeln('#### Workload Efficiency Breakdown');
-    buffer.writeln();
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
-
-    final targetHeaders = targets.map((t) => '`$t`').join(' | ');
-    buffer.writeln('| Benchmark | Peak Target | $targetHeaders |');
-    final separator = targets.map((_) => ':---:').join(' | ');
-    buffer.writeln('| :--- | :---: | $separator |');
-
-    for (final w in workloads) {
-      final scores = targets
-          .map((t) {
-            final score = w.targetScores[t];
-            if (score == null) return '-';
-            return EfficiencyBadge.format(score);
-          })
-          .join(' | ');
-
-      buffer.writeln('| ${w.benchmarkName} | `${w.peakTarget}` | $scores |');
     }
 
     buffer.writeln('<!-- mdformat on -->');

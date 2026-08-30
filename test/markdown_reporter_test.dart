@@ -49,48 +49,6 @@ void main() {
       check(table).contains('⚠️ Unstable');
     });
 
-    test(
-      'renderEfficiencyTable computes triplets and badges across targets',
-      () {
-        const env = EnvironmentInfo(
-          dartVersion: '3.14.0',
-          os: 'linux',
-          arch: 'x64',
-        );
-
-        // Workload 1: AOT is 50ns, WASM is 60ns (83%), JIT is 100ns (50%)
-        // Workload 2: WASM is 40ns, AOT is 50ns (80%), JIT is 100ns (40%)
-        final suite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
-          environment: env,
-          benchmarks: [
-            _createEntry('workload_1', 'aot', 50.0),
-            _createEntry('workload_1', 'wasm', 60.0),
-            _createEntry('workload_1', 'jit', 100.0),
-            _createEntry('workload_2', 'wasm', 40.0),
-            _createEntry('workload_2', 'aot', 50.0),
-            _createEntry('workload_2', 'jit', 100.0),
-          ],
-        );
-
-        final table = MarkdownReporter.renderEfficiencyTable(suite);
-
-        check(table).contains('### Relative Efficiency Matrix');
-        check(table).contains('<!-- mdformat off(prevent table wrapping) -->');
-        check(table).contains('<!-- mdformat on -->');
-        check(table).contains(
-          '| Target | Relative Efficiency [Worst / Avg / Best] | Peak Wins | '
-          'Mean Ops/sec |',
-        );
-
-        check(table).contains('`aot`');
-        check(table).contains('`wasm`');
-        check(table).contains('`jit`');
-        check(table).contains('Workload Efficiency Breakdown');
-        check(table).contains('🥇 Peak 100');
-      },
-    );
-
     test('renderDeltaTable produces delta report with Fieller intervals', () {
       const env = EnvironmentInfo(
         dartVersion: '3.14.0',

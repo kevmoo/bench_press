@@ -110,9 +110,7 @@ $$\text{CI}_{95\%}\left(\frac{\mu_{\text{baseline}}}{\mu_{\text{candidate}}}\rig
 
 ---
 
-## 📈 Telemetry & Relative Efficiency Index
-
-### Standardized JSON Persistence
+## 📈 Telemetry & JSON Persistence
 
 Results are persisted to canonical JSON (`benchmark_results.json`) with
 deterministic deep-merging by `(name, target)`:
@@ -145,16 +143,6 @@ deterministic deep-merging by `(name, target)`:
   ]
 }
 ```
-
-### Relative Efficiency Triplets `[Worst / Avg / Best]`
-
-Condenses multi-target matrices into standardized summary tables:
-
-* **Formula**:
-  $$E = \text{round}\left( \frac{\text{MinLatency}}{\text{Latency}} \times 100 \right)$$
-* **Triplets**: `[Worst / Avg / Best]` relative efficiency scores across
-  workloads.
-* **Badges**: 🥇 Peak (`100`), 🟢 `≥ 90`, 🟡 `70–89`, 🔴 `< 70`.
 
 ---
 
