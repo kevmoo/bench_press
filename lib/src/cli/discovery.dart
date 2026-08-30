@@ -47,7 +47,7 @@ abstract final class BenchmarkDiscovery {
     final file = File(targetPath);
 
     if (file.existsSync()) {
-      if (targetPath.endsWith('.dart')) {
+      if (p.extension(targetPath) == '.dart') {
         results.add(inspectFile(file));
       }
       return results;
@@ -62,7 +62,7 @@ abstract final class BenchmarkDiscovery {
     for (final entity in entities) {
       if (entity is! File) continue;
       final filePath = entity.path;
-      if (!filePath.endsWith('.dart')) continue;
+      if (p.extension(filePath) != '.dart') continue;
 
       final segments = p.split(p.normalize(filePath));
       final hasIgnoredSegment = segments.any(

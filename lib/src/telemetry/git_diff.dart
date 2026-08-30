@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'markdown_reporter.dart';
 import 'schema.dart';
 
@@ -15,7 +17,7 @@ abstract final class GitBaselineExtractor {
     String? workingDirectory,
   }) {
     try {
-      final posixPath = filePath.replaceAll('\\', '/');
+      final posixPath = p.posix.joinAll(p.split(filePath));
       final result = Process.runSync('git', [
         'show',
         '$gitRef:$posixPath',
@@ -39,7 +41,7 @@ abstract final class GitBaselineExtractor {
     String? workingDirectory,
   }) async {
     try {
-      final posixPath = filePath.replaceAll('\\', '/');
+      final posixPath = p.posix.joinAll(p.split(filePath));
       final result = await Process.run('git', [
         'show',
         '$gitRef:$posixPath',
