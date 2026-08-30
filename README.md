@@ -1,11 +1,7 @@
-# 🏋️ BenchPress (`pkg:bench_press`)
-
 A modern, statistically sound, compiler-aware multi-runtime benchmarking
 framework for Dart and Flutter.
 
----
-
-## 🎯 Motivation: The Problem with `package:benchmark_harness`
+## Motivation: The Problem with `package:benchmark_harness`
 
 The legacy `package:benchmark_harness` was built for early Dart VM JIT execution
 and exhibits fundamental design flaws in modern optimizing compiler environments:
@@ -28,9 +24,7 @@ and exhibits fundamental design flaws in modern optimizing compiler environments
 monomorphic batch measurement loops, automated steady-state warmup detection,
 and cross-target CLI orchestration.
 
----
-
-## 🚀 Core Primitives & Compiler Awareness
+## Core Primitives & Compiler Awareness
 
 ### 1. `Blackhole` DCE Barrier
 
@@ -38,12 +32,12 @@ and cross-target CLI orchestration.
 computations without introducing per-iteration heap allocations.
 
 ```dart
-// ❌ DCE Hazard: Compiler can eliminate the entire loop in AOT / Wasm
+// DCE Hazard: Compiler can eliminate the entire loop in AOT / Wasm
 for (var i = 0; i < count; i++) {
   parser.parse(bytes);
 }
 
-// ✅ Protected: Blackhole retains computation across all compiler backends
+// Protected: Blackhole retains computation across all compiler backends
 for (var i = 0; i < count; i++) {
   Blackhole.consume(parser.parse(bytes));
 }
@@ -74,9 +68,7 @@ calls introduces severe measurement noise and quantization error.
   empty loop timings, as modern superscalar CPUs parallelize loop control
   instructions across independent execution ports.
 
----
-
-## 📊 Statistical Rigor & Steady-State Detection
+## Statistical Rigor & Steady-State Detection
 
 ### 1. KBSSD Warmup Convergence
 
@@ -108,9 +100,7 @@ When computing speedup ratios between baseline and candidate branches,
 `bench_press` computes exact 95% confidence intervals using Fieller's theorem:
 $$\text{CI}_{95\%}\left(\frac{\mu_{\text{baseline}}}{\mu_{\text{candidate}}}\right)$$
 
----
-
-## 📈 Telemetry & JSON Persistence
+## Telemetry & JSON Persistence
 
 Results are persisted to canonical JSON (`benchmark_results.json`) with
 deterministic deep-merging by `(name, target)`:
@@ -144,9 +134,7 @@ deterministic deep-merging by `(name, target)`:
 }
 ```
 
----
-
-## 💻 API Guide & Usage
+## API Guide & Usage
 
 ### 1. Synchronous Benchmark
 
@@ -255,8 +243,8 @@ When grouped benchmarks are executed, `bench_press` automatically renders a dire
 | Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | Speedup Ratio | 95% Confidence Interval | Status |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | `concat` (Baseline) | 163,288 ops/s | 6.12 µs | 1.00x (ref) | 1.00x | [1.00x – 1.00x] | Ref |
-| `string_buffer` | 727,840 ops/s | 1.37 µs | **4.47x faster** | 4.47x | **[4.38x – 4.56x]** | 🚀 🥇 Peak |
-| `join` | 727,566 ops/s | 1.37 µs | **4.46x faster** | 4.46x | **[4.37x – 4.55x]** | 🚀 🟢 Fast |
+| `string_buffer` | 727,840 ops/s | 1.37 µs | **4.47x faster** | 4.47x | **[4.38x – 4.56x]** | Peak |
+| `join` | 727,566 ops/s | 1.37 µs | **4.46x faster** | 4.46x | **[4.37x – 4.55x]** | Fast |
 <!-- mdformat on -->
 
 ### 5. Benchmark Suites
@@ -276,9 +264,7 @@ final benchmarks = <Object>[
 void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
 ```
 
----
-
-## 🛠️ CLI Guide (`bench_press`)
+## CLI Guide (`bench_press`)
 
 `bench_press` includes a multi-runtime CLI orchestrator:
 
@@ -339,9 +325,7 @@ dart run bench_press diff -b main -c benchmark_results.json
 dart run bench_press diff -b baseline_results.json -c benchmark_results.json
 ```
 
----
-
-## 🤖 Continuous Integration (GitHub Actions)
+## Continuous Integration (GitHub Actions)
 
 Add the following workflow to `.github/workflows/ci.yaml` to validate
 benchmarks on every push and pull request:
@@ -388,8 +372,6 @@ jobs:
         run: dart run bin/bench_press.dart validate benchmark/
 ```
 
----
-
-## 📄 License
+## License
 
 MIT License. See [LICENSE](LICENSE) for details.
