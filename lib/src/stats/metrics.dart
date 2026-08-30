@@ -139,6 +139,21 @@ final class BenchmarkMetrics {
     'is_stable': isStable,
   };
 
+  /// Constructs a [BenchmarkMetrics] instance from a JSON-compatible map.
+  factory BenchmarkMetrics.fromJson(Map<String, Object?> json) =>
+      BenchmarkMetrics(
+        meanNs: (json['mean_ns'] as num).toDouble(),
+        medianNs: (json['median_ns'] as num).toDouble(),
+        minNs: (json['min_ns'] as num).toDouble(),
+        maxNs: (json['max_ns'] as num).toDouble(),
+        stddevNs: (json['stddev_ns'] as num).toDouble(),
+        cv: (json['cv'] as num).toDouble(),
+        p95Ns: (json['p95_ns'] as num).toDouble(),
+        p99Ns: (json['p99_ns'] as num).toDouble(),
+        opsPerSec: (json['ops_per_sec'] as num).toDouble(),
+        isStable: (json['is_stable'] as bool?) ?? true,
+      );
+
   @override
   String toString() =>
       'BenchmarkMetrics(mean: ${meanNs.toStringAsFixed(1)} ns, '
