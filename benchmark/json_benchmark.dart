@@ -66,69 +66,41 @@ const UserProfile _sampleUser = UserProfile(
 final Map<String, Object?> _sampleMap = _sampleUser.toJson();
 final String _sampleJsonString = jsonEncode(_sampleMap);
 
-/// Standard JSON encode using dart:convert.
-final class JsonEncodeStandardBenchmark() extends Benchmark {
-  this : super('json_encode/dart_convert');
+/// Model 1: Grouped JSON Serialization Variants
+final BenchmarkGroup jsonSerializationGroup = BenchmarkGroup(
+  'JSON Serialization',
+  [
+    BenchmarkVariant('dart_convert', () {
+      final encoded = jsonEncode(_sampleMap);
+      Blackhole.consume(encoded);
+    }, isBaseline: true),
+    BenchmarkVariant('custom_buffer', () {
+      final encoded = _sampleUser.toCustomJson();
+      Blackhole.consume(encoded);
+    }),
+  ],
+);
 
-  @override
-  void run() {
-    final encoded = jsonEncode(_sampleMap);
-    Blackhole.consume(encoded);
-  }
-}
-
-/// Custom direct buffer JSON serialization.
-final class JsonEncodeCustomBenchmark() extends Benchmark {
-  this : super('json_encode/custom_buffer');
-
-  @override
-  void run() {
-    final encoded = _sampleUser.toCustomJson();
-    Blackhole.consume(encoded);
-  }
-}
-
-/// Standard JSON decode using dart:convert.
-final class JsonDecodeStandardBenchmark() extends Benchmark {
-  this : super('json_decode/dart_convert');
-
-  @override
-  void run() {
-    final decoded = jsonDecode(_sampleJsonString);
-    Blackhole.consume(decoded);
-  }
-}
-
-/// Custom JSON parsing into structured model.
-final class JsonDecodeModelBenchmark() extends Benchmark {
-  this : super('json_decode/typed_model');
-
-  @override
-  void run() {
-    final map = jsonDecode(_sampleJsonString) as Map<String, Object?>;
-    final user = UserProfile.fromJson(map);
-    Blackhole.consume(user);
-  }
-}
-
-/// Showcase variants comparing serialization approaches.
-final BenchmarkVariant jsonVariantBenchmark = BenchmarkVariant(
-  'json_variant/encode_comparison',
-  () {
-    final std = jsonEncode(_sampleMap);
-    final custom = _sampleUser.toCustomJson();
-    Blackhole.consume(std);
-    Blackhole.consume(custom);
-  },
+/// Model 1: Grouped JSON Deserialization Variants
+final BenchmarkGroup jsonDeserializationGroup = BenchmarkGroup(
+  'JSON Deserialization',
+  [
+    BenchmarkVariant('dart_convert', () {
+      final decoded = jsonDecode(_sampleJsonString);
+      Blackhole.consume(decoded);
+    }, isBaseline: true),
+    BenchmarkVariant('typed_model', () {
+      final map = jsonDecode(_sampleJsonString) as Map<String, Object?>;
+      final user = UserProfile.fromJson(map);
+      Blackhole.consume(user);
+    }),
+  ],
 );
 
 /// Discovered benchmark collection for `bench_press run` / `validate`.
 final List<Object> benchmarks = [
-  JsonEncodeStandardBenchmark(),
-  JsonEncodeCustomBenchmark(),
-  JsonDecodeStandardBenchmark(),
-  JsonDecodeModelBenchmark(),
-  jsonVariantBenchmark,
+  jsonSerializationGroup,
+  jsonDeserializationGroup,
 ];
 
 void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);

@@ -7,65 +7,39 @@ final List<String> _words = List<String>.generate(
   growable: false,
 );
 
-/// String concatenation using the '+' operator.
-final class StringPlusConcatBenchmark() extends Benchmark {
-  this : super('string/plus_concat');
-
-  @override
-  void run() {
-    var result = '';
-    for (var i = 0; i < _itemCount; i++) {
-      result += _words[i];
-    }
-    Blackhole.consume(result);
-  }
-}
-
-/// String concatenation using [StringBuffer].
-final class StringBufferBenchmark() extends Benchmark {
-  this : super('string/string_buffer');
-
-  @override
-  void run() {
-    final sb = StringBuffer();
-    for (var i = 0; i < _itemCount; i++) {
-      sb.write(_words[i]);
-    }
-    Blackhole.consume(sb.toString());
-  }
-}
-
-/// String construction using string interpolation.
-final class StringInterpolationBenchmark() extends Benchmark {
-  this : super('string/interpolation');
-
-  @override
-  void run() {
-    var result = '';
-    for (var i = 0; i < _itemCount; i++) {
-      result = '$result${_words[i]}';
-    }
-    Blackhole.consume(result);
-  }
-}
-
-/// String construction using [Iterable.join].
-final class StringJoinBenchmark() extends Benchmark {
-  this : super('string/join');
-
-  @override
-  void run() {
-    final result = _words.join();
-    Blackhole.consume(result);
-  }
-}
+/// Model 1: Grouped String Construction Variants
+final BenchmarkGroup stringConstructionGroup = BenchmarkGroup(
+  'String Construction',
+  [
+    BenchmarkVariant('plus_concat', () {
+      var result = '';
+      for (var i = 0; i < _itemCount; i++) {
+        result += _words[i];
+      }
+      Blackhole.consume(result);
+    }, isBaseline: true),
+    BenchmarkVariant('string_buffer', () {
+      final sb = StringBuffer();
+      for (var i = 0; i < _itemCount; i++) {
+        sb.write(_words[i]);
+      }
+      Blackhole.consume(sb.toString());
+    }),
+    BenchmarkVariant('interpolation', () {
+      var result = '';
+      for (var i = 0; i < _itemCount; i++) {
+        result = '$result${_words[i]}';
+      }
+      Blackhole.consume(result);
+    }),
+    BenchmarkVariant('join', () {
+      final result = _words.join();
+      Blackhole.consume(result);
+    }),
+  ],
+);
 
 /// Discovered benchmark collection for `bench_press run` / `validate`.
-final List<Object> benchmarks = [
-  StringPlusConcatBenchmark(),
-  StringBufferBenchmark(),
-  StringInterpolationBenchmark(),
-  StringJoinBenchmark(),
-];
+final List<Object> benchmarks = [stringConstructionGroup];
 
 void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);

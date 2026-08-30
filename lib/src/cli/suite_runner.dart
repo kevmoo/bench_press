@@ -49,8 +49,13 @@ Future<void> mainAsyncBenchmark(
   await mainBenchmarkSuite([benchmark], args);
 }
 
+/// Standalone CLI entrypoint for a single [BenchmarkGroup].
+Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
+  await mainBenchmarkSuite([group], args);
+}
+
 /// Standalone CLI entrypoint for an arbitrary collection of benchmarks
-/// ([Benchmark], [AsyncBenchmark], or [BenchmarkVariant]).
+/// ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or [BenchmarkGroup]).
 Future<void> mainBenchmarkSuite(
   List<Object> benchmarks,
   List<String> args,
@@ -93,18 +98,28 @@ Future<void> mainBenchmarkSuite(
 
   final results = <BenchmarkResult>[];
   for (final item in benchmarks) {
-    final result = switch (item) {
-      Benchmark b => BenchmarkRunner.run(_applyConfigToBenchmark(b, config)),
-      AsyncBenchmark b => await BenchmarkRunner.runAsync(
-        _applyConfigToAsyncBenchmark(b, config),
-      ),
-      BenchmarkVariant b => await BenchmarkRunner.runVariant(b, config: config),
-      _ => throw ArgumentError(
-        'Unsupported benchmark type: ${item.runtimeType}. '
-        'Expected Benchmark, AsyncBenchmark, or BenchmarkVariant.',
-      ),
-    };
-    results.add(result);
+    switch (item) {
+      case Benchmark b:
+        results.add(BenchmarkRunner.run(_applyConfigToBenchmark(b, config)));
+      case AsyncBenchmark b:
+        results.add(
+          await BenchmarkRunner.runAsync(
+            _applyConfigToAsyncBenchmark(b, config),
+          ),
+        );
+      case BenchmarkVariant b:
+        results.add(await BenchmarkRunner.runVariant(b, config: config));
+      case BenchmarkGroup g:
+        for (final v in g.variants) {
+          results.add(await BenchmarkRunner.runVariant(v, config: config));
+        }
+      default:
+        throw ArgumentError(
+          'Unsupported benchmark type: ${item.runtimeType}. '
+          'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, or '
+          'BenchmarkGroup.',
+        );
+    }
   }
 
   final suiteResult = BenchmarkSuiteResult.fromResults(
@@ -179,7 +194,13 @@ final class _ConfiguredBenchmark(
   final Benchmark _delegate,
   BenchmarkConfig config,
 ) extends Benchmark {
-  this : super(_delegate.name, config: config);
+  this
+    : super(
+        _delegate.name,
+        config: config,
+        group: _delegate.group,
+        isBaseline: _delegate.isBaseline,
+      );
 
   @override
   void setup() => _delegate.setup();
@@ -195,7 +216,13 @@ final class _ConfiguredAsyncBenchmark(
   final AsyncBenchmark _delegate,
   BenchmarkConfig config,
 ) extends AsyncBenchmark {
-  this : super(_delegate.name, config: config);
+  this
+    : super(
+        _delegate.name,
+        config: config,
+        group: _delegate.group,
+        isBaseline: _delegate.isBaseline,
+      );
 
   @override
   Future<void> setup() => _delegate.setup();

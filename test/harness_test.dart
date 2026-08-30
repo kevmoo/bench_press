@@ -82,5 +82,81 @@ void main() {
         check(asyncCalls).equals(1);
       },
     );
+
+    test('BenchmarkGroup binds group name and preserves isBaseline', () {
+      final group = BenchmarkGroup('String Group', [
+        BenchmarkVariant('concat', () {}, isBaseline: true),
+        BenchmarkVariant('buffer', () {}),
+      ]);
+
+      check(group.name).equals('String Group');
+      check(group.variants.length).equals(2);
+      check(group.variants[0].group).equals('String Group');
+      check(group.variants[0].isBaseline).isTrue();
+      check(group.variants[1].group).equals('String Group');
+      check(group.variants[1].isBaseline).isFalse();
+    });
+
+    test('BenchmarkGroup.compare constructs matrix correctly', () {
+      final group = BenchmarkGroup.compare(
+        name: 'Matrix Comparison',
+        baseline: ('base_impl', () => 1),
+        candidates: {'candidate_a': () => 2, 'candidate_b': () => 3},
+      );
+
+      check(group.name).equals('Matrix Comparison');
+      check(group.variants.length).equals(3);
+      check(group.variants[0].name).equals('base_impl');
+      check(group.variants[0].isBaseline).isTrue();
+      check(group.variants[0].group).equals('Matrix Comparison');
+
+      check(group.variants[1].name).equals('candidate_a');
+      check(group.variants[1].isBaseline).isFalse();
+
+      check(group.variants[2].name).equals('candidate_b');
+      check(group.variants[2].isBaseline).isFalse();
+    });
+
+    test('Benchmark.compare forwards to BenchmarkGroup.compare', () {
+      final group = Benchmark.compare(
+        name: 'Forwarding Matrix',
+        baseline: ('std', () => 10),
+        candidates: {'fast': () => 20},
+      );
+
+      check(group.name).equals('Forwarding Matrix');
+      check(group.variants.length).equals(2);
+      check(group.variants.first.isBaseline).isTrue();
+    });
+
+    test('BenchmarkGroup.report executes all variants', () async {
+      var countA = 0;
+      var countB = 0;
+      final group = BenchmarkGroup('Exec Group', [
+        BenchmarkVariant('varA', () => countA++, isBaseline: true),
+        BenchmarkVariant('varB', () => countB++),
+      ]);
+
+      final results = await group.report(
+        config: const BenchmarkConfig(
+          trials: 2,
+          minWarmupIterations: 2,
+          maxWarmupIterations: 5,
+          targetBatchDuration: Duration(milliseconds: 1),
+          forceRun: true,
+        ),
+      );
+
+      check(results.length).equals(2);
+      check(results[0].name).equals('varA');
+      check(results[0].group).equals('Exec Group');
+      check(results[0].isBaseline).isTrue();
+
+      check(results[1].name).equals('varB');
+      check(results[1].group).equals('Exec Group');
+      check(results[1].isBaseline).isFalse();
+      check(countA).isGreaterThan(0);
+      check(countB).isGreaterThan(0);
+    });
   });
 }

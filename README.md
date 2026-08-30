@@ -209,7 +209,57 @@ Future<void> main() async {
 }
 ```
 
-### 4. Benchmark Suites
+### 4. Model 1: Intra-Run Apples-to-Apples Comparison Groups
+
+Use `BenchmarkGroup` to evaluate competing algorithmic implementations executed within the **exact same process and thermal envelope**:
+
+```dart
+import 'package:bench_press/bench_press.dart';
+
+// Option A: BenchmarkGroup with declared baseline
+final stringGroup = BenchmarkGroup('String Construction', [
+  BenchmarkVariant('concat', () {
+    var s = '';
+    for (var i = 0; i < 50; i++) s += 'token';
+    Blackhole.consume(s);
+  }, isBaseline: true), // Reference baseline
+
+  BenchmarkVariant('string_buffer', () {
+    final sb = StringBuffer();
+    for (var i = 0; i < 50; i++) sb.write('token');
+    Blackhole.consume(sb.toString());
+  }),
+
+  BenchmarkVariant('join', () {
+    final list = List.filled(50, 'token');
+    Blackhole.consume(list.join());
+  }),
+]);
+
+// Option B: Declarative Matrix Builder
+final jsonSuite = BenchmarkGroup.compare(
+  name: 'JSON Deserialization',
+  baseline: ('dart:convert', () => jsonDecode(payload)),
+  candidates: {
+    'custom_buffer': () => CustomBufferDecoder.decode(payload),
+    'fast_parser': () => FastParser.parse(payload),
+  },
+);
+```
+
+#### Automatic Implementation Comparison Table
+
+When grouped benchmarks are executed, `bench_press` automatically renders a direct variant comparison table with exact 95% Fieller confidence intervals:
+
+<!-- mdformat off(prevent table wrapping) -->
+| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | Speedup Ratio | 95% Confidence Interval | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `concat` (Baseline) | 163,288 ops/s | 6.12 µs | 1.00x (ref) | 1.00x | [1.00x – 1.00x] | Ref |
+| `string_buffer` | 727,840 ops/s | 1.37 µs | **4.47x faster** | 4.47x | **[4.38x – 4.56x]** | 🚀 🥇 Peak |
+| `join` | 727,566 ops/s | 1.37 µs | **4.46x faster** | 4.46x | **[4.37x – 4.55x]** | 🚀 🟢 Fast |
+<!-- mdformat on -->
+
+### 5. Benchmark Suites
 
 Export a top-level `benchmarks` list to enable CLI auto-discovery:
 
@@ -220,6 +270,7 @@ final benchmarks = <Object>[
   StringConcatBenchmark(),
   AsyncFetchBenchmark(),
   variant,
+  stringGroup,
 ];
 
 void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
@@ -246,6 +297,13 @@ dart run bench_press run benchmark/
 
 # Run across all supported compilation targets (JIT, AOT, WasmGC, JS)
 dart run bench_press run -t jit -t aot -t wasm -t js benchmark/
+
+# Model 2: Live diffing against a baseline JSON file or Git reference
+dart run bench_press run --diff main benchmark/
+dart run bench_press run --diff baseline.json benchmark/
+
+# Save/merge results to a specific telemetry file
+dart run bench_press run --save baseline.json benchmark/
 
 # Fast local iteration via Dart isolates
 dart run bench_press run --isolate-mode benchmark/

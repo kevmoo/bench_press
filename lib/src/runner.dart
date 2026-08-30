@@ -28,11 +28,19 @@ final class const BenchmarkResult({
 
   /// The configuration options applied during execution.
   required final BenchmarkConfig config,
+
+  /// Optional group identifier for intra-run variant comparisons.
+  final String? group,
+
+  /// Whether this variant was designated as the baseline for its group.
+  final bool isBaseline = false,
 }) {
   /// Converts the benchmark result to a canonical JSON representation.
   Map<String, Object?> toJson() => {
     'name': name,
     'metrics': metrics.toJson(),
+    if (group != null) 'group': group,
+    if (isBaseline) 'is_baseline': isBaseline,
     'warmup': {
       'is_stable': warmupResult.isStable,
       'total_iterations': warmupResult.totalWarmupIterations,
@@ -108,6 +116,8 @@ abstract final class BenchmarkRunner() {
         rawTrialLatenciesNs: trials,
         calibratedBatch: calibrated,
         config: config,
+        group: benchmark.group,
+        isBaseline: benchmark.isBaseline,
       );
     } finally {
       benchmark.teardown();
@@ -166,6 +176,8 @@ abstract final class BenchmarkRunner() {
         rawTrialLatenciesNs: trials,
         calibratedBatch: calibrated,
         config: config,
+        group: benchmark.group,
+        isBaseline: benchmark.isBaseline,
       );
     } finally {
       await benchmark.teardown();
@@ -234,6 +246,8 @@ abstract final class BenchmarkRunner() {
         rawTrialLatenciesNs: trials,
         calibratedBatch: calibrated,
         config: config,
+        group: variant.group,
+        isBaseline: variant.isBaseline,
       );
     } finally {
       variant.teardown?.call();

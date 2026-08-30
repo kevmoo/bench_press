@@ -204,5 +204,134 @@ void main(List<String> args) => mainBenchmark(NoopBench(), args);
       check(result.exitCode).equals(66);
       check(result.stderr.toString()).contains('does not exist');
     });
+
+    test(
+      'CLI executes BenchmarkGroup and renders Model 1 comparison table',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('cli_group_e2e_');
+        try {
+          final benchFile = File(p.join(tempDir.path, 'group_bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final BenchmarkGroup stringGroup = BenchmarkGroup('String Construction', [
+  BenchmarkVariant('concat', () => Blackhole.consume(1), isBaseline: true),
+  BenchmarkVariant('buffer', () => Blackhole.consume(2)),
+]);
+
+final List<Object> benchmarks = [stringGroup];
+
+void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
+''');
+
+          final resultsFile = File(p.join(tempDir.path, 'group_results.json'));
+
+          final result = await Process.run('dart', [
+            'run',
+            'bin/bench_press.dart',
+            'run',
+            '-t',
+            'jit',
+            '--trials',
+            '2',
+            '--force-run',
+            '--save',
+            resultsFile.path,
+            benchFile.path,
+          ]);
+
+          check(result.exitCode).equals(0);
+          check(resultsFile.existsSync()).isTrue();
+
+          final stdout = result.stdout.toString();
+          check(stdout).contains('### Group: String Construction (`jit`)');
+          check(stdout).contains('`concat` (Baseline)');
+          check(stdout).contains('`buffer`');
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'CLI executes run --diff with baseline.json and renders delta table',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('cli_diff_e2e_');
+        try {
+          final baseFile = File(p.join(tempDir.path, 'baseline.json'));
+          const env = EnvironmentInfo(
+            dartVersion: '3.14.0',
+            os: 'linux',
+            arch: 'x64',
+          );
+
+          const baseMetrics = BenchmarkMetrics(
+            meanNs: 500.0,
+            medianNs: 500.0,
+            minNs: 480.0,
+            maxNs: 520.0,
+            stddevNs: 5.0,
+            cv: 0.01,
+            p95Ns: 510.0,
+            p99Ns: 515.0,
+            opsPerSec: 2000000.0,
+            isStable: true,
+          );
+
+          const baseEntry = BenchmarkEntry(
+            name: 'diff_cli_workload',
+            target: 'jit',
+            mode: 'sync',
+            samples: 3,
+            metrics: baseMetrics,
+            rawTrialsNs: [490.0, 500.0, 510.0],
+          );
+
+          final baseSuite = BenchmarkSuiteResult(
+            version: currentTelemetrySchemaVersion,
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: [baseEntry],
+          );
+          baseSuite.saveToFile(baseFile);
+
+          final benchFile = File(p.join(tempDir.path, 'diff_bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class DiffCliBenchmark extends Benchmark {
+  DiffCliBenchmark() : super('diff_cli_workload');
+  @override
+  void run() => Blackhole.consume(1234);
+}
+
+void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
+''');
+
+          final result = await Process.run('dart', [
+            'run',
+            'bin/bench_press.dart',
+            'run',
+            '-t',
+            'jit',
+            '--trials',
+            '2',
+            '--force-run',
+            '--no-save',
+            '--diff',
+            baseFile.path,
+            benchFile.path,
+          ]);
+
+          check(result.exitCode).equals(0);
+          final stdout = result.stdout.toString();
+          check(stdout).contains('### Baseline Delta: `${baseFile.path}`');
+          check(stdout).contains('diff_cli_workload');
+          check(stdout).contains('95% CI (Fieller)');
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }

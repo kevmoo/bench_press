@@ -158,7 +158,134 @@ void main() {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('renderGroupComparisonTable formats Model 1 variant matrix', () {
+      final baseEntry = _createGroupEntryWithSamples(
+        name: 'concat',
+        target: 'jit',
+        meanNs: 1000.0,
+        samples: [980.0, 1000.0, 1020.0],
+        group: 'String Construction',
+        isBaseline: true,
+      );
+
+      final fastEntry = _createGroupEntryWithSamples(
+        name: 'string_buffer',
+        target: 'jit',
+        meanNs: 200.0, // 5.0x faster
+        samples: [195.0, 200.0, 205.0],
+        group: 'String Construction',
+        isBaseline: false,
+      );
+
+      final slowEntry = _createGroupEntryWithSamples(
+        name: 'naive_builder',
+        target: 'jit',
+        meanNs: 2000.0, // 2.0x slower
+        samples: [1950.0, 2000.0, 2050.0],
+        group: 'String Construction',
+        isBaseline: false,
+      );
+
+      final table = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'String Construction',
+        target: 'jit',
+        entries: [baseEntry, fastEntry, slowEntry],
+      );
+
+      check(table).contains('### Group: String Construction (`jit`)');
+      check(table).contains('<!-- mdformat off(prevent table wrapping) -->');
+      check(table).contains(
+        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
+        'Speedup Ratio | 95% Confidence Interval | Status |',
+      );
+      check(table).contains('`concat` (Baseline)');
+      check(table).contains('1.00x (ref)');
+      check(table).contains('Ref');
+
+      check(table).contains('`string_buffer`');
+      check(table).contains('**5.00x faster**');
+      check(table).contains('🚀 🥇 Peak');
+
+      check(table).contains('`naive_builder`');
+      check(table).contains('**2.00x slower**');
+      check(table).contains('⚠️ 🔴 Slow');
+      check(table).contains('<!-- mdformat on -->');
+    });
+
+    test('renderSuite automatically embeds group comparison tables', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      final baseEntry = _createGroupEntryWithSamples(
+        name: 'json_std',
+        target: 'jit',
+        meanNs: 500.0,
+        samples: [490.0, 500.0, 510.0],
+        group: 'JSON Group',
+        isBaseline: true,
+      );
+
+      final fastEntry = _createGroupEntryWithSamples(
+        name: 'json_custom',
+        target: 'jit',
+        meanNs: 250.0,
+        samples: [245.0, 250.0, 255.0],
+        group: 'JSON Group',
+        isBaseline: false,
+      );
+
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [baseEntry, fastEntry],
+      );
+
+      final fullReport = MarkdownReporter.renderSuite(suite);
+
+      check(fullReport).contains('# Benchmark Suite Results');
+      check(fullReport).contains('### Group: JSON Group (`jit`)');
+      check(fullReport).contains('`json_std` (Baseline)');
+      check(fullReport).contains('**2.00x faster**');
+      check(fullReport).contains('🚀 🥇 Peak');
+      check(fullReport).contains('### All Benchmarks');
+    });
   });
+}
+
+BenchmarkEntry _createGroupEntryWithSamples({
+  required String name,
+  required String target,
+  required double meanNs,
+  required List<double> samples,
+  required String group,
+  required bool isBaseline,
+}) {
+  final metrics = BenchmarkMetrics(
+    meanNs: meanNs,
+    medianNs: meanNs,
+    minNs: samples.reduce((a, b) => a < b ? a : b),
+    maxNs: samples.reduce((a, b) => a > b ? a : b),
+    stddevNs: 1.0,
+    cv: 0.01,
+    p95Ns: meanNs,
+    p99Ns: meanNs,
+    opsPerSec: 1e9 / meanNs,
+    isStable: true,
+  );
+  return BenchmarkEntry(
+    name: name,
+    target: target,
+    mode: 'sync',
+    samples: samples.length,
+    metrics: metrics,
+    rawTrialsNs: samples,
+    group: group,
+    isBaseline: isBaseline,
+  );
 }
 
 BenchmarkEntry _createEntry(

@@ -21,8 +21,194 @@ abstract final class MarkdownReporter() {
     buffer.writeln('**Total Benchmarks**: ${suite.benchmarks.length}');
     buffer.writeln();
 
-    buffer.writeln(renderSummaryTable(suite));
+    final groupTables = renderAllGroupComparisonTables(suite);
+    if (groupTables.isNotEmpty) {
+      buffer.write(groupTables);
+    }
+
+    final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
+    buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
     return buffer.toString().trimRight();
+  }
+
+  /// Renders all group comparison tables present in [suite].
+  static String renderAllGroupComparisonTables(BenchmarkSuiteResult suite) {
+    final buffer = StringBuffer();
+    final map = <(String, String), List<BenchmarkEntry>>{};
+    for (final entry in suite.benchmarks) {
+      final group = entry.group;
+      if (group != null && group.isNotEmpty) {
+        map.putIfAbsent((group, entry.target), () => []).add(entry);
+      }
+    }
+
+    final keys = map.keys.toList()
+      ..sort((a, b) {
+        final g = a.$1.compareTo(b.$1);
+        if (g != 0) return g;
+        return a.$2.compareTo(b.$2);
+      });
+
+    for (final key in keys) {
+      final entries = map[key]!;
+      buffer.writeln(
+        renderGroupComparisonTable(
+          groupName: key.$1,
+          target: key.$2,
+          entries: entries,
+        ),
+      );
+      buffer.writeln();
+    }
+    return buffer.toString();
+  }
+
+  /// Renders a Model 1 direct variant comparison table for a specific group.
+  static String renderGroupComparisonTable({
+    required String groupName,
+    required String target,
+    required List<BenchmarkEntry> entries,
+    String? title,
+  }) {
+    if (entries.isEmpty) return '';
+    final buffer = StringBuffer();
+    final heading = title ?? 'Group: $groupName (`$target`)';
+    buffer.writeln('### $heading');
+    buffer.writeln();
+
+    final baselineEntry = _resolveBaseline(entries);
+    final baselineName = baselineEntry.name;
+    final maxSpeedup = _findMaxSpeedup(entries, baselineEntry);
+
+    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
+    buffer.writeln(
+      '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`$baselineName`) | '
+      'Speedup Ratio | 95% Confidence Interval | Status |',
+    );
+    buffer.writeln('| :--- | :---: | :---: | :---: | :---: | :---: | :---: |');
+
+    for (final entry in entries) {
+      buffer.writeln(
+        _formatGroupRow(
+          entry: entry,
+          baselineEntry: baselineEntry,
+          maxSpeedup: maxSpeedup,
+        ),
+      );
+    }
+
+    buffer.writeln('<!-- mdformat on -->');
+    return buffer.toString().trimRight();
+  }
+
+  static BenchmarkEntry _resolveBaseline(List<BenchmarkEntry> entries) {
+    for (final e in entries) {
+      if (e.isBaseline) return e;
+    }
+    return entries.first;
+  }
+
+  static double _findMaxSpeedup(
+    List<BenchmarkEntry> entries,
+    BenchmarkEntry baseline,
+  ) {
+    var max = 1.0;
+    final baseMean = baseline.metrics.meanNs;
+    if (baseMean <= 0) return max;
+    for (final e in entries) {
+      if (e == baseline) continue;
+      final mean = e.metrics.meanNs;
+      if (mean > 0) {
+        final ratio = baseMean / mean;
+        if (ratio > max) max = ratio;
+      }
+    }
+    return max;
+  }
+
+  static String _formatGroupRow({
+    required BenchmarkEntry entry,
+    required BenchmarkEntry baselineEntry,
+    required double maxSpeedup,
+  }) {
+    final isBaseline = (entry == baselineEntry);
+    final implCol = isBaseline
+        ? '`${entry.name}` (Baseline)'
+        : '`${entry.name}`';
+    final opsCol = _formatOps(entry.metrics.opsPerSec);
+    final meanCol = _formatLatency(entry.metrics.meanNs);
+
+    if (isBaseline) {
+      return '| $implCol | $opsCol | $meanCol | 1.00x (ref) | 1.00x | '
+          '[1.00x – 1.00x] | Ref |';
+    }
+
+    final baseMean = baselineEntry.metrics.meanNs;
+    final curMean = entry.metrics.meanNs;
+    final speedup = (baseMean > 0.0 && curMean > 0.0)
+        ? (baseMean / curMean)
+        : 1.0;
+
+    final vsBaselineCol = _formatVsBaseline(
+      speedup: speedup,
+      baseMean: baseMean,
+      curMean: curMean,
+    );
+    final ratioCol = '${speedup.toStringAsFixed(2)}x';
+    final ciCol = _formatGroupFiellerCi(baselineEntry, entry, speedup >= 1.05);
+    final statusCol = _classifyGroupStatus(speedup, maxSpeedup);
+
+    return '| $implCol | $opsCol | $meanCol | $vsBaselineCol | $ratioCol | '
+        '$ciCol | $statusCol |';
+  }
+
+  static String _formatVsBaseline({
+    required double speedup,
+    required double baseMean,
+    required double curMean,
+  }) {
+    if (speedup >= 1.05) {
+      return '**${speedup.toStringAsFixed(2)}x faster**';
+    } else if (speedup <= 0.95) {
+      final slowdown = (baseMean > 0.0 && curMean > 0.0)
+          ? (curMean / baseMean)
+          : 1.0;
+      return '**${slowdown.toStringAsFixed(2)}x slower**';
+    }
+    return '${speedup.toStringAsFixed(2)}x (neutral)';
+  }
+
+  static String _classifyGroupStatus(double speedup, double maxSpeedup) {
+    if ((speedup - maxSpeedup).abs() < 1e-4 && speedup >= 1.05) {
+      return '🚀 🥇 Peak';
+    } else if (speedup >= 1.05) {
+      return '🚀 🟢 Fast';
+    } else if (speedup <= 0.95) {
+      return '⚠️ 🔴 Slow';
+    }
+    return '➖ ⚪ Similar';
+  }
+
+  static String _formatGroupFiellerCi(
+    BenchmarkEntry base,
+    BenchmarkEntry cur,
+    bool isFast,
+  ) {
+    if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
+      return '[N/A]';
+    }
+    final interval = FiellerInterval.compute(
+      sampleA: base.rawTrialsNs,
+      sampleB: cur.rawTrialsNs,
+    );
+    if (!interval.isValid ||
+        interval.lowerBound.isNaN ||
+        interval.upperBound.isNaN) {
+      return '[N/A]';
+    }
+    final low = interval.lowerBound.toStringAsFixed(2);
+    final high = interval.upperBound.toStringAsFixed(2);
+    return isFast ? '**[$low x – $high x]**' : '[$low x – $high x]';
   }
 
   /// Renders a single-run summary table for all benchmarks in [suite].

@@ -58,7 +58,35 @@ final BenchmarkVariant variantBenchmark = BenchmarkVariant(
   },
 );
 
-/// 4. Discovered Benchmark Collection
+/// 4. Model 1: Intra-Run Apples-to-Apples Comparison Group
+///
+/// Use [BenchmarkGroup] to evaluate competing implementations executed within
+/// the exact same process and thermal envelope.
+final BenchmarkGroup stringBuildingGroup = BenchmarkGroup(
+  'String Construction',
+  [
+    BenchmarkVariant('plus_concat', () {
+      var s = '';
+      for (var i = 0; i < 50; i++) {
+        s += 'token';
+      }
+      Blackhole.consume(s);
+    }, isBaseline: true), // Reference baseline
+    BenchmarkVariant('string_buffer', () {
+      final sb = StringBuffer();
+      for (var i = 0; i < 50; i++) {
+        sb.write('token');
+      }
+      Blackhole.consume(sb.toString());
+    }),
+    BenchmarkVariant('join', () {
+      final list = List.filled(50, 'token');
+      Blackhole.consume(list.join());
+    }),
+  ],
+);
+
+/// 5. Discovered Benchmark Collection
 ///
 /// Top-level `benchmarks` collection automatically discovered by
 /// `bench_press run`.
@@ -66,6 +94,7 @@ final List<Object> benchmarks = [
   FibonacciBenchmark(),
   AsyncDelayBenchmark(),
   variantBenchmark,
+  stringBuildingGroup,
 ];
 
 Future<void> main(List<String> args) async {
@@ -107,4 +136,17 @@ Future<void> main(List<String> args) async {
   print(
     '  Ops/sec:    ${varResult.metrics.opsPerSec.toStringAsFixed(0)} ops/s\n',
   );
+
+  // Run benchmark group (Model 1)
+  print('=== Model 1: BenchmarkGroup Results ===');
+  final groupResults = await stringBuildingGroup.report(
+    config: const BenchmarkConfig(forceRun: true),
+  );
+  for (final res in groupResults) {
+    final baseTag = res.isBaseline ? ' (Baseline)' : '';
+    print(
+      '  ${res.name}$baseTag: ${res.metrics.opsPerSec.toStringAsFixed(0)} ops/s '
+      '(${res.metrics.meanNs.toStringAsFixed(1)} ns/op)',
+    );
+  }
 }

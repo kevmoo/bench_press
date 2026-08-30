@@ -113,6 +113,12 @@ final class const BenchmarkEntry({
 
   /// Calibrated batch iterations used in the inner measurement loop.
   final int? calibratedBatchIterations,
+
+  /// Optional group identifier for intra-run variant comparisons.
+  final String? group,
+
+  /// Whether this entry was designated as the baseline for its group.
+  final bool isBaseline = false,
 }) {
   /// The unique composite key identifying this benchmark and target pair.
   String get key => '$name:$target';
@@ -138,6 +144,8 @@ final class const BenchmarkEntry({
         'elapsed_seconds': result.warmupResult.elapsedSeconds,
       },
       calibratedBatchIterations: result.calibratedBatch.iterations,
+      group: result.group,
+      isBaseline: result.isBaseline,
     );
   }
 
@@ -148,6 +156,8 @@ final class const BenchmarkEntry({
     'mode': mode,
     'samples': samples,
     'metrics': metrics.toJson(),
+    if (group != null) 'group': group,
+    if (isBaseline) 'is_baseline': isBaseline,
     if (rawTrialsNs.isNotEmpty) 'raw_trials_ns': rawTrialsNs,
     if (warmup != null) 'warmup': warmup,
     if (calibratedBatchIterations != null)
@@ -187,6 +197,8 @@ final class const BenchmarkEntry({
     final warmup = json['warmup'] as Map<String, Object?>?;
     final calibratedBatch = (json['calibrated_batch_iterations'] as num?)
         ?.toInt();
+    final group = json['group'] as String?;
+    final isBaseline = (json['is_baseline'] as bool?) ?? false;
 
     return BenchmarkEntry(
       name: rawName,
@@ -197,6 +209,8 @@ final class const BenchmarkEntry({
       rawTrialsNs: rawTrials,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatch,
+      group: group,
+      isBaseline: isBaseline,
     );
   }
 
@@ -273,6 +287,21 @@ final class const BenchmarkSuiteResult({
     }
     return set.toList()..sort();
   }
+
+  /// Returns distinct benchmark group names sorted alphabetically.
+  List<String> get groups {
+    final set = <String>{};
+    for (final entry in benchmarks) {
+      if (entry.group != null && entry.group!.isNotEmpty) {
+        set.add(entry.group!);
+      }
+    }
+    return set.toList()..sort();
+  }
+
+  /// Returns all entries belonging to [groupName].
+  List<BenchmarkEntry> getEntriesForGroup(String groupName) =>
+      benchmarks.where((e) => e.group == groupName).toList();
 
   /// Performs a deterministic deep-merge of [other] into this suite result.
   ///

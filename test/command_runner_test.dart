@@ -263,5 +263,130 @@ void main(List<String> args) => mainBenchmark(SmokeBenchmark(), args);
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('run subcommand executes BenchmarkGroup and records groups', () async {
+      final tempDir = Directory.systemTemp.createTempSync('group_runner_test_');
+      try {
+        final benchFile = File(p.join(tempDir.path, 'group_bench.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final BenchmarkGroup stringGroup = BenchmarkGroup('String Group', [
+  BenchmarkVariant('concat', () => Blackhole.consume(1), isBaseline: true),
+  BenchmarkVariant('buffer', () => Blackhole.consume(2)),
+]);
+
+final List<Object> benchmarks = [stringGroup];
+
+void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
+''');
+
+        final outputFile = File(p.join(tempDir.path, 'group_results.json'));
+        final runner = BenchPressCommandRunner();
+
+        final exitCode = await runner.run([
+          'run',
+          '-t',
+          'jit',
+          '--trials',
+          '2',
+          '--force-run',
+          '--save',
+          outputFile.path,
+          benchFile.path,
+        ]);
+
+        check(exitCode).equals(0);
+        check(outputFile.existsSync()).isTrue();
+
+        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        check(suite.benchmarks.length).equals(2);
+        check(suite.groups).contains('String Group');
+
+        final concat = suite.findEntry('concat', 'jit');
+        check(concat).isNotNull();
+        check(concat!.isBaseline).isTrue();
+        check(concat.group).equals('String Group');
+
+        final buffer = suite.findEntry('buffer', 'jit');
+        check(buffer).isNotNull();
+        check(buffer!.isBaseline).isFalse();
+        check(buffer.group).equals('String Group');
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'run subcommand with --diff against baseline JSON file renders delta',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('diff_run_test_');
+        try {
+          final baseFile = File(p.join(tempDir.path, 'baseline.json'));
+          const env = EnvironmentInfo(
+            dartVersion: '3.14.0',
+            os: 'linux',
+            arch: 'x64',
+          );
+          const baseEntry = BenchmarkEntry(
+            name: 'diff_target',
+            target: 'jit',
+            mode: 'sync',
+            samples: 5,
+            metrics: BenchmarkMetrics(
+              meanNs: 1000.0,
+              medianNs: 1000.0,
+              minNs: 950.0,
+              maxNs: 1050.0,
+              stddevNs: 10.0,
+              cv: 0.01,
+              p95Ns: 1020.0,
+              p99Ns: 1040.0,
+              opsPerSec: 1000000.0,
+              isStable: true,
+            ),
+            rawTrialsNs: [980.0, 1000.0, 1020.0],
+          );
+          final baseSuite = BenchmarkSuiteResult(
+            version: currentTelemetrySchemaVersion,
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: [baseEntry],
+          );
+          baseSuite.saveToFile(baseFile);
+
+          final benchFile = File(p.join(tempDir.path, 'bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class DiffTarget extends Benchmark {
+  DiffTarget() : super('diff_target');
+  @override
+  void run() => Blackhole.consume(42);
+}
+
+void main(List<String> args) => mainBenchmark(DiffTarget(), args);
+''');
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'run',
+            '-t',
+            'jit',
+            '--trials',
+            '2',
+            '--force-run',
+            '--no-save',
+            '--diff',
+            baseFile.path,
+            benchFile.path,
+          ]);
+
+          check(exitCode).equals(0);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }

@@ -100,10 +100,15 @@ final class RunCommand({
         defaultsTo: defaultTelemetryFileName,
         help: 'File path to save/merge benchmark suite results JSON.',
       )
-      ..addFlag(
+      ..addOption(
         'save',
-        defaultsTo: true,
-        help: 'Save/merge JSON results to the output file.',
+        abbr: 's',
+        help: 'File path to save/merge benchmark suite results JSON.',
+      )
+      ..addFlag(
+        'no-save',
+        negatable: false,
+        help: 'Do not save/merge JSON results to disk.',
       )
       ..addOption(
         'trials',
@@ -122,8 +127,8 @@ final class RunCommand({
       ..addOption(
         'diff',
         help:
-            'Git reference (e.g. HEAD~1, main) to diff results against '
-            'in-memory.',
+            'Baseline JSON file path OR Git ref (e.g. HEAD~1, main) to diff '
+            'results against.',
       )
       ..addFlag(
         'fail-on-unstable',
@@ -166,8 +171,10 @@ final class RunCommand({
       return ExitCode.software.code;
     }
 
-    final outputPath = argResults!.option('output')!;
-    final shouldSave = argResults!.flag('save');
+    final noSave = argResults!.flag('no-save');
+    final saveOption = argResults!.option('save');
+    final outputPath = saveOption ?? argResults!.option('output')!;
+    final shouldSave = !noSave;
     final format = argResults!.option('format')!;
     final title = argResults!.option('title');
     final diffRef = argResults!.option('diff');
@@ -315,6 +322,25 @@ final class RunCommand({
     }
 
     if (diffRef != null && diffRef.isNotEmpty) {
+      final diffFile = File(diffRef);
+      if (diffFile.existsSync()) {
+        try {
+          final baselineSuite = BenchmarkSuiteResult.loadFromFile(diffFile);
+          final report = MarkdownReporter.renderDeltaTable(
+            baseline: baselineSuite,
+            current: suite,
+            title: title ?? 'Baseline Delta: `$diffRef`',
+            baselineLabel: 'Baseline ($diffRef)',
+            currentLabel: 'Current',
+          );
+          stdout.writeln(report);
+          return;
+        } on Object catch (e) {
+          stderr.writeln(
+            'Warning: Failed to load baseline from "$diffRef": $e',
+          );
+        }
+      }
       final report = GitDiffReporter.renderGitDiffReport(
         gitRef: diffRef,
         filePath: outputPath,
