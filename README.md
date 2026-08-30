@@ -1,373 +1,163 @@
 A modern, statistically sound, compiler-aware multi-runtime benchmarking
 framework for Dart and Flutter.
 
-## Motivation: The Problem with `package:benchmark_harness`
+## Highlights
 
-The legacy `package:benchmark_harness` was built for early Dart VM JIT execution
-and exhibits fundamental design flaws in modern optimizing compiler environments:
+* **Multi-Runtime Orchestration**: Run benchmarks across VM JIT (`dart run`), Native AOT (`dart compile exe`), WebAssembly (`dart compile wasm`), and JavaScript (`dart compile js`) with a single command.
+* **Dead Code Elimination (DCE) Barrier**: `Blackhole` prevents optimizing compilers (LLVM, Binaryen, V8) from erasing benchmark loops while maintaining zero per-iteration heap allocations.
+* **Automated Warmup Detection**: Adaptive Kallithea-Borg Self-Stopping Detection (KBSSD) determines true steady-state execution so you never have to guess warmup iteration counts.
+* **Payload-Aware Throughput**: Sealed `Throughput.bytes` and `Throughput.elements` automatically calculate and format rates (`MB/s`, `GB/s`, `items/s`).
+* **Implementation Comparisons**: `BenchmarkGroup` compares multiple implementations within a run (e.g. `concat` vs `StringBuffer`), computing speedup multipliers and exact Fieller 95% confidence intervals.
+* **Git Baseline Diffing**: `--diff <ref>` compares live runs against prior git commits (or stored JSON baselines) with isolated Before vs. After delta tables.
+* **GitHub-Ready Markdown Reports**: Generates clean, publication-ready Markdown tables and structured JSON telemetry.
 
-1. **Dead Code Elimination (DCE) Vulnerability**: Modern Dart AOT (`dart compile
-   exe`), WasmGC (`dart compile wasm`), and dart2js (`-O4`) compilers
-   aggressively optimize away loops whose computed values are not consumed.
-   Unprotected benchmark loops often measure 0 ns simply because the compiler
-   erased the entire computation.
-2. **Naive Single-Shot Timing**: It relies on coarse millisecond wall-clock
-   increments without steady-state warmup convergence, outlier detection, or
-   statistical variance tracking.
-3. **No Multi-Runtime Orchestration**: It cannot coordinate or compare results
-   across compilation targets (VM JIT, AOT, WasmGC, JS) or automate Node.js / D8
-   subprocesses.
-4. **No Statistically Sound Diffs**: It prints ad-hoc iteration counts without
-   structured JSON telemetry, baseline tracking, or ratio confidence intervals.
+---
 
-`bench_press` solves these challenges with compiler-aware DCE barriers,
-monomorphic batch measurement loops, automated steady-state warmup detection,
-and cross-target CLI orchestration.
+## Quickstart
 
-## Core Primitives & Compiler Awareness
+Add `bench_press` to your `pubspec.yaml`:
 
-### 1. `Blackhole` DCE Barrier
-
-`Blackhole` prevents optimizing compilers from eliminating benchmarked
-computations without introducing per-iteration heap allocations.
-
-```dart
-// DCE Hazard: Compiler can eliminate the entire loop in AOT / Wasm
-for (var i = 0; i < count; i++) {
-  parser.parse(bytes);
-}
-
-// Protected: Blackhole retains computation across all compiler backends
-for (var i = 0; i < count; i++) {
-  Blackhole.consume(parser.parse(bytes));
-}
+```yaml
+dev_dependencies:
+  bench_press: ^0.1.0-wip
 ```
 
-* **Opaque Static Buffer**: Writes values into an 8-slot array
-  (`_sink[_index++ & 7] = value`), forcing compilers across VM JIT, AOT, WasmGC,
-  and dart2js to retain computation outputs.
-* **Cross-Backend Inlining Pragmas**: Tagged with `@pragma('vm:prefer-inline')`,
-  `@pragma('wasm:prefer-inline')`, and `@pragma('dart2js:prefer-inline')` to
-  eliminate call overhead.
-* **Terminal Drain**: `Blackhole.drain()` computes a bitwise checksum of all
-  buffer slots and resets the sink, ensuring memory isolation between trials.
+### 1. Write a Benchmark
 
-### 2. Monomorphic Inner Batch Loops
-
-Measuring high-frequency operations (< 1 µs) directly with individual timer
-calls introduces severe measurement noise and quantization error.
-
-* **Batch Calibration**: Automatically scales batch size `N` so that each
-  timed batch takes >= 10 ms (minimizing timer quantization to < 0.1%).
-* **Single Monotonic Timer Read**: Reads the monotonic clock once per batch and
-  computes mean iteration latency by dividing by `N`.
-* **Zero Polymorphic Dispatch**: Runs a tight, monomorphic loop without
-  per-iteration function pointers or dynamic dispatch.
-* **No Empty Loop Subtraction**: `bench_press` intentionally avoids subtracting
-  empty loop timings, as modern superscalar CPUs parallelize loop control
-  instructions across independent execution ports.
-
-## Statistical Rigor & Steady-State Detection
-
-### 1. KBSSD Warmup Convergence
-
-`bench_press` implements Kallithea-Borg Self-Stopping Detection (KBSSD) to
-determine when a benchmark has achieved true steady-state execution:
-
-* **Sliding Window MMD**: Computes Maximum Mean Discrepancy across consecutive
-  sample windows to detect distribution shifts.
-* **MAD Dynamic Thresholding**: Scales convergence thresholds dynamically using
-  Median Absolute Deviation.
-* **SEM Practical Steady-State Check**: Accepts convergence if:
-  `1.96 * SEM <= 0.03 * Mean`
-* **Patience Budget Fallback**: If warmup does not converge within the budget
-  (e.g., 200 iterations), it selects the lowest MMD window, flags
-  `isStable: false`, and logs a warning.
-
-### 2. Calibration Guards
-
-* **Runtime Bounds**: Enforces runtime bounds (10 µs to 200 ms).
-* **Spectre Coarse Timer Virtualization**: Accommodates timer virtualization
-  under browser environments (`dart.library.js_interop`).
-* **Bypass Flag**: Use `--force-run` to bypass calibration safety bounds during
-  development.
-
-### 3. Fieller's Confidence Intervals
-
-When computing speedup ratios between baseline and candidate branches,
-`bench_press` computes exact 95% confidence intervals using Fieller's theorem
-on the speedup ratio (mean_baseline / mean_candidate).
-
-## Telemetry & JSON Persistence
-
-Results are persisted to canonical JSON (`benchmark_results.json`) with
-deterministic deep-merging by `(name, target)`:
-
-```json
-{
-  "version": 1,
-  "timestamp": "2026-08-30T00:00:00.000Z",
-  "environment": {
-    "dart_version": "3.14.0",
-    "os": "linux",
-    "arch": "x64"
-  },
-  "benchmarks": [
-    {
-      "name": "json_decode/small",
-      "target": "wasm",
-      "mode": "sync",
-      "samples": 15,
-      "metrics": {
-        "mean_ns": 412.5,
-        "median_ns": 410.2,
-        "min_ns": 405.0,
-        "max_ns": 435.1,
-        "stddev_ns": 8.4,
-        "ops_per_sec": 2424242.4,
-        "is_stable": true
-      }
-    }
-  ]
-}
-```
-
-## API Guide & Usage
-
-### 1. Synchronous Benchmark
-
-```dart
-import 'package:bench_press/bench_press.dart';
-
-final class StringConcatBenchmark extends Benchmark {
-  StringConcatBenchmark() : super('string/plus_concat');
-
-  @override
-  void run() {
-    var str = '';
-    for (var i = 0; i < 50; i++) {
-      str += 'token';
-    }
-    Blackhole.consume(str);
-  }
-}
-
-void main() {
-  final result = StringConcatBenchmark().report();
-  print('Mean: ${result.metrics.meanNs.toStringAsFixed(1)} ns');
-}
-```
-
-### 2. Asynchronous Benchmark
-
-```dart
-import 'package:bench_press/bench_press.dart';
-
-final class AsyncFetchBenchmark extends AsyncBenchmark {
-  AsyncFetchBenchmark() : super('async/fetch_batch');
-
-  @override
-  Future<void> run() async {
-    final data = await Future.microtask(() => 42);
-    Blackhole.consume(data);
-  }
-}
-
-Future<void> main() async {
-  final result = await AsyncFetchBenchmark().report();
-  print('Ops/sec: ${result.metrics.opsPerSec.toStringAsFixed(0)}');
-}
-```
-
-### 3. Compositional Functional Variants
+Create a benchmark file in `benchmark/` (e.g. `benchmark/json_benchmark.dart`):
 
 ```dart
 import 'dart:convert';
 import 'package:bench_press/bench_press.dart';
 
-final variant = BenchmarkVariant(
-  'json/encode_variant',
-  () {
-    final json = jsonEncode({'key': 'value', 'count': 100});
-    Blackhole.consume(json);
-  },
-  throughput: const Throughput.bytes(32),
-);
+final class JsonDecodeBenchmark extends Benchmark {
+  final String _payload;
 
-Future<void> main() async {
-  await variant.report();
-}
-```
-
-### 4. Data & Element Throughput (`Throughput.bytes` / `Throughput.elements`)
-
-For codecs, serializers, crypto, and collection benchmarks, declare `throughput` to automatically calculate and format data rates (`MB/s`, `GB/s`) or item processing rates (`items/s`, `records/s`):
-
-```dart
-// Byte-volume data throughput (codecs, crypto, compression)
-final class JsonParserBenchmark extends Benchmark {
-  final List<int> _bytes;
-  JsonParserBenchmark(this._bytes) : super('json/parse');
-
-  @override
-  Throughput get throughput => Throughput.bytes(_bytes.length);
-
-  @override
-  void run() => Blackhole.consume(jsonDecode(utf8.decode(_bytes)));
-}
-
-// Discrete element throughput (collections, event queues, AST nodes)
-final class ListSortBenchmark extends Benchmark {
-  final List<int> _numbers;
-  ListSortBenchmark(this._numbers) : super('list/sort');
+  JsonDecodeBenchmark(this._payload) : super('json_decode');
 
   @override
   Throughput get throughput =>
-      Throughput.elements(_numbers.length, unit: 'items');
+      Throughput.bytes(utf8.encode(_payload).length);
 
   @override
   void run() {
-    final copy = List<int>.of(_numbers)..sort();
-    Blackhole.consume(copy);
+    Blackhole.consume(jsonDecode(_payload));
   }
 }
+
+void main(List<String> args) =>
+    mainBenchmark(args, () => JsonDecodeBenchmark('{"key": "value"}'));
 ```
 
-### 5. Model 1: Intra-Run Apples-to-Apples Comparison Groups
+### 2. Compare Implementations (`BenchmarkGroup`)
 
-Use `BenchmarkGroup` to evaluate competing algorithmic implementations executed within the **exact same process and thermal envelope**:
+Compare competing algorithms or packages against a baseline in a single run:
 
 ```dart
 import 'package:bench_press/bench_press.dart';
 
-// Option A: BenchmarkGroup with declared baseline
-final stringGroup = BenchmarkGroup('String Construction', [
-  BenchmarkVariant('concat', () {
-    var s = '';
-    for (var i = 0; i < 50; i++) s += 'token';
-    Blackhole.consume(s);
-  }, isBaseline: true), // Reference baseline
+final class StringConcatBenchmark extends Benchmark {
+  StringConcatBenchmark() : super('concat');
 
-  BenchmarkVariant('string_buffer', () {
+  @override
+  void run() {
+    var str = '';
+    for (var i = 0; i < 100; i++) {
+      str += 'x';
+    }
+    Blackhole.consume(str);
+  }
+}
+
+final class StringBufferBenchmark extends Benchmark {
+  StringBufferBenchmark() : super('buffer');
+
+  @override
+  void run() {
     final sb = StringBuffer();
-    for (var i = 0; i < 50; i++) sb.write('token');
+    for (var i = 0; i < 100; i++) {
+      sb.write('x');
+    }
     Blackhole.consume(sb.toString());
-  }),
+  }
+}
 
-  BenchmarkVariant('join', () {
-    final list = List.filled(50, 'token');
-    Blackhole.consume(list.join());
-  }),
-]);
-
-// Option B: Declarative Matrix Builder
-final jsonSuite = BenchmarkGroup.compare(
-  name: 'JSON Deserialization',
-  baseline: ('dart:convert', () => jsonDecode(payload)),
-  candidates: {
-    'custom_buffer': () => CustomBufferDecoder.decode(payload),
-    'fast_parser': () => FastParser.parse(payload),
-  },
-);
+void main(List<String> args) => mainBenchmarkGroup(
+      args,
+      BenchmarkGroup('String Group', [
+        BenchmarkVariant(
+          'concat',
+          () => StringConcatBenchmark(),
+          isBaseline: true,
+        ),
+        BenchmarkVariant('buffer', () => StringBufferBenchmark()),
+      ]),
+    );
 ```
 
-#### Automatic Implementation Comparison Table
-
-When grouped benchmarks are executed, `bench_press` automatically renders a direct variant comparison table with exact 95% Fieller confidence intervals:
-
-<!-- mdformat off(prevent table wrapping) -->
-| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | Speedup Ratio | 95% Confidence Interval | Status |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `concat` (Baseline) | 163,288 ops/s | 6.12 µs | 1.00x (ref) | 1.00x | [1.00x – 1.00x] | Ref |
-| `string_buffer` | 727,840 ops/s | 1.37 µs | **4.47x faster** | 4.47x | **[4.38x – 4.56x]** | Peak |
-| `join` | 727,566 ops/s | 1.37 µs | **4.46x faster** | 4.46x | **[4.37x – 4.55x]** | Fast |
-<!-- mdformat on -->
-
-### 6. Benchmark Suites
-
-Export a top-level `benchmarks` list to enable CLI auto-discovery:
+### 3. Asynchronous Benchmarks (`AsyncBenchmark`)
 
 ```dart
+import 'dart:async';
 import 'package:bench_press/bench_press.dart';
 
-final benchmarks = <Object>[
-  StringConcatBenchmark(),
-  AsyncFetchBenchmark(),
-  variant,
-  stringGroup,
-];
+final class AsyncFetchBenchmark extends AsyncBenchmark {
+  AsyncFetchBenchmark() : super('async_fetch');
 
-void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
+  @override
+  Future<void> run() async {
+    final result = await doAsyncWork();
+    Blackhole.consume(result);
+  }
+}
+
+void main(List<String> args) =>
+    mainAsyncBenchmark(args, () => AsyncFetchBenchmark());
 ```
 
-## CLI Guide (`bench_press`)
+---
 
-`bench_press` includes a multi-runtime CLI orchestrator:
+## CLI Guide
 
-```bash
-dart run bench_press <command> [arguments]
-```
-
-### Subcommands
-
-#### `run`
-Compiles and executes benchmarks across target runtimes:
+Run benchmarks using the `bench_press` CLI:
 
 ```bash
-# Run on VM JIT (default)
+# Run on default target (JIT)
 dart run bench_press run benchmark/
 
-# Run across all supported compilation targets (JIT, AOT, WasmGC, JS)
-dart run bench_press run -t jit -t aot -t wasm -t js benchmark/
+# Run across multiple runtime targets (JIT, AOT, WasmGC, JS)
+dart run bench_press run -t jit -t aot -t wasm benchmark/
 
-# Model 2: Live diffing against a baseline JSON file or Git reference
-dart run bench_press run --diff main benchmark/
-dart run bench_press run --diff baseline.json benchmark/
-
-# Save/merge results to a specific telemetry file
-dart run bench_press run --save baseline.json benchmark/
-
-# Fast local iteration via Dart isolates
-dart run bench_press run --isolate-mode benchmark/
-
-# Exit with non-zero status if any benchmark fails steady-state warmup
-dart run bench_press run --fail-on-unstable benchmark/
-```
-
-#### `validate`
-Fast ~2s smoke verification checking syntax and runtime health across
-compilers:
-
-```bash
+# Fast validation smoke-test (verifies build & runtime health in ~2s)
 dart run bench_press validate benchmark/
 ```
 
-#### `report`
-Rehydrates and formats Markdown summary tables from saved JSON telemetry:
+### Comparing Against Git Baselines (`--diff`)
+
+Diff current code against a prior git commit or baseline JSON:
 
 ```bash
-dart run bench_press report -f benchmark_results.json
+# Measure current code and compare against main
+dart run bench_press run --diff origin/main benchmark/
+
+# Save baseline for subsequent comparisons
+dart run bench_press run --save baseline.json benchmark/
+
+# Diff against saved baseline
+dart run bench_press run --diff baseline.json benchmark/
 ```
 
-#### `diff`
-Computes isolated Before-vs-After delta tables against git history or a baseline
-JSON file:
+### CI / Automation Integration
 
 ```bash
-# Diff current telemetry against main branch in git
-dart run bench_press diff -b main -c benchmark_results.json
-
-# Diff against a specific baseline JSON file
-dart run bench_press diff -b baseline_results.json -c benchmark_results.json
+# Fail CI build with non-zero exit code if any benchmark is unstable
+dart run bench_press run --fail-on-unstable -t jit,aot benchmark/
 ```
 
-## Continuous Integration (GitHub Actions)
-
-Add the following workflow to `.github/workflows/ci.yaml` to validate
-benchmarks on every push and pull request:
+Example GitHub Actions workflow:
 
 ```yaml
-name: CI
+name: Benchmarks
 
 on:
   push:
@@ -376,7 +166,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  benchmark:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -395,31 +185,19 @@ jobs:
       - name: Install dependencies
         run: dart pub get
 
-      - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed .
-
-      - name: Analyze project
-        run: dart analyze --fatal-infos
-
-      - name: Run test suite
-        run: dart test
-
       - name: Validate benchmark suite
         run: dart run bin/bench_press.dart validate benchmark/
 ```
 
-## References & Prior Art
+---
 
-`bench_press` builds upon established statistical and virtual machine benchmarking literature:
+## Architecture & Statistical Methodology
 
-- **Warmup & Steady-State Convergence**:
-  - Georges et al., [Statistically Rigorous Java Performance Evaluation](https://doi.org/10.1145/1297027.1297033) (OOPSLA 2007)
-  - Kalibera & Jones, [Rigorous Benchmarking in Reasonable Time](https://doi.org/10.1145/2464157.2464160) (ISMM 2013)
-  - Barrett et al., [Virtual Machine Warmup Blows Hot and Cold](https://doi.org/10.1145/3133882) (OOPSLA 2017)
-- **Kernel Two-Sample Testing (MMD)**:
-  - Gretton et al., [A Kernel Two-Sample Test](https://jmlr.org/papers/v13/gretton12a.html) (JMLR 2012)
-- **Ratio Confidence Intervals**:
-  - Fieller, [Some Problems in Interval Estimation](https://doi.org/10.1111/j.2517-6161.1954.tb00159.x) (JRSS 1954)
+For in-depth details on compiler mechanics, `Blackhole` static sinks, KBSSD sliding-window MMD warmup convergence, and Fieller ratio confidence intervals, see:
+
+* [**Architecture & Statistical Methodology**](doc/background.md)
+
+---
 
 ## License
 
