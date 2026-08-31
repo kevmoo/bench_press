@@ -1,4 +1,4 @@
-## 0.1.0-wip
+## 0.1.0
 
 - Initial release of `bench_press`: A modern, statistically sound, compiler-aware multi-runtime benchmarking framework for Dart and Flutter.
 - **Layer 0 (Primitives & Sinks)**:
