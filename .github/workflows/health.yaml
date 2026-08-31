@@ -1,0 +1,16 @@
+name: Health
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  health:
+    if: ${{ github.repository_owner == 'kevmoo' }}
+    uses: dart-lang/ecosystem/.github/workflows/health.yaml@main
+    with:
+      sdk: dev
+      checks: "changelog,coverage,breaking,do-not-submit,leaking,unused-dependencies"
+    permissions:
+      pull-requests: write

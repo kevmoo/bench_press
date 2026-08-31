@@ -103,5 +103,46 @@ void main() {
       check(json['is_valid']).equals(true);
       check(json['confidence_level']).equals(0.95);
     });
+
+    test('FiellerInterval toString returns formatted string', () {
+      const fieller = FiellerInterval(
+        ratio: 0.5,
+        lowerBound: 0.45,
+        upperBound: 0.55,
+        g: 0.01,
+        isValid: true,
+      );
+
+      check(fieller.toString()).contains('FiellerInterval(ratio: 0.500');
+      check(fieller.toString()).contains('CI_95%: [0.450, 0.550]');
+    });
+
+    test(
+      'normalQuantile and studentTQuantile throw on out-of-range inputs',
+      () {
+        check(() => normalQuantile(0.0)).throws<ArgumentError>();
+        check(() => normalQuantile(1.0)).throws<ArgumentError>();
+        check(() => normalQuantile(-0.5)).throws<ArgumentError>();
+        check(() => normalQuantile(1.5)).throws<ArgumentError>();
+
+        check(() => studentTQuantile(0.5, 10.0)).throws<ArgumentError>();
+        check(() => studentTQuantile(1.0, 10.0)).throws<ArgumentError>();
+      },
+    );
+
+    test('normalQuantile computes accurate extreme lower and upper tails', () {
+      // Lower tail (p < 0.02425)
+      final lowerZ = normalQuantile(0.001);
+      check((lowerZ - (-3.09023)).abs()).isLessThan(1e-4);
+
+      // Upper tail (p > 0.97575)
+      final upperZ = normalQuantile(0.999);
+      check((upperZ - 3.09023).abs()).isLessThan(1e-4);
+    });
+
+    test('studentTQuantile handles df < 1.0 gracefully', () {
+      final t = studentTQuantile(0.975, 0.5);
+      check((t - 12.7062).abs()).isLessThan(0.01);
+    });
   });
 }

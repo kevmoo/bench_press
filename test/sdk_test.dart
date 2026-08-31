@@ -32,11 +32,66 @@ void main() {
       check(defaultTargets).deepEquals([TargetRuntime.jit]);
 
       check(() => TargetRuntime.parseTargets(['invalid_target']))
-          .throws<ArgumentError>();
+          .throws<FormatException>();
+    });
+    test('TargetRuntime toString returns canonical name', () {
+      check(TargetRuntime.jit.toString()).equals('jit');
+      check(TargetRuntime.aot.toString()).equals('aot');
+      check(TargetRuntime.wasm.toString()).equals('wasm');
+      check(TargetRuntime.js.toString()).equals('js');
+    });
+
+    test('parseTargets handles empty parts and whitespace', () {
+      final targets = TargetRuntime.parseTargets([' jit , , aot ']);
+      check(targets).deepEquals([TargetRuntime.jit, TargetRuntime.aot]);
     });
   });
 
   group('DartSdk Discovery & Utilities', () {
+    test('probes FLUTTER_ROOT when DART_SDK is absent', () {
+      final tempDir = Directory.systemTemp.createTempSync('flutter_sdk_');
+      try {
+        final dartSdkDir = Directory(
+          p.join(tempDir.path, 'bin', 'cache', 'dart-sdk', 'bin'),
+        )..createSync(recursive: true);
+        File(p.join(dartSdkDir.path, 'dart')).writeAsStringSync('');
+        File(p.join(tempDir.path, 'bin', 'cache', 'dart-sdk', 'version'))
+            .writeAsStringSync('3.14.0\n');
+
+        final sdk = DartSdk(
+          environment: {'FLUTTER_ROOT': tempDir.path, 'PATH': ''},
+        );
+        check(sdk.sdkPath).isNotNull();
+        check(sdk.sdkPath!).contains('dart-sdk');
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('packageConfigPath resolves active config or fallback', () {
+      const sdk = DartSdk();
+      final configPath = sdk.packageConfigPath;
+      if (configPath != null) {
+        check(File(configPath).existsSync()).isTrue();
+      }
+    });
+
+    test('runner getters detect node and d8 on PATH', () {
+      final tempDir = Directory.systemTemp.createTempSync('runners_bin_');
+      try {
+        File(p.join(tempDir.path, 'node')).writeAsStringSync('');
+        File(p.join(tempDir.path, 'd8')).writeAsStringSync('');
+
+        final sdk = DartSdk(environment: {'PATH': tempDir.path});
+        check(sdk.nodeExecutable).isNotNull();
+        check(sdk.d8Executable).isNotNull();
+        check(sdk.hasWasmRunner).isTrue();
+        check(sdk.hasJsRunner).isTrue();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
     test('isValidSdkPath accurately validates directory structures', () {
       final tempDir = Directory.systemTemp.createTempSync('sdk_test_');
       try {
