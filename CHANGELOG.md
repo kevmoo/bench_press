@@ -1,3 +1,7 @@
+## 0.1.1-wip
+
+- Added `--compare-sdk` multi-option flag to `bench_press run` to isolate and strictly evaluate target performance characteristics against different Dart SDK paths using mathematically sound Fieller 95% ratio confidence interval deltas.
+
 ## 0.1.0
 
 - Initial release of `bench_press`: A modern, statistically sound, compiler-aware multi-runtime benchmarking framework for Dart and Flutter.

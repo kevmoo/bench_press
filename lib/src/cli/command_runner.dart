@@ -143,6 +143,10 @@ final class RunCommand({
         'vm-flag',
         help: 'Extra flags forwarded to Dart VM or Node/D8 runner.',
       )
+      ..addMultiOption(
+        'compare-sdk',
+        help: 'Compare additional Dart SDKs (format: Label=Path).',
+      )
       ..addOption(
         'format',
         defaultsTo: 'markdown',
@@ -169,7 +173,18 @@ final class RunCommand({
       return ExitCode.noInput.code;
     }
 
-    final accumulated = await _executeDiscoveredFiles(files, targets);
+    final compareSdks = argResults!.multiOption('compare-sdk');
+    final toolchains = _setupToolchains(compareSdks);
+    if (toolchains == null) {
+      return ExitCode.usage.code;
+    }
+
+    final accumulated = await _executeDiscoveredFiles(
+      files,
+      targets,
+      toolchains.compilers,
+      toolchains.processRunners,
+    );
     if (accumulated == null || accumulated.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
       return ExitCode.software.code;
@@ -194,6 +209,7 @@ final class RunCommand({
       title: title,
       diffRef: diffRef,
       outputPath: outputPath,
+      isComparison: compareSdks.isNotEmpty,
     );
 
     if (failOnUnstable && _hasUnstableBenchmark(finalSuite)) {
@@ -206,39 +222,115 @@ final class RunCommand({
     return ExitCode.success.code;
   }
 
+  ({
+    Map<String, TargetCompiler> compilers,
+    Map<String, BenchmarkProcessRunner> processRunners,
+  })?
+  _setupToolchains(List<String> compareSdks) {
+    final sdkMap = <String, DartSdk>{};
+    if (compareSdks.isEmpty || compareSdks.length == 1) {
+      sdkMap['Default'] = sdk;
+    }
+    for (final opt in compareSdks) {
+      final parts = opt.split('=');
+      if (parts.length != 2) {
+        stderr.writeln(
+          'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
+        );
+        return null;
+      }
+      sdkMap[parts[0]] = DartSdk(customSdkPath: parts[1]);
+    }
+
+    final processRunners = <String, BenchmarkProcessRunner>{};
+    final compilers = <String, TargetCompiler>{};
+    for (final entry in sdkMap.entries) {
+      if (identical(entry.value, sdk)) {
+        compilers[entry.key] = compiler;
+        processRunners[entry.key] = processRunner;
+      } else {
+        compilers[entry.key] = TargetCompiler(sdk: entry.value);
+        processRunners[entry.key] = BenchmarkProcessRunner(sdk: entry.value);
+      }
+    }
+    return (compilers: compilers, processRunners: processRunners);
+  }
+
   Future<BenchmarkSuiteResult?> _executeDiscoveredFiles(
     List<DiscoveredBenchmarkFile> files,
     List<TargetRuntime> targets,
+    Map<String, TargetCompiler> compilers,
+    Map<String, BenchmarkProcessRunner> processRunners,
   ) async {
-    final buildDir = Directory(
-      p.join('.dart_tool', 'bench_press', 'generated'),
-    );
     final trials = int.tryParse(argResults!.option('trials') ?? '');
     final forceRun = argResults!.flag('force-run');
     final isolateMode = argResults!.flag('isolate-mode');
     final compilerFlags = argResults!.multiOption('compiler-flag');
     final vmFlags = argResults!.multiOption('vm-flag');
+    final isComparison = argResults!.multiOption('compare-sdk').isNotEmpty;
 
     BenchmarkSuiteResult? accumulated;
 
     for (final discovered in files) {
-      final executionFile = _resolveExecutionFile(discovered, buildDir);
       for (final runtime in targets) {
-        final result = await _executeSingleTarget(
+        final result = await _executeTargetAcrossSdks(
           discovered: discovered,
-          executionFile: executionFile,
           runtime: runtime,
+          compilers: compilers,
+          processRunners: processRunners,
           trials: trials,
           forceRun: forceRun,
           isolateMode: isolateMode,
           compilerFlags: compilerFlags,
           vmFlags: vmFlags,
+          isComparison: isComparison,
         );
         if (result != null) {
           accumulated = accumulated == null
               ? result
               : accumulated.deepMerge(result);
         }
+      }
+    }
+    return accumulated;
+  }
+
+  Future<BenchmarkSuiteResult?> _executeTargetAcrossSdks({
+    required DiscoveredBenchmarkFile discovered,
+    required TargetRuntime runtime,
+    required Map<String, TargetCompiler> compilers,
+    required Map<String, BenchmarkProcessRunner> processRunners,
+    required int? trials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> compilerFlags,
+    required List<String> vmFlags,
+    required bool isComparison,
+  }) async {
+    BenchmarkSuiteResult? accumulated;
+    for (final entry in compilers.entries) {
+      final label = entry.key;
+      final buildDir = Directory(
+        p.join('.dart_tool', 'bench_press', 'generated', label),
+      );
+      final executionFile = _resolveExecutionFile(discovered, buildDir);
+      final result = await _executeSingleTarget(
+        discovered: discovered,
+        executionFile: executionFile,
+        runtime: runtime,
+        trials: trials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        compilerFlags: compilerFlags,
+        vmFlags: vmFlags,
+        compiler: entry.value,
+        processRunner: processRunners[label]!,
+        sdkLabel: isComparison ? label : null,
+      );
+      if (result != null) {
+        accumulated = accumulated == null
+            ? result
+            : accumulated.deepMerge(result);
       }
     }
     return accumulated;
@@ -253,8 +345,11 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required TargetCompiler compiler,
+    required BenchmarkProcessRunner processRunner,
+    required String? sdkLabel,
   }) async {
-    if (!sdk.isRuntimeAvailable(runtime)) {
+    if (!compiler.sdk.isRuntimeAvailable(runtime)) {
       stderr.writeln('Warning: Runtime "$runtime" is not available.');
       return null;
     }
@@ -287,7 +382,19 @@ final class RunCommand({
       return null;
     }
 
-    return execResult.suiteResult;
+    var suiteResult = execResult.suiteResult!;
+    if (sdkLabel != null) {
+      final taggedBenchmarks = suiteResult.benchmarks
+          .map((b) => b.copyWith(group: sdkLabel))
+          .toList();
+      suiteResult = BenchmarkSuiteResult(
+        version: suiteResult.version,
+        timestamp: suiteResult.timestamp,
+        environment: suiteResult.environment,
+        benchmarks: taggedBenchmarks,
+      );
+    }
+    return suiteResult;
   }
 
   bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
@@ -319,43 +426,90 @@ final class RunCommand({
     String? title,
     String? diffRef,
     required String outputPath,
+    bool isComparison = false,
   }) {
     if (format == 'json') {
       stdout.writeln(suite.toFormattedJson());
       return;
     }
 
+    if (isComparison && _tryOutputComparisonReport(suite, title)) {
+      return;
+    }
+
     if (diffRef != null && diffRef.isNotEmpty) {
-      final diffFile = File(diffRef);
-      if (diffFile.existsSync()) {
-        try {
-          final baselineSuite = BenchmarkSuiteResult.loadFromFile(diffFile);
-          final report = MarkdownReporter.renderDeltaTable(
-            baseline: baselineSuite,
-            current: suite,
-            title: title ?? 'Baseline Delta: `$diffRef`',
-            baselineLabel: 'Baseline ($diffRef)',
-            currentLabel: 'Current',
-          );
-          stdout.writeln(report);
-          return;
-        } on Object catch (e) {
-          stderr.writeln(
-            'Warning: Failed to load baseline from "$diffRef": $e',
-          );
-        }
-      }
-      final report = GitDiffReporter.renderGitDiffReport(
-        gitRef: diffRef,
-        filePath: outputPath,
-        current: suite,
-        title: title,
+      _outputDiffReport(suite, diffRef, title, outputPath);
+      return;
+    }
+
+    final report = MarkdownReporter.renderSuite(
+      suite,
+      title: title ?? (isComparison ? 'SDK Comparison Report' : null),
+    );
+    stdout.writeln(report);
+  }
+
+  bool _tryOutputComparisonReport(BenchmarkSuiteResult suite, String? title) {
+    final sdks = suite.groups;
+    if (sdks.length < 2) return false;
+
+    final baseSdk = sdks[0];
+    final baseSuite = BenchmarkSuiteResult(
+      version: suite.version,
+      timestamp: suite.timestamp,
+      environment: suite.environment,
+      benchmarks: suite.getEntriesForGroup(baseSdk),
+    );
+    for (var i = 1; i < sdks.length; i++) {
+      final currentSdk = sdks[i];
+      final currentSuite = BenchmarkSuiteResult(
+        version: suite.version,
+        timestamp: suite.timestamp,
+        environment: suite.environment,
+        benchmarks: suite.getEntriesForGroup(currentSdk),
+      );
+      final report = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: currentSuite,
+        title: title ?? 'SDK Comparison: `$baseSdk` vs `$currentSdk`',
+        baselineLabel: baseSdk,
+        currentLabel: currentSdk,
       );
       stdout.writeln(report);
-    } else {
-      final report = MarkdownReporter.renderSuite(suite, title: title);
-      stdout.writeln(report);
     }
+    return true;
+  }
+
+  void _outputDiffReport(
+    BenchmarkSuiteResult suite,
+    String diffRef,
+    String? title,
+    String outputPath,
+  ) {
+    final diffFile = File(diffRef);
+    if (diffFile.existsSync()) {
+      try {
+        final baselineSuite = BenchmarkSuiteResult.loadFromFile(diffFile);
+        final report = MarkdownReporter.renderDeltaTable(
+          baseline: baselineSuite,
+          current: suite,
+          title: title ?? 'Baseline Delta: `$diffRef`',
+          baselineLabel: 'Baseline ($diffRef)',
+          currentLabel: 'Current',
+        );
+        stdout.writeln(report);
+        return;
+      } on Object catch (e) {
+        stderr.writeln('Warning: Failed to load baseline from "$diffRef": $e');
+      }
+    }
+    final report = GitDiffReporter.renderGitDiffReport(
+      gitRef: diffRef,
+      filePath: outputPath,
+      current: suite,
+      title: title,
+    );
+    stdout.writeln(report);
   }
 }
 
