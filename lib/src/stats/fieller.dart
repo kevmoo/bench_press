@@ -174,31 +174,36 @@ double studentTQuantile(double p, double df) {
       'Quantile probability must be between 0.5 and 1.0 for upper tail',
     );
   }
-  if (df < 1.0) {
-    df = 1.0;
-  }
+  final effectiveDf = df < 1.0 ? 1.0 : df;
 
-  if (df == 1.0) {
+  if (effectiveDf == 1.0) {
     return math.tan(math.pi * (p - 0.5));
   }
-  if (df == 2.0) {
+  if (effectiveDf == 2.0) {
     final alpha = 2.0 * (1.0 - p);
     return math.sqrt(2.0 / (alpha * (2.0 - alpha)) - 2.0);
   }
-  if (df > 1.0 && df < 2.0) {
-    final t1 = math.tan(math.pi * (p - 0.5));
-    final alpha = 2.0 * (1.0 - p);
-    final t2 = math.sqrt(2.0 / (alpha * (2.0 - alpha)) - 2.0);
-    final w = df - 1.0;
-    var t = t1 * (1.0 - w) + t2 * w;
-    for (var i = 0; i < 4; i++) {
-      final err = _studentTCdf(t, df) - p;
-      t -= err / _studentTPdf(t, df);
-    }
-    return t;
+  if (effectiveDf < 2.0) {
+    return _studentTQuantileSmallDf(p, effectiveDf);
   }
 
-  final n = df;
+  return _studentTQuantileHill(p, effectiveDf);
+}
+
+double _studentTQuantileSmallDf(double p, double df) {
+  final t1 = math.tan(math.pi * (p - 0.5));
+  final alpha = 2.0 * (1.0 - p);
+  final t2 = math.sqrt(2.0 / (alpha * (2.0 - alpha)) - 2.0);
+  final w = df - 1.0;
+  var t = t1 * (1.0 - w) + t2 * w;
+  for (var i = 0; i < 4; i++) {
+    final err = _studentTCdf(t, df) - p;
+    t -= err / _studentTPdf(t, df);
+  }
+  return t;
+}
+
+double _studentTQuantileHill(double p, double n) {
   final twoTailP = 2.0 * (1.0 - p);
   final a = 1.0 / (n - 0.5);
   final b = 48.0 / (a * a);
@@ -219,11 +224,7 @@ double studentTQuantile(double p, double df) {
         (((((0.4 * y + 6.3) * y + 36.0) * y + 94.5) / c - y - 3.0) / b + 1.0) *
         x;
     y = a * y * y;
-    if (y > 0.002) {
-      y = math.exp(y) - 1.0;
-    } else {
-      y = 0.5 * y * y + y;
-    }
+    y = y > 0.002 ? math.exp(y) - 1.0 : 0.5 * y * y + y;
   } else {
     y =
         ((1.0 / (((n + 6.0) / (n * y) - 0.089 * d - 0.822) * (n + 2.0) * 3.0) +
