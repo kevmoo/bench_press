@@ -174,39 +174,16 @@ final class RunCommand({
     }
 
     final compareSdks = argResults!.multiOption('compare-sdk');
-    final sdkMap = <String, DartSdk>{};
-    if (compareSdks.isEmpty) {
-      sdkMap['Default'] = sdk;
-    } else {
-      for (final opt in compareSdks) {
-        final parts = opt.split('=');
-        if (parts.length != 2) {
-          stderr.writeln(
-            'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
-          );
-          return ExitCode.usage.code;
-        }
-        sdkMap[parts[0]] = DartSdk(customSdkPath: parts[1]);
-      }
-    }
-
-    final processRunners = <String, BenchmarkProcessRunner>{};
-    final compilers = <String, TargetCompiler>{};
-    for (final entry in sdkMap.entries) {
-      if (entry.key == 'Default') {
-        compilers[entry.key] = compiler;
-        processRunners[entry.key] = processRunner;
-      } else {
-        compilers[entry.key] = TargetCompiler(sdk: entry.value);
-        processRunners[entry.key] = BenchmarkProcessRunner(sdk: entry.value);
-      }
+    final toolchains = _setupToolchains(compareSdks);
+    if (toolchains == null) {
+      return ExitCode.usage.code;
     }
 
     final accumulated = await _executeDiscoveredFiles(
       files,
       targets,
-      compilers,
-      processRunners,
+      toolchains.compilers,
+      toolchains.processRunners,
     );
     if (accumulated == null || accumulated.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
@@ -247,6 +224,41 @@ final class RunCommand({
     return ExitCode.success.code;
   }
 
+  ({
+    Map<String, TargetCompiler> compilers,
+    Map<String, BenchmarkProcessRunner> processRunners,
+  })?
+  _setupToolchains(List<String> compareSdks) {
+    final sdkMap = <String, DartSdk>{};
+    if (compareSdks.isEmpty) {
+      sdkMap['Default'] = sdk;
+    } else {
+      for (final opt in compareSdks) {
+        final parts = opt.split('=');
+        if (parts.length != 2) {
+          stderr.writeln(
+            'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
+          );
+          return null;
+        }
+        sdkMap[parts[0]] = DartSdk(customSdkPath: parts[1]);
+      }
+    }
+
+    final processRunners = <String, BenchmarkProcessRunner>{};
+    final compilers = <String, TargetCompiler>{};
+    for (final entry in sdkMap.entries) {
+      if (entry.key == 'Default') {
+        compilers[entry.key] = compiler;
+        processRunners[entry.key] = processRunner;
+      } else {
+        compilers[entry.key] = TargetCompiler(sdk: entry.value);
+        processRunners[entry.key] = BenchmarkProcessRunner(sdk: entry.value);
+      }
+    }
+    return (compilers: compilers, processRunners: processRunners);
+  }
+
   Future<BenchmarkSuiteResult?> _executeDiscoveredFiles(
     List<DiscoveredBenchmarkFile> files,
     List<TargetRuntime> targets,
@@ -258,44 +270,70 @@ final class RunCommand({
     final isolateMode = argResults!.flag('isolate-mode');
     final compilerFlags = argResults!.multiOption('compiler-flag');
     final vmFlags = argResults!.multiOption('vm-flag');
-    final compareSdks = argResults!.multiOption('compare-sdk');
-    final isComparison = compareSdks.isNotEmpty;
+    final isComparison = argResults!.multiOption('compare-sdk').isNotEmpty;
 
     BenchmarkSuiteResult? accumulated;
 
     for (final discovered in files) {
       for (final runtime in targets) {
-        // Alternate executions for identical thermal conditions.
-        for (final entry in compilers.entries) {
-          final label = entry.key;
-          final currentCompiler = entry.value;
-          final currentRunner = processRunners[label]!;
-
-          final buildDir = Directory(
-            p.join('.dart_tool', 'bench_press', 'generated', label),
-          );
-          final executionFile = _resolveExecutionFile(discovered, buildDir);
-
-          final result = await _executeSingleTarget(
-            discovered: discovered,
-            executionFile: executionFile,
-            runtime: runtime,
-            trials: trials,
-            forceRun: forceRun,
-            isolateMode: isolateMode,
-            compilerFlags: compilerFlags,
-            vmFlags: vmFlags,
-            compiler: currentCompiler,
-            processRunner: currentRunner,
-            sdkLabel: isComparison ? label : null,
-          );
-
-          if (result != null) {
-            accumulated = accumulated == null
-                ? result
-                : accumulated.deepMerge(result);
-          }
+        final result = await _executeTargetAcrossSdks(
+          discovered: discovered,
+          runtime: runtime,
+          compilers: compilers,
+          processRunners: processRunners,
+          trials: trials,
+          forceRun: forceRun,
+          isolateMode: isolateMode,
+          compilerFlags: compilerFlags,
+          vmFlags: vmFlags,
+          isComparison: isComparison,
+        );
+        if (result != null) {
+          accumulated = accumulated == null
+              ? result
+              : accumulated.deepMerge(result);
         }
+      }
+    }
+    return accumulated;
+  }
+
+  Future<BenchmarkSuiteResult?> _executeTargetAcrossSdks({
+    required DiscoveredBenchmarkFile discovered,
+    required TargetRuntime runtime,
+    required Map<String, TargetCompiler> compilers,
+    required Map<String, BenchmarkProcessRunner> processRunners,
+    required int? trials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> compilerFlags,
+    required List<String> vmFlags,
+    required bool isComparison,
+  }) async {
+    BenchmarkSuiteResult? accumulated;
+    for (final entry in compilers.entries) {
+      final label = entry.key;
+      final buildDir = Directory(
+        p.join('.dart_tool', 'bench_press', 'generated', label),
+      );
+      final executionFile = _resolveExecutionFile(discovered, buildDir);
+      final result = await _executeSingleTarget(
+        discovered: discovered,
+        executionFile: executionFile,
+        runtime: runtime,
+        trials: trials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        compilerFlags: compilerFlags,
+        vmFlags: vmFlags,
+        compiler: entry.value,
+        processRunner: processRunners[label]!,
+        sdkLabel: isComparison ? label : null,
+      );
+      if (result != null) {
+        accumulated = accumulated == null
+            ? result
+            : accumulated.deepMerge(result);
       }
     }
     return accumulated;
