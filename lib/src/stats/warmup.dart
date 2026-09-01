@@ -54,7 +54,8 @@ final class AdaptiveWarmupDetector({
   /// Whether the warmup detector has reached steady-state convergence.
   bool get isConverged => _isConverged;
 
-  /// Appends a new latency sample (in nanoseconds) and evaluates convergence.
+  /// Appends a new latency sample (in nanoseconds) and evaluates convergence at
+  /// half-window strides (windowSize ~/ 2).
   void addSample(double latencyNs) {
     _samples.add(latencyNs);
     final n = _samples.length;

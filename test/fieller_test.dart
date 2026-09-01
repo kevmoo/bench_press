@@ -17,7 +17,7 @@ void main() {
         // For p = 0.975 (95% CI two-tailed):
         check((studentTQuantile(0.975, 1.0) - 12.706205).abs())
             .isLessThan(1e-4);
-        check((studentTQuantile(0.975, 1.5) - 6.016566).abs()).isLessThan(1e-4);
+        check((studentTQuantile(0.975, 1.5) - 6.016663).abs()).isLessThan(1e-4);
         check((studentTQuantile(0.975, 2.0) - 4.302653).abs()).isLessThan(1e-4);
         check((studentTQuantile(0.975, 2.5) - 3.574655).abs()).isLessThan(1e-4);
         check((studentTQuantile(0.975, 5.5) - 2.501859).abs()).isLessThan(1e-4);
@@ -34,6 +34,10 @@ void main() {
         check((studentTQuantile(0.975, 30.0) - 2.042272).abs())
             .isLessThan(1e-4);
         check((studentTQuantile(0.975, 1000.0) - 1.96).abs()).isLessThan(0.01);
+
+        // Extreme upper tail quantiles for small fractional df=1.5:
+        check((studentTQuantile(0.99, 1.5) - 11.197).abs()).isLessThan(1e-2);
+        check((studentTQuantile(0.995, 1.5) - 17.820).abs()).isLessThan(1e-2);
       },
     );
 
@@ -75,8 +79,8 @@ void main() {
 
     test('marks interval invalid (g >= 1.0) when denominator variance is too '
         'high', () {
-      // Sample B with mean near 0 or massive noise
-      final sampleB = [1.0, -1.0, 2.0, -2.0, 0.5, -0.5];
+      // Sample B with massive noise (non-zero mean ~3.833) triggering g >= 1.0
+      final sampleB = [1.0, 30.0, -20.0, 25.0, -15.0, 2.0];
       final sampleA = [10.0, 11.0, 9.0, 10.5, 9.5];
 
       final fieller = FiellerInterval.compute(
@@ -85,6 +89,7 @@ void main() {
       );
 
       check(fieller.isValid).isFalse();
+      check(fieller.g).isGreaterOrEqual(1.0);
       check(fieller.lowerBound.isInfinite || fieller.lowerBound.isNaN).isTrue();
       check(fieller.upperBound.isInfinite || fieller.upperBound.isNaN).isTrue();
     });

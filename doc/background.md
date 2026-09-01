@@ -60,7 +60,7 @@ Measuring microsecond or nanosecond operations with individual timestamp reads i
 
 #### The `bench_press` Approach
 
-1. **Automatic Calibration**: `bench_press` dynamically calibrates the inner batch size `N` during initial warmup so that each batch execution takes at least 10 ms. At 10 ms duration, a 1 µs timer resolution represents less than 0.01% measurement uncertainty.
+1. **Automatic Calibration**: `bench_press` dynamically calibrates the inner batch size `N` during initial warmup so that each batch execution takes at least 100 ms. At 100 ms duration, a 1 µs timer resolution represents less than 0.001% measurement uncertainty.
 2. **Single Monotonic Read**: The high-resolution monotonic clock is queried once before the batch and once after. Mean iteration latency is computed by dividing batch duration by `N`.
 3. **Monomorphic Dispatch**: The inner batch loop executes directly against the concrete benchmark instance, preserving monomorphic inline caches (ICs) and eliminating polymorphic dispatch overhead.
 4. **No Empty Loop Subtraction**: `bench_press` intentionally avoids subtracting empty loop baselines. On modern superscalar processors with out-of-order execution and multiple ALU ports, loop induction variables execute in parallel with payload instructions, making empty-loop arithmetic scientifically invalid.
@@ -75,7 +75,7 @@ Fixed warmup iteration counts (e.g., "always run 10 warmup rounds") are inherent
 
 `bench_press` implements an adaptive self-stopping detector:
 
-1. **Sliding Window Sampling**: Collects measurement trials across consecutive sliding windows of size $W$ (default: 10), evaluated at non-overlapping strides.
+1. **Sliding Window Sampling**: Collects measurement trials across consecutive sliding windows of size $W$ (default: 10), evaluated at half-window strides (windowSize ~/ 2).
 2. **Maximum Mean Discrepancy (MMD)**: Evaluates the statistical distance between consecutive sliding windows using a Gaussian Radial Basis Function (RBF) kernel:
    $$k(x, y) = \exp\left(-\frac{\|x - y\|^2}{2\sigma^2}\right)$$
    where bandwidth $\sigma$ is computed dynamically using the median pairwise distance heuristic (with mean absolute difference fallback on ties).

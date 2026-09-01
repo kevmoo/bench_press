@@ -165,7 +165,8 @@ final class const FiellerInterval({
 ///
 /// Uses exact analytical closed forms for `df == 1` and `df == 2`, and Hill's
 /// Algorithm 396 (1970) continuous approximation for all `df > 2`, achieving
-/// accuracy `< 1e-4` across all integer and fractional degrees of freedom.
+/// accuracy `< 1e-3` relative error across all integer and fractional degrees
+/// of freedom.
 double studentTQuantile(double p, double df) {
   if (p <= 0.5 || p >= 1.0) {
     throw ArgumentError.value(
@@ -191,16 +192,17 @@ double studentTQuantile(double p, double df) {
 }
 
 double _studentTQuantileSmallDf(double p, double df) {
-  final t1 = math.tan(math.pi * (p - 0.5));
-  final alpha = 2.0 * (1.0 - p);
-  final t2 = math.sqrt(2.0 / (alpha * (2.0 - alpha)) - 2.0);
-  final w = df - 1.0;
-  var t = t1 * (1.0 - w) + t2 * w;
-  for (var i = 0; i < 4; i++) {
-    final err = _studentTCdf(t, df) - p;
-    t -= err / _studentTPdf(t, df);
+  var low = studentTQuantile(p, 2.0);
+  var high = studentTQuantile(p, 1.0);
+  for (var i = 0; i < 45; i++) {
+    final mid = (low + high) / 2.0;
+    if (_studentTCdf(mid, df) < p) {
+      low = mid;
+    } else {
+      high = mid;
+    }
   }
-  return t;
+  return (low + high) / 2.0;
 }
 
 double _studentTQuantileHill(double p, double n) {
