@@ -1,5 +1,4 @@
 .dart_tool/
-.packages
 build/
 *.wasm
 *.js
@@ -7,3 +6,4 @@ build/
 *.aot
 *.dwarf
 benchmark_results.json
+pubspec.lock
