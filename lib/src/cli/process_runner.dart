@@ -230,6 +230,20 @@ final class const BenchmarkProcessRunner({
       }
       stopwatch.stop();
 
+      String? isolateErrorStr;
+      if (errorCompleter.isCompleted) {
+        final err = await errorCompleter.future;
+        if (err is List && err.isNotEmpty) {
+          final exceptionStr = err[0]?.toString() ?? 'Unknown exception';
+          final stackStr = err.length > 1 ? err[1]?.toString() : null;
+          isolateErrorStr = stackStr != null && stackStr.isNotEmpty
+              ? 'Unhandled isolate exception: $exceptionStr\n$stackStr'
+              : 'Unhandled isolate exception: $exceptionStr';
+        } else {
+          isolateErrorStr = 'Unhandled isolate exception: $err';
+        }
+      }
+
       BenchmarkSuiteResult? suite;
       if (tempJsonFile.existsSync()) {
         try {
@@ -239,7 +253,7 @@ final class const BenchmarkProcessRunner({
         }
       }
 
-      final success = suite != null;
+      final success = suite != null && isolateErrorStr == null;
       return ProcessExecutionResult(
         success: success,
         runtime: runtime,
@@ -247,8 +261,10 @@ final class const BenchmarkProcessRunner({
         suiteResult: suite,
         executionDuration: stopwatch.elapsed,
         stdout: '',
-        stderr: '',
-        errorMessage: success ? null : 'Failed to collect isolate telemetry.',
+        stderr: isolateErrorStr ?? '',
+        errorMessage:
+            isolateErrorStr ??
+            (success ? null : 'Failed to collect isolate telemetry.'),
       );
     } on Object catch (e) {
       stopwatch.stop();

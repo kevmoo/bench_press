@@ -94,6 +94,47 @@ void main(List<String> args) => mainBenchmark(IsolateBench(), args);
       }
     });
 
+    test(
+      'captures unhandled exception and stack trace in isolate mode',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'isolate_error_test_',
+        );
+        try {
+          final sourceFile =
+              File(p.join(tempDir.path, 'failing_isolate_bench.dart'))
+                ..writeAsStringSync('''
+void main(List<String> args) {
+  throw StateError('Simulated isolate crash');
+}
+''');
+
+          const compiler = TargetCompiler();
+          final compilation = await compiler.compile(
+            sourceFile: sourceFile,
+            runtime: TargetRuntime.jit,
+          );
+
+          const runner = BenchmarkProcessRunner();
+          final result = await runner.execute(
+            compilationResult: compilation,
+            isolateMode: true,
+            trials: 1,
+          );
+
+          check(result.success).isFalse();
+          check(result.exitCode).equals(1);
+          check(result.errorMessage).isNotNull();
+          check(result.errorMessage!).contains('Unhandled isolate exception');
+          check(result.errorMessage!).contains('Simulated isolate crash');
+          check(result.stderr).contains('Unhandled isolate exception');
+          check(result.stderr).contains('Simulated isolate crash');
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
     test('captures stderr and failure when benchmark crashes', () async {
       final tempDir = Directory.systemTemp.createTempSync('failing_proc_');
       try {

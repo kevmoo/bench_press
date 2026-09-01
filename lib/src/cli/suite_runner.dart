@@ -54,12 +54,10 @@ Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
   await mainBenchmarkSuite([group], args);
 }
 
-/// Standalone CLI entrypoint for an arbitrary collection of benchmarks
-/// ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or [BenchmarkGroup]).
-Future<void> mainBenchmarkSuite(
-  List<Object> benchmarks,
-  List<String> args,
-) async {
+/// Standalone CLI entrypoint for an arbitrary collection or single instance of
+/// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or
+/// [BenchmarkGroup]).
+Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   final parser = ArgParser()
     ..addOption('json-output', help: 'Path to write output telemetry JSON')
     ..addFlag('json', help: 'Emit streaming JSON markers to stdout')
@@ -96,8 +94,12 @@ Future<void> mainBenchmarkSuite(
   final isValidate = parsed.flag('validate');
   final config = _buildConfigFromArgs(parsed, isValidate: isValidate);
 
+  final benchmarkList = benchmarks is Iterable
+      ? List<Object>.from(benchmarks)
+      : <Object>[benchmarks];
+
   final results = <BenchmarkResult>[];
-  for (final item in benchmarks) {
+  for (final item in benchmarkList) {
     switch (item) {
       case Benchmark b:
         results.add(BenchmarkRunner.run(_applyConfigToBenchmark(b, config)));
@@ -172,7 +174,7 @@ BenchmarkConfig _buildConfigFromArgs(
     maxWarmupIterations: maxWarmup ?? 200,
     targetBatchDuration: batchMs != null
         ? Duration(milliseconds: batchMs)
-        : const Duration(milliseconds: 10),
+        : const Duration(milliseconds: 100),
     forceRun: forceRun,
   );
 }

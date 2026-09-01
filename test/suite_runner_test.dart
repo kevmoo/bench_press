@@ -104,5 +104,40 @@ void main() {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test(
+      'mainBenchmarkSuite executes single top-level BenchmarkGroup directly',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'suite_group_test_',
+        );
+        try {
+          final outputFile = File(p.join(tempDir.path, 'group_output.json'));
+
+          final args = [
+            '--json-output',
+            outputFile.path,
+            '--validate',
+            '--target',
+            'jit',
+          ];
+
+          final group = BenchmarkGroup('test_group', [
+            BenchmarkVariant('g_var1', () => Blackhole.consume(1)),
+            BenchmarkVariant('g_var2', () => Blackhole.consume(2)),
+          ]);
+
+          await mainBenchmarkSuite(group, args);
+
+          check(outputFile.existsSync()).isTrue();
+          final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+          check(suite.benchmarks.length).equals(2);
+          check(suite.findEntry('g_var1', 'jit')).isNotNull();
+          check(suite.findEntry('g_var2', 'jit')).isNotNull();
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }

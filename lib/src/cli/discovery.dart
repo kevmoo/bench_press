@@ -95,19 +95,23 @@ abstract final class BenchmarkDiscovery() {
 
   /// Classifies Dart source code string content into a [BenchmarkFileKind].
   static BenchmarkFileKind classifyContent(String content) {
+    final cleanContent = content.replaceAll(RegExp(r'/\*[\s\S]*?\*/|//.*'), '');
+
     final hasMain =
-        content.contains(RegExp(r'\bvoid\s+main\s*\(')) ||
-        content.contains(RegExp(r'\bFuture<[^>]*>\s+main\s*\(')) ||
-        content.contains(RegExp(r'\bmain\s*\([^)]*\)\s*(=>|\{)'));
+        cleanContent.contains(RegExp(r'\bvoid\s+main\s*\(')) ||
+        cleanContent.contains(RegExp(r'\bFuture<[^>]*>\s+main\s*\(')) ||
+        cleanContent.contains(RegExp(r'\bmain\s*\([^)]*\)\s*(=>|\{)'));
 
     if (hasMain) {
       return BenchmarkFileKind.standaloneMain;
     }
 
     final hasBenchmarks =
-        content.contains(RegExp(r'\b(final|const|var)\s+benchmarks\s*=')) ||
-        content.contains(RegExp(r'\bList<[^>]*>\s+benchmarks\s*=')) ||
-        content.contains(RegExp(r'\b(get\s+benchmarks|benchmarks\s*=>)'));
+        cleanContent.contains(
+          RegExp(r'\b(final|const|var)\s+benchmarks\s*='),
+        ) ||
+        cleanContent.contains(RegExp(r'\bList<[^>]*>\s+benchmarks\s*=')) ||
+        cleanContent.contains(RegExp(r'\b(get\s+benchmarks|benchmarks\s*=>)'));
 
     if (hasBenchmarks) {
       return BenchmarkFileKind.benchmarksList;
@@ -131,8 +135,10 @@ abstract final class BenchmarkDiscovery() {
     final fileUri = Uri.file(normalizedPath).toString();
 
     final prefix = customPrefix ?? 'bench_wrapper';
-    final baseNameWithoutExt = p.basenameWithoutExtension(benchmarkFile.path);
-    final wrapperName = '${prefix}_$baseNameWithoutExt.dart';
+    final relPath = p.posix.joinAll(p.split(p.relative(benchmarkFile.path)));
+    final pathHash = _shortHash(relPath);
+    final baseName = p.basenameWithoutExtension(benchmarkFile.path);
+    final wrapperName = '${prefix}_${pathHash}_$baseName.dart';
     final wrapperFile = File(p.join(outputDir.path, wrapperName));
 
     final buffer = StringBuffer();
@@ -148,5 +154,14 @@ abstract final class BenchmarkDiscovery() {
 
     wrapperFile.writeAsStringSync(buffer.toString());
     return wrapperFile;
+  }
+
+  static String _shortHash(String input) {
+    var hash = 0x811c9dc5;
+    for (var i = 0; i < input.length; i++) {
+      hash ^= input.codeUnitAt(i);
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
   }
 }

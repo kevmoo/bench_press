@@ -100,5 +100,54 @@ class Helper {}
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('classifyContent ignores commented-out void main()', () {
+      const commentedLineMain = '''
+// void main() {}
+final benchmarks = [];
+''';
+      check(BenchmarkDiscovery.classifyContent(commentedLineMain))
+          .equals(BenchmarkFileKind.benchmarksList);
+
+      const commentedBlockMain = '''
+/*
+void main() {
+  print('commented');
+}
+*/
+final benchmarks = [];
+''';
+      check(BenchmarkDiscovery.classifyContent(commentedBlockMain))
+          .equals(BenchmarkFileKind.benchmarksList);
+    });
+
+    test('generateWrapper produces unique filenames across subdirectories', () {
+      final tempDir = Directory.systemTemp.createTempSync('wrapper_unique_');
+      try {
+        final sub1 = Directory(p.join(tempDir.path, 'sub1'))..createSync();
+        final sub2 = Directory(p.join(tempDir.path, 'sub2'))..createSync();
+
+        final file1 = File(p.join(sub1.path, 'foo_bench.dart'))
+          ..writeAsStringSync('final benchmarks = [];');
+        final file2 = File(p.join(sub2.path, 'foo_bench.dart'))
+          ..writeAsStringSync('final benchmarks = [];');
+
+        final outputDir = Directory(p.join(tempDir.path, 'generated'));
+        final wrapper1 = BenchmarkDiscovery.generateWrapper(
+          benchmarkFile: file1,
+          outputDir: outputDir,
+        );
+        final wrapper2 = BenchmarkDiscovery.generateWrapper(
+          benchmarkFile: file2,
+          outputDir: outputDir,
+        );
+
+        check(wrapper1.path).not((it) => it.equals(wrapper2.path));
+        check(wrapper1.existsSync()).isTrue();
+        check(wrapper2.existsSync()).isTrue();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }
