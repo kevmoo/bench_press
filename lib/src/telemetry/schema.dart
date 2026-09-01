@@ -125,7 +125,23 @@ final class const BenchmarkEntry({
   final Throughput? throughput,
 }) {
   /// The unique composite key identifying this benchmark and target pair.
-  String get key => '$name:$target';
+  String get key => group != null ? '$name:$target:$group' : '$name:$target';
+
+  BenchmarkEntry copyWith({String? group, bool? isBaseline}) {
+    return BenchmarkEntry(
+      name: name,
+      target: target,
+      mode: mode,
+      samples: samples,
+      metrics: metrics,
+      rawTrialsNs: rawTrialsNs,
+      warmup: warmup,
+      calibratedBatchIterations: calibratedBatchIterations,
+      group: group ?? this.group,
+      isBaseline: isBaseline ?? this.isBaseline,
+      throughput: throughput,
+    );
+  }
 
   /// Constructs a [BenchmarkEntry] from a [BenchmarkResult].
   factory fromResult(
