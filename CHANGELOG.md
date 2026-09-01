@@ -1,5 +1,6 @@
 ## 0.1.1-wip
 
+- Added `--compare-sdk` multi-option flag to `bench_press run` to isolate and strictly evaluate target performance characteristics against different Dart SDK paths using mathematically sound Fieller 95% ratio confidence interval deltas.
 - Renamed `KbssdWarmupDetector` to `AdaptiveWarmupDetector` (`src/stats/warmup.dart`) and deprecated the old name.
 - Fixed steady-state warmup convergence math using Standard Error of the Mean (SEM) relative error (`<= 3%`) and stationarity checks.
 - Hardened `Blackhole.drain()` compiler barrier against whole-program Dead-Store Elimination across AOT, Wasm, and JavaScript.

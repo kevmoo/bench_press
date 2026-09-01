@@ -436,5 +436,126 @@ void main(List<String> args) => mainBenchmark(DiffTarget(), args);
       ]);
       check(exitCode).not((it) => it.equals(0));
     });
+
+    test(
+      'run subcommand with single --compare-sdk compares against Default',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'compare_sdk_test_',
+        );
+        try {
+          final benchFile = File(p.join(tempDir.path, 'bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class CompareBench extends Benchmark {
+  CompareBench() : super('compare_workload');
+  @override
+  void run() => Blackhole.consume(42);
+}
+
+void main(List<String> args) => mainBenchmark(CompareBench(), args);
+''');
+
+          final outputFile = File(p.join(tempDir.path, 'results.json'));
+          final sdkPath = const DartSdk().sdkPath!;
+          final runner = BenchPressCommandRunner();
+
+          final exitCode = await runner.run([
+            'run',
+            '-t',
+            'jit',
+            '--trials',
+            '2',
+            '--force-run',
+            '-o',
+            outputFile.path,
+            '--compare-sdk',
+            'Candidate=$sdkPath',
+            benchFile.path,
+          ]);
+
+          check(exitCode).equals(0);
+          check(outputFile.existsSync()).isTrue();
+
+          final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+          check(suite.groups).deepEquals(['Default', 'Candidate']);
+          check(suite.getEntriesForGroup('Default')).isNotEmpty();
+          check(suite.getEntriesForGroup('Candidate')).isNotEmpty();
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'run subcommand exits with usage error on malformed --compare-sdk format',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'malformed_sdk_test_',
+        );
+        try {
+          final benchFile = File(p.join(tempDir.path, 'bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class SimpleBench extends Benchmark {
+  SimpleBench() : super('simple');
+  @override
+  void run() => Blackhole.consume(1);
+}
+
+void main(List<String> args) => mainBenchmark(SimpleBench(), args);
+''');
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'run',
+            '-t',
+            'jit',
+            '--compare-sdk',
+            'MalformedNoEquals',
+            benchFile.path,
+          ]);
+
+          check(exitCode).equals(64);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('BenchmarkEntry.copyWith updates group and isBaseline', () {
+      const metrics = BenchmarkMetrics(
+        meanNs: 100.0,
+        medianNs: 100.0,
+        minNs: 90.0,
+        maxNs: 110.0,
+        stddevNs: 5.0,
+        cv: 0.05,
+        p95Ns: 105.0,
+        p99Ns: 108.0,
+        opsPerSec: 10000000.0,
+        isStable: true,
+      );
+      const entry = BenchmarkEntry(
+        name: 'test_bench',
+        target: 'jit',
+        mode: 'sync',
+        samples: 5,
+        metrics: metrics,
+      );
+
+      final withGroup = entry.copyWith(group: 'SDK1', isBaseline: true);
+      check(withGroup.name).equals('test_bench');
+      check(withGroup.target).equals('jit');
+      check(withGroup.group).equals('SDK1');
+      check(withGroup.isBaseline).isTrue();
+      check(withGroup.key).equals('test_bench:jit:SDK1');
+
+      final unchanged = withGroup.copyWith();
+      check(unchanged.group).equals('SDK1');
+      check(unchanged.isBaseline).isTrue();
+    });
   });
 }
