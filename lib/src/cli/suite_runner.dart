@@ -68,7 +68,9 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
     ..addOption('target-batch-ms', help: 'Override target batch duration (ms)')
     ..addFlag(
       'force-run',
-      help: 'Bypass calibration safety aborts on sub-10µs runs',
+      help:
+          'Bypass calibration safety aborts on zero-elapsed-time timer '
+          'quantization.',
     )
     ..addFlag(
       'validate',

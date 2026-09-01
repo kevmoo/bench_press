@@ -46,5 +46,49 @@ void main() {
 
       check(batch.iterations).isGreaterThan(1);
     });
+
+    test('bypasses zero-elapsed ticks when forceRun is true', () {
+      final zeroStopwatch = _ZeroStopwatch();
+
+      const configFalse = BenchmarkConfig(forceRun: false);
+      check(
+        () => BenchmarkCalibrator.calibrateSync(
+          () {},
+          configFalse,
+          stopwatch: zeroStopwatch,
+        ),
+      ).throws<CalibrationException>();
+
+      const configTrue = BenchmarkConfig(forceRun: true);
+      final batch = BenchmarkCalibrator.calibrateSync(
+        () {},
+        configTrue,
+        stopwatch: zeroStopwatch,
+      );
+
+      check(batch.iterations).equals(1000000);
+      check(batch.estimatedOpDurationMicroseconds).equals(0.0);
+    });
   });
+}
+
+final class _ZeroStopwatch() implements Stopwatch {
+  @override
+  Duration get elapsed => Duration.zero;
+  @override
+  int get elapsedMicroseconds => 0;
+  @override
+  int get elapsedMilliseconds => 0;
+  @override
+  int get elapsedTicks => 0;
+  @override
+  int get frequency => 1000000;
+  @override
+  bool get isRunning => false;
+  @override
+  void reset() {}
+  @override
+  void start() {}
+  @override
+  void stop() {}
 }

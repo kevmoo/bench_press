@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:meta/meta.dart';
+
 import 'config.dart';
 
 /// Exception thrown when a benchmark operation violates operational timing
@@ -25,10 +27,11 @@ abstract final class BenchmarkCalibrator() {
   /// Calibrates batch size for synchronous action to reach target duration.
   static CalibratedBatch calibrateSync(
     void Function() action,
-    BenchmarkConfig config,
-  ) {
+    BenchmarkConfig config, {
+    @visibleForTesting Stopwatch? stopwatch,
+  }) {
     var iterations = 1;
-    final stopwatch = Stopwatch();
+    stopwatch ??= Stopwatch();
 
     // Exponential probing loop to find measurable duration
     while (true) {
@@ -66,10 +69,11 @@ abstract final class BenchmarkCalibrator() {
   /// Calibrates batch size for asynchronous action to reach target duration.
   static Future<CalibratedBatch> calibrateAsync(
     Future<void> Function() action,
-    BenchmarkConfig config,
-  ) async {
+    BenchmarkConfig config, {
+    @visibleForTesting Stopwatch? stopwatch,
+  }) async {
     var iterations = 1;
-    final stopwatch = Stopwatch();
+    stopwatch ??= Stopwatch();
 
     while (true) {
       stopwatch.reset();
@@ -108,7 +112,7 @@ abstract final class BenchmarkCalibrator() {
     double perOpUs,
     BenchmarkConfig config,
   ) {
-    if (elapsedUs <= 0) {
+    if (elapsedUs <= 0 && !config.forceRun) {
       throw CalibrationException(
         'Maximum probe batch produced 0 elapsed ticks. '
         'Operation is too fast or timer resolution is insufficient.',

@@ -38,10 +38,14 @@ final class const BenchmarkResult({
 
   /// Declared throughput processed per invocation (bytes or element count).
   final Throughput? throughput,
+
+  /// The execution mode ('sync' or 'async').
+  final String mode = 'sync',
 }) {
   /// Converts the benchmark result to a canonical JSON representation.
   Map<String, Object?> toJson() => {
     'name': name,
+    'mode': mode,
     'metrics': metrics.toJson(),
     if (group != null) 'group': group,
     if (isBaseline) 'is_baseline': isBaseline,
@@ -177,6 +181,7 @@ abstract final class BenchmarkRunner() {
 
       return BenchmarkResult(
         name: benchmark.name,
+        mode: 'async',
         metrics: metrics,
         warmupResult: warmupResult,
         rawTrialLatenciesNs: trials,
@@ -249,6 +254,7 @@ abstract final class BenchmarkRunner() {
 
       return BenchmarkResult(
         name: variant.name,
+        mode: isAsync ? 'async' : 'sync',
         metrics: metrics,
         warmupResult: warmupResult,
         rawTrialLatenciesNs: trials,

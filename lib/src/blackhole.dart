@@ -44,11 +44,13 @@ abstract final class Blackhole() {
   /// Consumes a string [value].
   @pragma('vm:never-inline')
   @pragma('wasm:never-inline')
+  @pragma('dart2js:never-inline')
   static void consumeString(String? value) => consume(value);
 
   /// Consumes an arbitrary object [value].
   @pragma('vm:never-inline')
   @pragma('wasm:never-inline')
+  @pragma('dart2js:never-inline')
   static void consumeObject(Object? value) => consume(value);
 
   /// Drains and clears the internal sink slots, returning a composite checksum.
@@ -62,7 +64,7 @@ abstract final class Blackhole() {
       _sink[i] = null;
     }
     _checksum = sum;
-    if (sum == 0x1FFFFFFFFFFFFF && DateTime.now().millisecondsSinceEpoch < 0) {
+    if (sum == 0x7F3A9C1D && DateTime.now().millisecondsSinceEpoch < 0) {
       print(sum);
     }
     return sum;

@@ -147,12 +147,12 @@ final class const BenchmarkEntry({
   factory fromResult(
     BenchmarkResult result, {
     String target = 'jit',
-    String mode = 'sync',
+    String? mode,
   }) {
     return BenchmarkEntry(
       name: result.name,
       target: target,
-      mode: mode,
+      mode: mode ?? result.mode,
       samples: result.rawTrialLatenciesNs.length,
       metrics: result.metrics,
       rawTrialsNs: List<double>.unmodifiable(result.rawTrialLatenciesNs),
@@ -268,7 +268,7 @@ final class const BenchmarkSuiteResult({
     EnvironmentInfo? environment,
     DateTime? timestamp,
     String target = 'jit',
-    String mode = 'sync',
+    String? mode,
   }) {
     final entries = results
         .map((r) => BenchmarkEntry.fromResult(r, target: target, mode: mode))

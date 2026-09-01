@@ -117,7 +117,9 @@ final class RunCommand({
       ..addFlag(
         'force-run',
         negatable: false,
-        help: 'Force execution bypassing calibration safety aborts (<10µs).',
+        help:
+            'Bypass calibration safety aborts on zero-elapsed-time timer '
+            'quantization.',
       )
       ..addFlag(
         'isolate-mode',
