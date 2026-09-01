@@ -12,12 +12,14 @@ void main() {
       Blackhole.consumeInt(100);
       Blackhole.consumeDouble(3.14159);
       Blackhole.consumeBool(true);
+      Blackhole.consumeString('test_string');
+      Blackhole.consumeObject(Object());
 
       final checksum = Blackhole.drain();
       check(checksum).not((it) => it.equals(0));
     });
 
-    test('drain clears the sink buffer', () {
+    test('drain clears the sink buffer and persists checksum', () {
       Blackhole.consume('alpha');
       Blackhole.consume('beta');
 
@@ -25,7 +27,7 @@ void main() {
       check(firstDrain).not((it) => it.equals(0));
 
       final secondDrain = Blackhole.drain();
-      check(secondDrain).equals(0);
+      check(secondDrain).equals(firstDrain);
     });
 
     test('handles rolling buffer overflow gracefully', () {

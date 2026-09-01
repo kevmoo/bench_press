@@ -42,7 +42,7 @@ abstract final class BenchmarkCalibrator() {
       final elapsedUs = stopwatch.elapsedMicroseconds;
       if (elapsedUs >= 5000 || iterations >= 1000000) {
         final perOpUs = elapsedUs / iterations;
-        _validateOperationalBounds(perOpUs, config);
+        _validateOperationalBounds(elapsedUs, perOpUs, config);
 
         final targetUs = config.targetBatchDuration.inMicroseconds;
         final targetIters = perOpUs > 0.0
@@ -55,7 +55,11 @@ abstract final class BenchmarkCalibrator() {
       }
 
       final scaleFactor = 5000 / math.max(1, elapsedUs);
-      iterations = math.max(iterations * 2, (iterations * scaleFactor).round());
+      iterations = math.min(
+        iterations * 10,
+        math.max(iterations * 2, (iterations * scaleFactor).round()),
+      );
+      iterations = math.min(iterations, 1000000);
     }
   }
 
@@ -76,9 +80,9 @@ abstract final class BenchmarkCalibrator() {
       stopwatch.stop();
 
       final elapsedUs = stopwatch.elapsedMicroseconds;
-      if (elapsedUs >= 5000 || iterations >= 10000) {
+      if (elapsedUs >= 5000 || iterations >= 1000000) {
         final perOpUs = elapsedUs / iterations;
-        _validateOperationalBounds(perOpUs, config);
+        _validateOperationalBounds(elapsedUs, perOpUs, config);
 
         final targetUs = config.targetBatchDuration.inMicroseconds;
         final targetIters = perOpUs > 0.0
@@ -91,27 +95,23 @@ abstract final class BenchmarkCalibrator() {
       }
 
       final scaleFactor = 5000 / math.max(1, elapsedUs);
-      iterations = math.max(iterations * 2, (iterations * scaleFactor).round());
+      iterations = math.min(
+        iterations * 10,
+        math.max(iterations * 2, (iterations * scaleFactor).round()),
+      );
+      iterations = math.min(iterations, 1000000);
     }
   }
 
   static void _validateOperationalBounds(
+    int elapsedUs,
     double perOpUs,
     BenchmarkConfig config,
   ) {
-    if (perOpUs < 10.0 && !config.forceRun) {
-      // Check for web timer virtualization (if elapsed reports ~0 on JS/Wasm)
-      if (perOpUs <= 0.0) {
-        config.logger?.call(
-          'Warning: Measured 0 µs per operation. Likely browser timer '
-          'quantization. Calibrating with higher iteration volume.',
-        );
-        return;
-      }
+    if (elapsedUs <= 0) {
       throw CalibrationException(
-        'Operation latency is below the 10 µs lower-bound threshold. '
-        'Microbenchmarks below 10 µs must be batched or run with forceRun: '
-        'true.',
+        'Maximum probe batch produced 0 elapsed ticks. '
+        'Operation is too fast or timer resolution is insufficient.',
         perOpUs,
       );
     }

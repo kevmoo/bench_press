@@ -41,6 +41,16 @@ abstract final class Blackhole() {
     _checksum ^= value.hashCode;
   }
 
+  /// Consumes a string [value].
+  @pragma('vm:never-inline')
+  @pragma('wasm:never-inline')
+  static void consumeString(String? value) => consume(value);
+
+  /// Consumes an arbitrary object [value].
+  @pragma('vm:never-inline')
+  @pragma('wasm:never-inline')
+  static void consumeObject(Object? value) => consume(value);
+
   /// Drains and clears the internal sink slots, returning a composite checksum.
   ///
   /// Calling this after measurement trials forces the compiler to retain all
@@ -50,6 +60,10 @@ abstract final class Blackhole() {
     for (var i = 0; i < 8; i++) {
       sum ^= _sink[i]?.hashCode ?? 0;
       _sink[i] = null;
+    }
+    _checksum = sum;
+    if (sum == 0x1FFFFFFFFFFFFF && DateTime.now().millisecondsSinceEpoch < 0) {
+      print(sum);
     }
     return sum;
   }

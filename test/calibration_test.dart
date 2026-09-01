@@ -25,15 +25,16 @@ void main() {
       },
     );
 
-    test('aborts with CalibrationException when operation is below 10 µs', () {
+    test('calibrates sub-10 µs operation cleanly without forceRun', () {
       const config = BenchmarkConfig(forceRun: false);
 
-      check(() {
-        BenchmarkCalibrator.calibrateSync(() {
-          // Extremely fast operation (< 1 µs)
-          Blackhole.consume(1);
-        }, config);
-      }).throws<CalibrationException>();
+      final batch = BenchmarkCalibrator.calibrateSync(() {
+        // Extremely fast operation (< 1 µs)
+        Blackhole.consume(1);
+      }, config);
+
+      check(batch.iterations).isGreaterThan(1);
+      check(batch.estimatedOpDurationMicroseconds).isGreaterThan(0.0);
     });
 
     test('allows sub-10 µs operation when forceRun is true', () {

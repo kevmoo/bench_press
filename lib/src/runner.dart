@@ -198,16 +198,17 @@ abstract final class BenchmarkRunner() {
   }) async {
     variant.setup?.call();
     try {
-      final calibrated = await BenchmarkCalibrator.calibrateAsync(
-        variant.executeAsync,
-        config,
-      );
-
       final probe = variant.action();
       final isAsync = probe is Future;
       if (isAsync) {
         await probe;
       }
+      final calibrated = isAsync
+          ? await BenchmarkCalibrator.calibrateAsync(
+              variant.executeAsync,
+              config,
+            )
+          : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
 
       final warmupDetector = KbssdWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
