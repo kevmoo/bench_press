@@ -316,7 +316,7 @@ final class const BenchmarkSuiteResult({
     return set.toList()..sort();
   }
 
-  /// Returns distinct benchmark group names sorted alphabetically.
+  /// Returns distinct benchmark group names in order of appearance.
   List<String> get groups {
     final set = <String>{};
     for (final entry in benchmarks) {
@@ -324,7 +324,7 @@ final class const BenchmarkSuiteResult({
         set.add(entry.group!);
       }
     }
-    return set.toList()..sort();
+    return set.toList();
   }
 
   /// Returns all entries belonging to [groupName].

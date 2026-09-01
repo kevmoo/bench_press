@@ -195,9 +195,7 @@ final class RunCommand({
     final outputPath = saveOption ?? argResults!.option('output')!;
     final shouldSave = !noSave;
     final format = argResults!.option('format')!;
-    final title =
-        argResults!.option('title') ??
-        (compareSdks.isNotEmpty ? 'SDK Comparison Report' : null);
+    final title = argResults!.option('title');
     final diffRef = argResults!.option('diff');
     final failOnUnstable = argResults!.flag('fail-on-unstable');
 
@@ -230,25 +228,24 @@ final class RunCommand({
   })?
   _setupToolchains(List<String> compareSdks) {
     final sdkMap = <String, DartSdk>{};
-    if (compareSdks.isEmpty) {
+    if (compareSdks.isEmpty || compareSdks.length == 1) {
       sdkMap['Default'] = sdk;
-    } else {
-      for (final opt in compareSdks) {
-        final parts = opt.split('=');
-        if (parts.length != 2) {
-          stderr.writeln(
-            'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
-          );
-          return null;
-        }
-        sdkMap[parts[0]] = DartSdk(customSdkPath: parts[1]);
+    }
+    for (final opt in compareSdks) {
+      final parts = opt.split('=');
+      if (parts.length != 2) {
+        stderr.writeln(
+          'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
+        );
+        return null;
       }
+      sdkMap[parts[0]] = DartSdk(customSdkPath: parts[1]);
     }
 
     final processRunners = <String, BenchmarkProcessRunner>{};
     final compilers = <String, TargetCompiler>{};
     for (final entry in sdkMap.entries) {
-      if (entry.key == 'Default') {
+      if (identical(entry.value, sdk)) {
         compilers[entry.key] = compiler;
         processRunners[entry.key] = processRunner;
       } else {
@@ -436,66 +433,83 @@ final class RunCommand({
       return;
     }
 
-    if (isComparison) {
-      final sdks = suite.groups;
-      if (sdks.length >= 2) {
-        final baseSdk = sdks[0];
-        final currentSdk = sdks.last;
-        final baseSuite = BenchmarkSuiteResult(
-          version: suite.version,
-          timestamp: suite.timestamp,
-          environment: suite.environment,
-          benchmarks: suite.getEntriesForGroup(baseSdk),
-        );
-        final currentSuite = BenchmarkSuiteResult(
-          version: suite.version,
-          timestamp: suite.timestamp,
-          environment: suite.environment,
-          benchmarks: suite.getEntriesForGroup(currentSdk),
-        );
-        final report = MarkdownReporter.renderDeltaTable(
-          baseline: baseSuite,
-          current: currentSuite,
-          title: title ?? 'SDK Comparison: `$baseSdk` vs `$currentSdk`',
-          baselineLabel: baseSdk,
-          currentLabel: currentSdk,
-        );
-        stdout.writeln(report);
-        return;
-      }
+    if (isComparison && _tryOutputComparisonReport(suite, title)) {
+      return;
     }
 
     if (diffRef != null && diffRef.isNotEmpty) {
-      final diffFile = File(diffRef);
-      if (diffFile.existsSync()) {
-        try {
-          final baselineSuite = BenchmarkSuiteResult.loadFromFile(diffFile);
-          final report = MarkdownReporter.renderDeltaTable(
-            baseline: baselineSuite,
-            current: suite,
-            title: title ?? 'Baseline Delta: `$diffRef`',
-            baselineLabel: 'Baseline ($diffRef)',
-            currentLabel: 'Current',
-          );
-          stdout.writeln(report);
-          return;
-        } on Object catch (e) {
-          stderr.writeln(
-            'Warning: Failed to load baseline from "$diffRef": $e',
-          );
-        }
-      }
-      final report = GitDiffReporter.renderGitDiffReport(
-        gitRef: diffRef,
-        filePath: outputPath,
-        current: suite,
-        title: title,
+      _outputDiffReport(suite, diffRef, title, outputPath);
+      return;
+    }
+
+    final report = MarkdownReporter.renderSuite(
+      suite,
+      title: title ?? (isComparison ? 'SDK Comparison Report' : null),
+    );
+    stdout.writeln(report);
+  }
+
+  bool _tryOutputComparisonReport(BenchmarkSuiteResult suite, String? title) {
+    final sdks = suite.groups;
+    if (sdks.length < 2) return false;
+
+    final baseSdk = sdks[0];
+    final baseSuite = BenchmarkSuiteResult(
+      version: suite.version,
+      timestamp: suite.timestamp,
+      environment: suite.environment,
+      benchmarks: suite.getEntriesForGroup(baseSdk),
+    );
+    for (var i = 1; i < sdks.length; i++) {
+      final currentSdk = sdks[i];
+      final currentSuite = BenchmarkSuiteResult(
+        version: suite.version,
+        timestamp: suite.timestamp,
+        environment: suite.environment,
+        benchmarks: suite.getEntriesForGroup(currentSdk),
+      );
+      final report = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: currentSuite,
+        title: title ?? 'SDK Comparison: `$baseSdk` vs `$currentSdk`',
+        baselineLabel: baseSdk,
+        currentLabel: currentSdk,
       );
       stdout.writeln(report);
-    } else {
-      final report = MarkdownReporter.renderSuite(suite, title: title);
-      stdout.writeln(report);
     }
+    return true;
+  }
+
+  void _outputDiffReport(
+    BenchmarkSuiteResult suite,
+    String diffRef,
+    String? title,
+    String outputPath,
+  ) {
+    final diffFile = File(diffRef);
+    if (diffFile.existsSync()) {
+      try {
+        final baselineSuite = BenchmarkSuiteResult.loadFromFile(diffFile);
+        final report = MarkdownReporter.renderDeltaTable(
+          baseline: baselineSuite,
+          current: suite,
+          title: title ?? 'Baseline Delta: `$diffRef`',
+          baselineLabel: 'Baseline ($diffRef)',
+          currentLabel: 'Current',
+        );
+        stdout.writeln(report);
+        return;
+      } on Object catch (e) {
+        stderr.writeln('Warning: Failed to load baseline from "$diffRef": $e');
+      }
+    }
+    final report = GitDiffReporter.renderGitDiffReport(
+      gitRef: diffRef,
+      filePath: outputPath,
+      current: suite,
+      title: title,
+    );
+    stdout.writeln(report);
   }
 }
 
