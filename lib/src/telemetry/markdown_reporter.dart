@@ -354,7 +354,7 @@ abstract final class MarkdownReporter() {
     var fasterCount = 0;
     var slowerCount = 0;
     var neutralCount = 0;
-    var speedupProduct = 1.0;
+    var logSum = 0.0;
 
     buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
     if (hasThroughput) {
@@ -384,7 +384,7 @@ abstract final class MarkdownReporter() {
         hasThroughput: hasThroughput,
       );
       buffer.writeln(rowStr);
-      speedupProduct *= speedup;
+      logSum += math.log(speedup);
       if (trend > 0) fasterCount++;
       if (trend < 0) slowerCount++;
       if (trend == 0) neutralCount++;
@@ -393,7 +393,7 @@ abstract final class MarkdownReporter() {
     buffer.writeln('<!-- mdformat on -->');
     buffer.writeln();
 
-    final geomean = math.pow(speedupProduct, 1.0 / matched.length).toDouble();
+    final geomean = math.exp(logSum / matched.length);
     final geomeanStr = geomean.toStringAsFixed(2);
     buffer.writeln(
       '> **Summary**: Geometric Mean Speedup: **${geomeanStr}x** | '
@@ -496,19 +496,16 @@ abstract final class MarkdownReporter() {
     return '$sign${pct.toStringAsFixed(1)}%';
   }
 
+  static final _thousandsRegExp = RegExp(r'(\d)(?=(\d{3})+(?!\d))');
+
   static String _formatOps(double ops) {
     if (ops <= 0.0) return '0 ops/s';
-    final rounded = ops.round();
-    final str = rounded.toString();
-    final chars = str.split('').reversed.toList();
-    final buffer = StringBuffer();
-    for (var i = 0; i < chars.length; i++) {
-      if (i > 0 && i % 3 == 0) {
-        buffer.write(',');
-      }
-      buffer.write(chars[i]);
-    }
-    return '${buffer.toString().split('').reversed.join()} ops/s';
+    if (ops < 10.0) return '${ops.toStringAsFixed(2)} ops/s';
+    final formatted = ops.round().toString().replaceAllMapped(
+      _thousandsRegExp,
+      (m) => '${m[1]},',
+    );
+    return '$formatted ops/s';
   }
 
   static String _formatFiellerCi(BenchmarkEntry base, BenchmarkEntry cur) {
