@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import '../config.dart';
 
-/// Result metadata produced by the KBSSD warmup detector.
+/// Result metadata produced by the warmup detector.
 final class const WarmupResult({
   /// Whether steady-state convergence was attained before budget exhaustion.
   required final bool isStable,
@@ -29,14 +29,15 @@ final class const WarmupResult({
       'bestMmd: ${bestMmd.toStringAsFixed(4)})';
 }
 
-/// Kallithea-Borg Self-Stopping Detection (KBSSD) steady-state warmup detector.
+/// Adaptive Steady-State Warmup Detection
+/// (RBF Kernel MMD + SEM Relative Error).
 ///
 /// Employs a sliding window Maximum Mean Discrepancy (MMD) with a Gaussian RBF
-/// kernel and median bandwidth heuristic, combined with Median Absolute
-/// Deviation (MAD) dynamic thresholding, a practical Standard Error of the Mean
-/// (SEM) steady-state check (`1.96 * SEM <= 0.03 * Mean`), and a bounded
-/// patience budget fallback.
-final class KbssdWarmupDetector({
+/// kernel and median bandwidth heuristic, combined with a Standard Error of the
+/// Mean (SEM) steady-state relative error check
+/// (`1.96 * SEM <= config.maxSemRelativeError * Mean`), and a bounded patience
+/// budget fallback.
+final class AdaptiveWarmupDetector({
   final BenchmarkConfig config = const BenchmarkConfig(),
   final int windowSize = 10,
 }) {
@@ -56,7 +57,11 @@ final class KbssdWarmupDetector({
   /// Appends a new latency sample (in nanoseconds) and evaluates convergence.
   void addSample(double latencyNs) {
     _samples.add(latencyNs);
-    _evaluate();
+    final n = _samples.length;
+    if (n >= config.minWarmupIterations &&
+        (n - config.minWarmupIterations) % math.max(1, windowSize ~/ 2) == 0) {
+      _evaluate();
+    }
   }
 
   /// Evaluates whether the warmup phase should conclude due to convergence or
@@ -85,19 +90,13 @@ final class KbssdWarmupDetector({
       _bestIteration = n;
     }
 
-    final mad = computeMad(windowB);
-    final medianB = computeMedian(windowB);
-    final relMad = medianB > 0.0 ? (mad / medianB) : mad;
-    final threshold = math.min(0.05, math.max(0.01, 2.0 * relMad));
-
     final meanB = computeMean(windowB);
     final semB = computeSem(windowB);
-    final isSemStable = meanB > 0.0 && (1.96 * semB <= 0.03 * meanB);
+    final isSemStable =
+        meanB > 0.0 && (1.96 * semB <= config.maxSemRelativeError * meanB);
+    final isStationary = mmd <= 0.25;
 
-    final isMmdConverged = mmd <= threshold;
-    final isSemConverged = mmd <= 0.10 && isSemStable;
-
-    if (isMmdConverged || isSemConverged) {
+    if (isSemStable && isStationary) {
       _isConverged = true;
       _convergedIteration = n;
     }
@@ -105,11 +104,11 @@ final class KbssdWarmupDetector({
 
   /// Concludes the warmup phase and returns the structured [WarmupResult].
   WarmupResult finish({double elapsedSeconds = 0.0}) {
-    if (!_isConverged && _samples.length >= config.maxWarmupIterations) {
+    if (!_isConverged) {
       final bestStr = _bestMmd.isFinite ? _bestMmd.toStringAsFixed(4) : 'N/A';
       config.logger?.call(
         'Warning: Benchmark failed to reach steady-state warmup convergence '
-        'within ${config.maxWarmupIterations} iterations (best MMD: '
+        'after ${_samples.length} iterations (best MMD: '
         '$bestStr at iteration $_bestIteration). Proceeding with '
         'isStable: false.',
       );
@@ -197,6 +196,9 @@ final class KbssdWarmupDetector({
     }
     var sigma = computeMedian(diffs);
     if (sigma <= 1e-9) {
+      sigma = computeMean(diffs);
+    }
+    if (sigma <= 1e-9) {
       sigma = 1.0;
     }
     return 2.0 * sigma * sigma;
@@ -231,3 +233,7 @@ final class KbssdWarmupDetector({
     return sum;
   }
 }
+
+/// Deprecated alias for [AdaptiveWarmupDetector].
+@Deprecated('Use AdaptiveWarmupDetector instead.')
+typedef KbssdWarmupDetector = AdaptiveWarmupDetector;

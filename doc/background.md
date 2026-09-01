@@ -69,20 +69,19 @@ Measuring microsecond or nanosecond operations with individual timestamp reads i
 
 ## 4. Statistical Engine & Warmup Convergence
 
-### Kallithea-Borg Self-Stopping Detection (KBSSD)
+### Adaptive Steady-State Warmup Detection (RBF Kernel MMD + SEM Relative Error)
 
 Fixed warmup iteration counts (e.g., "always run 10 warmup rounds") are inherently unreliable: JIT compilers, runtime inline caches, and OS frequency governors stabilize at different rates depending on machine load and payload complexity.
 
 `bench_press` implements an adaptive self-stopping detector:
 
-1. **Sliding Window Sampling**: Collects measurement trials across consecutive sliding windows of size $W$ (default: 10).
+1. **Sliding Window Sampling**: Collects measurement trials across consecutive sliding windows of size $W$ (default: 10), evaluated at non-overlapping strides.
 2. **Maximum Mean Discrepancy (MMD)**: Evaluates the statistical distance between consecutive sliding windows using a Gaussian Radial Basis Function (RBF) kernel:
    $$k(x, y) = \exp\left(-\frac{\|x - y\|^2}{2\sigma^2}\right)$$
-   where bandwidth $\sigma$ is computed dynamically using the median pairwise distance heuristic.
-3. **Median Absolute Deviation (MAD) Dynamic Thresholding**: Compares the window MMD against the historical variability of the sequence:
-   $$\text{MMD} \le 2.0 \times \text{MAD}$$
-4. **Standard Error of the Mean (SEM) Check**: Requires that the sample uncertainty is sufficiently narrow relative to the mean:
-   $$1.96 \times \text{SEM} \le 0.03 \times \bar{x}$$
+   where bandwidth $\sigma$ is computed dynamically using the median pairwise distance heuristic (with mean absolute difference fallback on ties).
+3. **Standard Error of the Mean (SEM) Relative Error Check**: Primary convergence condition requiring that sample uncertainty is sufficiently narrow relative to the mean:
+   $$1.96 \times \text{SEM} \le \text{maxSemRelativeError} \times \bar{x}$$
+4. **Stationarity Verification**: Secondary check ensuring distribution shift between windows is bounded ($\text{MMD} \le 0.25$).
 5. **Bounded Patience Budget**: Limits warmup exploration to a configurable budget (default: 200 trials). If convergence is not reached within budget, the runner selects the historically best MMD window and flags the benchmark as `isStable: false` for CI inspection.
 
 ---
@@ -93,7 +92,7 @@ When comparing two benchmark executions (Baseline $A$ vs. Candidate $B$), standa
 
 `bench_press` computes exact 95% confidence intervals on the speedup ratio $R = \bar{x}_A / \bar{x}_B$ using **Fieller's Theorem**:
 
-$$\text{CI}_{95\%} = \frac{R \pm \frac{t_{\text{crit}}}{1 - g} \sqrt{(1 - g) \frac{s_A^2}{n_A \bar{x}_B^2} + \frac{s_B^2 R^2}{n_B \bar{x}_B^2}}}{1 - g}$$
+$$\text{CI}_{95\%} = \frac{R \pm t_{\text{crit}} \sqrt{(1 - g) \frac{s_A^2}{n_A \bar{x}_B^2} + \frac{s_B^2 R^2}{n_B \bar{x}_B^2}}}{1 - g}$$
 
 where $g = \frac{t_{\text{crit}}^2 s_B^2}{n_B \bar{x}_B^2}$. If $g \ge 1$ (indicating the denominator variance is too high for a bounded ratio), `bench_press` gracefully reports ratio bounds as indeterminate rather than producing false mathematical certainty.
 

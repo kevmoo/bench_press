@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'kbssd.dart';
+import 'warmup.dart';
 
 /// Represents Fieller's confidence interval for a ratio of two independent
 /// means ($\mu_A / \mu_B$).
@@ -33,9 +33,9 @@ final class const FiellerInterval({
     required List<double> sampleB,
     double confidenceLevel = 0.95,
   }) {
-    if (sampleA.isEmpty || sampleB.isEmpty) {
+    if (sampleA.length < 2 || sampleB.length < 2) {
       return FiellerInterval(
-        ratio: 0.0,
+        ratio: double.nan,
         lowerBound: double.nan,
         upperBound: double.nan,
         g: double.infinity,
@@ -47,8 +47,8 @@ final class const FiellerInterval({
     final nA = sampleA.length;
     final nB = sampleB.length;
 
-    final meanA = KbssdWarmupDetector.computeMean(sampleA);
-    final meanB = KbssdWarmupDetector.computeMean(sampleB);
+    final meanA = AdaptiveWarmupDetector.computeMean(sampleA);
+    final meanB = AdaptiveWarmupDetector.computeMean(sampleB);
 
     if (meanB == 0.0) {
       return FiellerInterval(
@@ -162,6 +162,10 @@ final class const FiellerInterval({
 
 /// Computes the critical value for Student's $t$-distribution given two-tailed
 /// upper quantile [p] and degrees of freedom [df].
+///
+/// Uses exact analytical closed forms for `df == 1` and `df == 2`, and Hill's
+/// Algorithm 396 (1970) continuous approximation for all `df > 2`, achieving
+/// accuracy `< 1e-4` across all integer and fractional degrees of freedom.
 double studentTQuantile(double p, double df) {
   if (p <= 0.5 || p >= 1.0) {
     throw ArgumentError.value(
@@ -174,45 +178,109 @@ double studentTQuantile(double p, double df) {
     df = 1.0;
   }
 
-  // Exact lookup tables for standard 95% confidence (p = 0.975) on small df
-  if ((p - 0.975).abs() < 1e-4) {
-    final intDf = df.round();
-    if ((df - intDf).abs() < 0.05) {
-      final exactT = switch (intDf) {
-        1 => 12.7062,
-        2 => 4.3027,
-        3 => 3.1824,
-        4 => 2.7764,
-        5 => 2.5706,
-        6 => 2.4469,
-        7 => 2.3646,
-        8 => 2.3060,
-        9 => 2.2622,
-        10 => 2.2281,
-        15 => 2.1314,
-        20 => 2.0860,
-        30 => 2.0423,
-        60 => 2.0003,
-        120 => 1.9799,
-        _ => null,
-      };
-      if (exactT != null) return exactT;
+  if (df == 1.0) {
+    return math.tan(math.pi * (p - 0.5));
+  }
+  if (df == 2.0) {
+    final alpha = 2.0 * (1.0 - p);
+    return math.sqrt(2.0 / (alpha * (2.0 - alpha)) - 2.0);
+  }
+  if (df > 1.0 && df < 2.0) {
+    final t1 = math.tan(math.pi * (p - 0.5));
+    final alpha = 2.0 * (1.0 - p);
+    final t2 = math.sqrt(2.0 / (alpha * (2.0 - alpha)) - 2.0);
+    final w = df - 1.0;
+    var t = t1 * (1.0 - w) + t2 * w;
+    for (var i = 0; i < 4; i++) {
+      final err = _studentTCdf(t, df) - p;
+      t -= err / _studentTPdf(t, df);
     }
+    return t;
   }
 
-  // Cornish-Fisher expansion from standard normal quantile z
-  final z = normalQuantile(p);
-  final z2 = z * z;
-  final z3 = z2 * z;
-  final z5 = z3 * z2;
-  final z7 = z5 * z2;
+  final n = df;
+  final twoTailP = 2.0 * (1.0 - p);
+  final a = 1.0 / (n - 0.5);
+  final b = 48.0 / (a * a);
+  var c = ((20700.0 * a / b - 98.0) * a - 16.0) * a + 96.36;
+  final d =
+      ((94.5 / (b + c) - 3.0) / b + 1.0) * math.sqrt(a * math.pi / 2.0) * n;
+  var x = d * twoTailP;
+  var y = math.pow(x, 2.0 / n).toDouble();
 
-  final term1 = (z3 + z) / (4.0 * df);
-  final term2 = (5.0 * z5 + 16.0 * z3 + 3.0 * z) / (96.0 * df * df);
-  final term3 =
-      (3.0 * z7 + 19.0 * z5 + 17.0 * z3 - 15.0 * z) / (384.0 * df * df * df);
+  if (y > 0.05 + a) {
+    x = normalQuantile(p);
+    y = x * x;
+    if (n < 5.0) {
+      c += 0.3 * (n - 4.5) * (x + 0.6);
+    }
+    c = (((0.05 * d * x - 5.0) * x - 7.0) * x - 2.0) * x + b + c;
+    y =
+        (((((0.4 * y + 6.3) * y + 36.0) * y + 94.5) / c - y - 3.0) / b + 1.0) *
+        x;
+    y = a * y * y;
+    if (y > 0.002) {
+      y = math.exp(y) - 1.0;
+    } else {
+      y = 0.5 * y * y + y;
+    }
+  } else {
+    y =
+        ((1.0 / (((n + 6.0) / (n * y) - 0.089 * d - 0.822) * (n + 2.0) * 3.0) +
+                        0.5 / (n + 4.0)) *
+                    y -
+                1.0) *
+            (n + 1.0) /
+            (n + 2.0) +
+        1.0 / y;
+  }
 
-  return z + term1 + term2 + term3;
+  return math.sqrt(n * y);
+}
+
+double _logGamma(double z) {
+  const g = 7;
+  const p = [
+    0.99999999999980993,
+    676.5203681218851,
+    -1259.1392167224028,
+    771.32342877765313,
+    -176.61502916214059,
+    12.507343278686905,
+    -0.13857109526572012,
+    9.9843695780195716e-6,
+    1.5056327351493116e-7,
+  ];
+  if (z < 0.5) {
+    return math.log(math.pi / math.sin(math.pi * z)) - _logGamma(1.0 - z);
+  }
+  final zMinus1 = z - 1.0;
+  var x = p[0];
+  for (var i = 1; i < g + 2; i++) {
+    x += p[i] / (zMinus1 + i);
+  }
+  final t = zMinus1 + g + 0.5;
+  return 0.5 * math.log(2.0 * math.pi) +
+      (zMinus1 + 0.5) * math.log(t) -
+      t +
+      math.log(x);
+}
+
+double _studentTPdf(double t, double df) {
+  final coef =
+      math.exp(_logGamma((df + 1.0) / 2.0) - _logGamma(df / 2.0)) /
+      math.sqrt(df * math.pi);
+  return coef * math.pow(1.0 + (t * t) / df, -(df + 1.0) / 2.0);
+}
+
+double _studentTCdf(double t, double df) {
+  const n = 200;
+  final dt = t / n;
+  var s = _studentTPdf(0.0, df) + _studentTPdf(t, df);
+  for (var i = 1; i < n; i++) {
+    s += (i.isOdd ? 4.0 : 2.0) * _studentTPdf(i * dt, df);
+  }
+  return 0.5 + s * dt / 3.0;
 }
 
 /// Standard normal inverse CDF (Wichura / Acklam approximation).

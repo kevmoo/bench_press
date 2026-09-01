@@ -11,14 +11,31 @@ void main() {
       check((normalQuantile(0.99) - 2.32635).abs()).isLessThan(1e-4);
     });
 
-    test('studentTQuantile returns accurate critical values', () {
-      // For p = 0.975 (95% CI two-tailed):
-      check(studentTQuantile(0.975, 1.0)).equals(12.7062);
-      check(studentTQuantile(0.975, 2.0)).equals(4.3027);
-      check(studentTQuantile(0.975, 10.0)).equals(2.2281);
-      check(studentTQuantile(0.975, 30.0)).equals(2.0423);
-      check((studentTQuantile(0.975, 1000.0) - 1.96).abs()).isLessThan(0.01);
-    });
+    test(
+      'studentTQuantile returns accurate critical values (< 1e-4 error)',
+      () {
+        // For p = 0.975 (95% CI two-tailed):
+        check((studentTQuantile(0.975, 1.0) - 12.706205).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 1.5) - 6.016566).abs()).isLessThan(1e-4);
+        check((studentTQuantile(0.975, 2.0) - 4.302653).abs()).isLessThan(1e-4);
+        check((studentTQuantile(0.975, 2.5) - 3.574655).abs()).isLessThan(1e-4);
+        check((studentTQuantile(0.975, 5.5) - 2.501859).abs()).isLessThan(1e-4);
+        check((studentTQuantile(0.975, 10.0) - 2.228139).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 11.0) - 2.200985).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 12.0) - 2.178813).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 13.0) - 2.160369).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 14.0) - 2.144787).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 30.0) - 2.042272).abs())
+            .isLessThan(1e-4);
+        check((studentTQuantile(0.975, 1000.0) - 1.96).abs()).isLessThan(0.01);
+      },
+    );
 
     test('calculates exact ratio for zero-variance distributions', () {
       final sampleA = [50.0, 50.0, 50.0];
@@ -72,12 +89,30 @@ void main() {
       check(fieller.upperBound.isInfinite || fieller.upperBound.isNaN).isTrue();
     });
 
-    test('handles empty or zero-mean samples safely', () {
+    test('handles empty, N=1, or zero-mean samples safely', () {
       final emptyA = FiellerInterval.compute(
         sampleA: [],
         sampleB: [100.0, 100.0],
       );
       check(emptyA.isValid).isFalse();
+
+      final n1A = FiellerInterval.compute(
+        sampleA: [50.0],
+        sampleB: [100.0, 100.0],
+      );
+      check(n1A.isValid).isFalse();
+      check(n1A.ratio.isNaN).isTrue();
+      check(n1A.lowerBound.isNaN).isTrue();
+      check(n1A.upperBound.isNaN).isTrue();
+
+      final n1B = FiellerInterval.compute(
+        sampleA: [50.0, 50.0],
+        sampleB: [100.0],
+      );
+      check(n1B.isValid).isFalse();
+      check(n1B.ratio.isNaN).isTrue();
+      check(n1B.lowerBound.isNaN).isTrue();
+      check(n1B.upperBound.isNaN).isTrue();
 
       final zeroB = FiellerInterval.compute(
         sampleA: [50.0, 50.0],

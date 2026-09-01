@@ -5,8 +5,8 @@ import 'blackhole.dart';
 import 'calibration.dart';
 import 'config.dart';
 import 'harness.dart';
-import 'stats/kbssd.dart';
 import 'stats/metrics.dart';
+import 'stats/warmup.dart';
 import 'throughput.dart';
 
 /// The comprehensive result of executing a benchmark through its full
@@ -79,7 +79,7 @@ abstract final class BenchmarkRunner() {
         config,
       );
 
-      final warmupDetector = KbssdWarmupDetector(config: config);
+      final warmupDetector = AdaptiveWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
@@ -140,7 +140,7 @@ abstract final class BenchmarkRunner() {
         config,
       );
 
-      final warmupDetector = KbssdWarmupDetector(config: config);
+      final warmupDetector = AdaptiveWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
@@ -210,7 +210,7 @@ abstract final class BenchmarkRunner() {
             )
           : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
 
-      final warmupDetector = KbssdWarmupDetector(config: config);
+      final warmupDetector = AdaptiveWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
