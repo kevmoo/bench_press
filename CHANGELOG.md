@@ -1,3 +1,14 @@
+## 0.1.1-wip
+
+- Renamed `KbssdWarmupDetector` to `AdaptiveWarmupDetector` (`src/stats/warmup.dart`) and deprecated the old name.
+- Fixed steady-state warmup convergence math using Standard Error of the Mean (SEM) relative error (`<= 3%`) and stationarity checks.
+- Hardened `Blackhole.drain()` compiler barrier against whole-program Dead-Store Elimination across AOT, Wasm, and JavaScript.
+- Fixed `BenchmarkCalibrator` to support sub-10µs operations without throwing `CalibrationException`, and capped exponential probing growth.
+- Implemented continuous Student's t-distribution quantile calculation (Hill's Algorithm 396) for accurate Fieller confidence intervals across all degrees of freedom.
+- Fixed unhandled exception propagation in Isolate execution mode (`BenchmarkProcessRunner`).
+- Stripped comments during benchmark discovery and disambiguated generated wrapper filenames.
+- Prevented floating-point overflow in geometric mean speedup reporting via log-sum calculation.
+
 ## 0.1.0
 
 - Initial release of `bench_press`: A modern, statistically sound, compiler-aware multi-runtime benchmarking framework for Dart and Flutter.
