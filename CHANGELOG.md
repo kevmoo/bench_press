@@ -10,8 +10,8 @@
 - Unified default benchmark discovery directories across `run` and `validate` commands (`benchmark`, `benchmarks`, `bench`).
 - Simplified benchmark discovery to convention-based matching (targeting files ending in `*_benchmark.dart` or `*_bench.dart`) requiring standard `void main()` entrypoints, eliminating ad-hoc regex content parsing and dynamic wrapper script generation.
 - Updated benchmark discovery to default strictly to `benchmark/` (or `benchmarks/`, `bench/`) and throw explicit errors (`FormatException` for non-Dart files, `PathNotFoundException` for nonexistent paths) rather than silently ignoring files or walking the entire repository root.
-- Deprecated `BenchmarkFileKind` and removed `BenchmarkFileKind.benchmarksList` wrapper generation.
-- Renamed `KbssdWarmupDetector` to `AdaptiveWarmupDetector` (`src/stats/warmup.dart`) and deprecated the old name.
+- Removed `BenchmarkFileKind` enum and dynamic wrapper script generation.
+- Removed deprecated `KbssdWarmupDetector` alias in favor of `AdaptiveWarmupDetector`.
 - Fixed steady-state warmup convergence math using Standard Error of the Mean (SEM) relative error (`<= 3%`) and stationarity checks.
 - Hardened `Blackhole.drain()` compiler barrier against whole-program Dead-Store Elimination across AOT, Wasm, and JavaScript.
 - Fixed `BenchmarkCalibrator` to support sub-10µs operations without throwing `CalibrationException`, while throwing `CalibrationException` by default when maximum probe batches produce zero elapsed ticks (`elapsedUs == 0`) unless `forceRun: true` (`--force-run`) is specified (which warns and continues).

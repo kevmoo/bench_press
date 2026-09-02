@@ -102,15 +102,6 @@ void _testDetectorConvergence() {
     check(result.isStable).isTrue();
     check(result.convergedAtIteration).isLessOrEqual(15);
   });
-
-  test(
-    'Deprecated KbssdWarmupDetector typedef works for backwards compatibility',
-    () {
-      // ignore: deprecated_member_use_from_same_package
-      final detector = KbssdWarmupDetector();
-      check(detector).isA<AdaptiveWarmupDetector>();
-    },
-  );
 }
 
 void _testDetectorFallback() {

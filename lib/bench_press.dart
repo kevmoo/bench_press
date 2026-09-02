@@ -12,7 +12,7 @@ export 'src/cli/command_runner.dart'
         benchPressVersion;
 export 'src/cli/compiler.dart' show CompilationResult, TargetCompiler;
 export 'src/cli/discovery.dart'
-    show BenchmarkDiscovery, BenchmarkFileKind, DiscoveredBenchmarkFile;
+    show BenchmarkDiscovery, DiscoveredBenchmarkFile;
 export 'src/cli/process_runner.dart'
     show BenchmarkProcessRunner, ProcessExecutionResult;
 export 'src/cli/sdk.dart' show DartSdk, TargetRuntime;
@@ -34,8 +34,7 @@ export 'src/runner.dart' show BenchmarkResult, BenchmarkRunner;
 export 'src/stats/fieller.dart'
     show FiellerInterval, normalQuantile, studentTQuantile;
 export 'src/stats/metrics.dart' show BenchmarkMetrics;
-export 'src/stats/warmup.dart'
-    show AdaptiveWarmupDetector, KbssdWarmupDetector, WarmupResult;
+export 'src/stats/warmup.dart' show AdaptiveWarmupDetector, WarmupResult;
 export 'src/telemetry/git_diff.dart'
     show GitBaselineDiffResult, GitBaselineExtractor, GitDiffReporter;
 export 'src/telemetry/markdown_reporter.dart' show MarkdownReporter;

@@ -2,19 +2,6 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-/// Represents the detected structural category of a benchmark file.
-@Deprecated('No longer used. All benchmark files are standalone executables.')
-enum BenchmarkFileKind() {
-  /// The file provides a standalone `main(...)` entrypoint.
-  standaloneMain,
-
-  /// The file declares/exports a top-level `benchmarks` variable or getter.
-  benchmarksList,
-
-  /// The file structure could not be definitively classified.
-  unknown,
-}
-
 /// Represents a discovered benchmark file and its structural metadata.
 final class const DiscoveredBenchmarkFile({
   /// The underlying Dart source file.
