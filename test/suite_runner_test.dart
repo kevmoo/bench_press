@@ -139,5 +139,14 @@ void main() {
         }
       },
     );
+
+    test(
+      'mainBenchmarkSuite throws descriptive ArgumentError on null elements',
+      () async {
+        await check(mainBenchmarkSuite([null], [])).throws<ArgumentError>();
+
+        await check(mainBenchmarkSuite(null, [])).throws<ArgumentError>();
+      },
+    );
   });
 }

@@ -149,5 +149,81 @@ final benchmarks = [];
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('discover excludes BenchmarkFileKind.unknown helper files', () {
+      final tempDir = Directory.systemTemp.createTempSync('discovery_unknown_');
+      try {
+        final benchDir = Directory(p.join(tempDir.path, 'benchmark'))
+          ..createSync();
+
+        final fileA = File(p.join(benchDir.path, 'a_bench.dart'))
+          ..writeAsStringSync('void main() {}');
+        final fileB = File(p.join(benchDir.path, 'b_bench.dart'))
+          ..writeAsStringSync('final benchmarks = [];');
+        final helperFile = File(p.join(benchDir.path, 'helper.dart'))
+          ..writeAsStringSync('class Helper {}');
+
+        final discovered = BenchmarkDiscovery.discover(tempDir.path);
+        check(discovered.length).equals(2);
+        check(discovered.map((d) => d.path))
+          ..contains(p.normalize(fileA.absolute.path))
+          ..contains(p.normalize(fileB.absolute.path))
+          ..not((it) => it.contains(p.normalize(helperFile.absolute.path)));
+
+        final singleUnknown = BenchmarkDiscovery.discover(helperFile.path);
+        check(singleUnknown).isEmpty();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'classifyContent preserves string literals with URLs and comment tokens',
+      () {
+        const urlInString = '''
+final url = 'https://x.dev/foo'; void main() {}
+''';
+        check(BenchmarkDiscovery.classifyContent(urlInString))
+            .equals(BenchmarkFileKind.standaloneMain);
+
+        const blockTokensInString = '''
+final open = '/*';
+void main() {}
+final close = '*/';
+''';
+        check(BenchmarkDiscovery.classifyContent(blockTokensInString))
+            .equals(BenchmarkFileKind.standaloneMain);
+
+        const lineTokenInString = '''
+final slash = '//';
+final benchmarks = [];
+''';
+        check(BenchmarkDiscovery.classifyContent(lineTokenInString))
+            .equals(BenchmarkFileKind.benchmarksList);
+      },
+    );
+
+    test('generateWrapper produces CWD-invariant wrapper filenames', () {
+      final tempDir = Directory.systemTemp.createTempSync('wrapper_cwd_');
+      try {
+        final benchFile = File(p.join(tempDir.path, 'sub', 'my_bench.dart'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('final benchmarks = [];');
+        final outputDir = Directory(p.join(tempDir.path, 'generated'));
+
+        final wrapperFromAbs = BenchmarkDiscovery.generateWrapper(
+          benchmarkFile: File(benchFile.absolute.path),
+          outputDir: outputDir,
+        );
+        final wrapperFromRel = BenchmarkDiscovery.generateWrapper(
+          benchmarkFile: File(p.relative(benchFile.path)),
+          outputDir: outputDir,
+        );
+
+        check(wrapperFromAbs.path).equals(wrapperFromRel.path);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }

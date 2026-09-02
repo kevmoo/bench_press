@@ -57,7 +57,8 @@ Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
 /// Standalone CLI entrypoint for an arbitrary collection or single instance of
 /// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or
 /// [BenchmarkGroup]).
-Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
+Future<void> mainBenchmarkSuite(Object? benchmarks, List<String> args) async {
+  _validateBenchmarks(benchmarks);
   final parser = ArgParser()
     ..addOption('json-output', help: 'Path to write output telemetry JSON')
     ..addFlag('json', help: 'Emit streaming JSON markers to stdout')
@@ -98,7 +99,7 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
 
   final benchmarkList = benchmarks is Iterable
       ? List<Object>.from(benchmarks)
-      : <Object>[benchmarks];
+      : <Object>[benchmarks!];
 
   final results = <BenchmarkResult>[];
   for (final item in benchmarkList) {
@@ -135,19 +136,28 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   final jsonText = const JsonEncoder.withIndent('  ')
       .convert(suiteResult.toJson());
 
-  final jsonOutputPath = parsed.option('json-output');
-  if (jsonOutputPath != null && jsonOutputPath.isNotEmpty) {
-    try {
-      final file = File(jsonOutputPath);
-      file.parent.createSync(recursive: true);
-      file.writeAsStringSync('$jsonText\n');
-    } on Object catch (e) {
-      stderr.writeln('Warning: Failed to write JSON output: $e');
-    }
-  }
+  _writeJsonOutput(parsed.option('json-output'), jsonText);
 
   // Always emit stream markers for subprocess communication
   stdout.writeln(wrapJsonInMarkers(jsonText));
+}
+
+void _validateBenchmarks(Object? benchmarks) {
+  if (benchmarks == null ||
+      (benchmarks is Iterable && benchmarks.any((e) => e == null))) {
+    throw ArgumentError('Benchmark suite list cannot contain null elements.');
+  }
+}
+
+void _writeJsonOutput(String? jsonOutputPath, String jsonText) {
+  if (jsonOutputPath == null || jsonOutputPath.isEmpty) return;
+  try {
+    final file = File(jsonOutputPath);
+    file.parent.createSync(recursive: true);
+    file.writeAsStringSync('$jsonText\n');
+  } on Object catch (e) {
+    stderr.writeln('Warning: Failed to write JSON output: $e');
+  }
 }
 
 BenchmarkConfig _buildConfigFromArgs(

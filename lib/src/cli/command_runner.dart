@@ -402,13 +402,6 @@ final class RunCommand({
   bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
       suite.benchmarks.any((b) => !b.metrics.isStable);
 
-  String _resolveTargetPath(List<String> rest) {
-    if (rest.isNotEmpty) return rest.first;
-    if (Directory('benchmark').existsSync()) return 'benchmark';
-    if (Directory('benchmarks').existsSync()) return 'benchmarks';
-    return '.';
-  }
-
   File _resolveExecutionFile(
     DiscoveredBenchmarkFile discovered,
     Directory buildDir,
@@ -552,9 +545,7 @@ final class ValidateCommand({
       stderr.writeln(e.message);
       return ExitCode.usage.code;
     }
-    final targetPath = argResults!.rest.isNotEmpty
-        ? argResults!.rest.first
-        : (Directory('benchmark').existsSync() ? 'benchmark' : '.');
+    final targetPath = _resolveTargetPath(argResults!.rest);
 
     final files = BenchmarkDiscovery.discover(targetPath);
     if (files.isEmpty) {
@@ -702,12 +693,15 @@ final class DiffCommand() extends Command<int> {
       'Diff two JSON telemetry files or diff current telemetry against '
       'a Git ref.';
 
+  @override
+  String get invocation =>
+      '${runner!.executableName} $name [arguments] [<baseline> [current]]';
+
   this {
     argParser
       ..addOption(
         'baseline',
         abbr: 'b',
-        mandatory: true,
         help: 'Baseline JSON file path OR Git ref (e.g. HEAD~1, main).',
       )
       ..addOption(
@@ -733,8 +727,22 @@ final class DiffCommand() extends Command<int> {
 
   @override
   Future<int> run() async {
-    final baselineArg = argResults!.option('baseline')!;
-    final currentArg = argResults!.option('current')!;
+    final baselineArg =
+        argResults!.option('baseline') ??
+        (argResults!.rest.isNotEmpty ? argResults!.rest[0] : null);
+    if (baselineArg == null) {
+      throw UsageException(
+        'Missing baseline file path. Specify via --baseline (-b) or '
+        'positional argument <baseline>.',
+        usage,
+      );
+    }
+
+    final currentArg = argResults!.wasParsed('current')
+        ? argResults!.option('current')!
+        : (argResults!.rest.length >= 2
+              ? argResults!.rest[1]
+              : defaultTelemetryFileName);
     final targetFileArg = argResults!.option('target-file')!;
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
@@ -772,4 +780,12 @@ final class DiffCommand() extends Command<int> {
     }
     return ExitCode.success.code;
   }
+}
+
+String _resolveTargetPath(List<String> rest) {
+  if (rest.isNotEmpty) return rest.first;
+  for (final dir in const ['benchmark', 'benchmarks', 'bench']) {
+    if (Directory(dir).existsSync()) return dir;
+  }
+  return '.';
 }

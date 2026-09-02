@@ -225,6 +225,7 @@ final class const BenchmarkProcessRunner({
 
       try {
         await Future.any([exitPort.first, errorCompleter.future]);
+        await Future<void>.delayed(Duration.zero);
       } finally {
         isolate.kill(priority: Isolate.immediate);
       }

@@ -333,5 +333,88 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
         }
       },
     );
+
+    test(
+      'bench_press diff supports positional arguments <baseline> [current]',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('cli_diff_pos_');
+        try {
+          final baseFile = File(p.join(tempDir.path, 'base.json'));
+          final currFile = File(p.join(tempDir.path, 'curr.json'));
+          const env = EnvironmentInfo(
+            dartVersion: '3.14.0',
+            os: 'linux',
+            arch: 'x64',
+          );
+
+          const baseMetrics = BenchmarkMetrics(
+            meanNs: 100.0,
+            medianNs: 100.0,
+            minNs: 90.0,
+            maxNs: 110.0,
+            stddevNs: 2.0,
+            cv: 0.02,
+            p95Ns: 103.0,
+            p99Ns: 105.0,
+            opsPerSec: 10000000.0,
+            isStable: true,
+          );
+          const currMetrics = BenchmarkMetrics(
+            meanNs: 50.0,
+            medianNs: 50.0,
+            minNs: 45.0,
+            maxNs: 55.0,
+            stddevNs: 1.0,
+            cv: 0.02,
+            p95Ns: 52.0,
+            p99Ns: 53.0,
+            opsPerSec: 20000000.0,
+            isStable: true,
+          );
+
+          BenchmarkSuiteResult(
+            version: currentTelemetrySchemaVersion,
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: const [
+              BenchmarkEntry(
+                name: 'pos_test_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: baseMetrics,
+                rawTrialsNs: [98.0, 100.0, 102.0],
+              ),
+            ],
+          ).saveToFile(baseFile);
+
+          BenchmarkSuiteResult(
+            version: currentTelemetrySchemaVersion,
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: const [
+              BenchmarkEntry(
+                name: 'pos_test_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: currMetrics,
+                rawTrialsNs: [49.0, 50.0, 51.0],
+              ),
+            ],
+          ).saveToFile(currFile);
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'diff',
+            baseFile.path,
+            currFile.path,
+          ]);
+          check(exitCode).equals(0);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }
