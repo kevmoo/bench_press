@@ -22,6 +22,35 @@ final class const CalibratedBatch({
   required final double estimatedOpDurationMicroseconds,
 });
 
+/// Minimum elapsed duration in microseconds (5 ms) for a calibration probe
+/// batch.
+///
+/// Running a probe batch for at least 5 ms ensures system timer quantization
+/// jitter (< 1 µs on native platforms, 5–100 µs on web/browsers due to Spectre
+/// mitigations) remains below 1%, providing an accurate baseline measurement
+/// to extrapolate target batch iterations.
+const int _minProbeDurationUs = 5000;
+
+/// Maximum iteration ceiling (1,000,000) allowed during exponential
+/// calibration probing.
+///
+/// Prevents runaway probing loops on ultra-fast, no-op, or
+/// dead-code-eliminated benchmark operations, guaranteeing calibration
+/// terminates in bounded time.
+const int _maxProbeIterations = 1000000;
+
+/// Maximum per-operation latency in microseconds (200 ms) permitted for
+/// micro-benchmarks.
+///
+/// Operations exceeding 200 ms/op are considered macro-benchmarks that should
+/// execute with fewer trials rather than through high-frequency inner loops.
+const double _macroBenchmarkThresholdUs = 200000.0;
+
+/// Sub-millisecond latency threshold in microseconds (1 ms) below which
+/// inner-loop batching is activated to maintain high timer resolution
+/// (> 99.9%).
+const double _subMillisecondNoticeThresholdUs = 1000.0;
+
 /// Utility for calibrating inner loop iteration counts.
 abstract final class BenchmarkCalibrator() {
   /// Calibrates batch size for synchronous action to reach target duration.
@@ -43,7 +72,8 @@ abstract final class BenchmarkCalibrator() {
       stopwatch.stop();
 
       final elapsedUs = stopwatch.elapsedMicroseconds;
-      if (elapsedUs >= 5000 || iterations >= 1000000) {
+      if (elapsedUs >= _minProbeDurationUs ||
+          iterations >= _maxProbeIterations) {
         final perOpUs = elapsedUs / iterations;
         _validateOperationalBounds(elapsedUs, perOpUs, config);
 
@@ -57,12 +87,12 @@ abstract final class BenchmarkCalibrator() {
         );
       }
 
-      final scaleFactor = 5000 / math.max(1, elapsedUs);
+      final scaleFactor = _minProbeDurationUs / math.max(1, elapsedUs);
       iterations = math.min(
         iterations * 10,
         math.max(iterations * 2, (iterations * scaleFactor).round()),
       );
-      iterations = math.min(iterations, 1000000);
+      iterations = math.min(iterations, _maxProbeIterations);
     }
   }
 
@@ -84,7 +114,8 @@ abstract final class BenchmarkCalibrator() {
       stopwatch.stop();
 
       final elapsedUs = stopwatch.elapsedMicroseconds;
-      if (elapsedUs >= 5000 || iterations >= 1000000) {
+      if (elapsedUs >= _minProbeDurationUs ||
+          iterations >= _maxProbeIterations) {
         final perOpUs = elapsedUs / iterations;
         _validateOperationalBounds(elapsedUs, perOpUs, config);
 
@@ -98,12 +129,12 @@ abstract final class BenchmarkCalibrator() {
         );
       }
 
-      final scaleFactor = 5000 / math.max(1, elapsedUs);
+      final scaleFactor = _minProbeDurationUs / math.max(1, elapsedUs);
       iterations = math.min(
         iterations * 10,
         math.max(iterations * 2, (iterations * scaleFactor).round()),
       );
-      iterations = math.min(iterations, 1000000);
+      iterations = math.min(iterations, _maxProbeIterations);
     }
   }
 
@@ -128,7 +159,7 @@ abstract final class BenchmarkCalibrator() {
       return;
     }
 
-    if (perOpUs > 200000.0) {
+    if (perOpUs > _macroBenchmarkThresholdUs) {
       throw CalibrationException(
         'Operation latency exceeds the 200 ms upper-bound threshold. '
         'Individual iterations > 200 ms should use macro-benchmarking with '
@@ -137,7 +168,7 @@ abstract final class BenchmarkCalibrator() {
       );
     }
 
-    if (perOpUs < 1000.0) {
+    if (perOpUs < _subMillisecondNoticeThresholdUs) {
       config.logger?.call(
         'Notice: Operation latency (${perOpUs.toStringAsFixed(1)} µs) is < 1 '
         'ms. Inner loop batching will scale iterations to ensure timer '
