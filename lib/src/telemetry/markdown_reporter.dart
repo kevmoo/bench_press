@@ -155,51 +155,61 @@ abstract final class MarkdownReporter() {
         ? (baseMeanNs / curMeanNs)
         : 1.0;
 
-    final cols = <String>[];
-
-    if (axes.isEmpty) {
-      final val = entry.name;
-      final suffix = identical(entry, baselineEntry) ? ' (Baseline)' : '';
-      cols.add('`$val`$suffix');
-    } else {
-      for (final axis in axes) {
-        final val = entry.coordinates[axis] ?? '-';
-        final suffix = identical(entry, baselineEntry) ? ' (Baseline)' : '';
-        cols.add('`$val`$suffix');
-      }
-    }
-
-    final opsStr = _formatOps(entry.metrics.opsPerSec);
-    cols.add(opsStr);
-
-    if (hasThroughput) {
-      final tpStr = entry.throughput?.formatRate(curMeanNs) ?? '-';
-      cols.add(tpStr);
-    }
-
-    final meanStr = _formatLatency(curMeanNs);
-    cols.add(meanStr);
-
-    if (identical(entry, baselineEntry)) {
-      cols.addAll(['1.00x (ref)', '1.00x', '[1.00x – 1.00x]', 'Ref']);
-    } else {
-      final diffStr = speedup >= 1.0
-          ? '**${speedup.toStringAsFixed(2)}x faster**'
-          : '**${(1.0 / speedup).toStringAsFixed(2)}x slower**';
-      cols.add(diffStr);
-      cols.add('${speedup.toStringAsFixed(2)}x');
-
-      var fiellerStr = _formatFiellerCi(baselineEntry, entry);
-      if (speedup >= 1.05 || speedup <= 0.95) {
-        fiellerStr = '**$fiellerStr**';
-      }
-      cols.add(fiellerStr);
-
-      final statusLabel = _classifyMovement(speedup, isDelta: false).$1;
-      cols.add(statusLabel);
-    }
+    final cols = <String>[
+      ..._formatDimensionCols(entry, baselineEntry, axes),
+      _formatOps(entry.metrics.opsPerSec),
+      if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
+      _formatLatency(curMeanNs),
+      ..._formatComparisonCols(entry, baselineEntry, speedup),
+    ];
 
     return '| ${cols.join(' | ')} |';
+  }
+
+  static List<String> _formatDimensionCols(
+    BenchmarkEntry entry,
+    BenchmarkEntry baselineEntry,
+    List<String> axes,
+  ) {
+    final isBase = identical(entry, baselineEntry);
+    final suffix = isBase ? ' (Baseline)' : '';
+    if (axes.isEmpty) {
+      return ['`${entry.name}`$suffix'];
+    }
+    return [
+      for (final axis in axes) '`${entry.coordinates[axis] ?? '-'}`$suffix',
+    ];
+  }
+
+  static List<String> _formatComparisonCols(
+    BenchmarkEntry entry,
+    BenchmarkEntry baselineEntry,
+    double speedup,
+  ) {
+    if (identical(entry, baselineEntry)) {
+      return ['1.00x (ref)', '1.00x', '[1.00x – 1.00x]', 'Ref'];
+    }
+
+    final diffStr = speedup >= 1.0
+        ? '**${speedup.toStringAsFixed(2)}x faster**'
+        : '**${(1.0 / speedup).toStringAsFixed(2)}x slower**';
+    final ratioStr = '${speedup.toStringAsFixed(2)}x';
+    final ciStr = _formatMatrixFiellerCi(baselineEntry, entry, speedup);
+    final statusLabel = _classifyMovement(speedup, isDelta: false).$1;
+
+    return [diffStr, ratioStr, ciStr, statusLabel];
+  }
+
+  static String _formatMatrixFiellerCi(
+    BenchmarkEntry baselineEntry,
+    BenchmarkEntry entry,
+    double speedup,
+  ) {
+    final ci = _formatFiellerCi(baselineEntry, entry);
+    if (speedup >= 1.05 || speedup <= 0.95) {
+      return '**$ci**';
+    }
+    return ci;
   }
 
   static String renderAllGroupComparisonTables(BenchmarkSuiteResult suite) {
