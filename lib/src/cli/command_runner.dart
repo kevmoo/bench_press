@@ -751,7 +751,7 @@ final class DiffCommand() extends Command<int> {
     }
 
     final String current;
-    if (argResults!.wasParsed('current')) {
+    if (hasCurrentFlag) {
       current = argResults!.option('current')!;
     } else if (hasBaselineFlag && rest.isNotEmpty) {
       current = rest[0];

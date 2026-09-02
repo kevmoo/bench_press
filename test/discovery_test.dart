@@ -227,23 +227,25 @@ main(args) async => print(args);
           .equals(BenchmarkFileKind.standaloneMain);
     });
 
-    test('discover handles relative paths with parent traversal (..)', () {
-      final tempDir = Directory.systemTemp.createTempSync('discovery_rel_');
-      try {
-        final pkgA = Directory(p.join(tempDir.path, 'pkg_a'))..createSync();
-        final pkgB = Directory(p.join(tempDir.path, 'pkg_b', 'benchmark'))
-          ..createSync(recursive: true);
-        File(p.join(pkgB.path, 'my_bench.dart'))
-            .writeAsStringSync('void main() {}');
+    test(
+      'discover ignores dot-prefixed ancestor directories above targetPath',
+      () {
+        final tempDir = Directory.systemTemp.createTempSync('discovery_dot_');
+        try {
+          final target = Directory(
+            p.join(tempDir.path, '.hidden', 'pkg_b', 'benchmark'),
+          )..createSync(recursive: true);
+          File(p.join(target.path, 'my_bench.dart'))
+              .writeAsStringSync('void main() {}');
 
-        final relTarget = p.join(pkgA.path, '..', 'pkg_b', 'benchmark');
-        final discovered = BenchmarkDiscovery.discover(relTarget);
-        check(discovered.length).equals(1);
-        check(discovered.first.kind).equals(BenchmarkFileKind.standaloneMain);
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
-    });
+          final discovered = BenchmarkDiscovery.discover(target.path);
+          check(discovered.length).equals(1);
+          check(discovered.first.kind).equals(BenchmarkFileKind.standaloneMain);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
 
     test('generateWrapper produces CWD-invariant wrapper filenames', () {
       final tempDir = Directory.systemTemp.createTempSync('wrapper_cwd_');
