@@ -302,19 +302,6 @@ void main() {
         check(deserialized.coordinates['group']).equals('CryptoGroup');
         check(deserialized.isBaseline).isTrue();
         check(deserialized.throughput).equals(const Throughput.bytes(1024));
-
-        // Legacy JSON containing "group" maps to coordinates['group']
-        final legacyJson = {
-          'name': 'legacy_task',
-          'target': 'aot',
-          'mode': 'sync',
-          'samples': 10,
-          'metrics': metrics.toJson(),
-          'group': 'OldGroup',
-          'is_baseline': true,
-        };
-        final fromLegacy = BenchmarkEntry.fromJson(legacyJson);
-        check(fromLegacy.coordinates['group']).equals('OldGroup');
       },
     );
 

@@ -242,11 +242,6 @@ final class const BenchmarkEntry({
         coordinates[key.toString()] = rawCoords[key].toString();
       }
     }
-
-    final group = json['group'] as String?;
-    if (coordinates.isEmpty && group != null && group.isNotEmpty) {
-      coordinates['group'] = group;
-    }
     final isBaseline = (json['is_baseline'] as bool?) ?? false;
 
     final rawThroughput = json['throughput'];
