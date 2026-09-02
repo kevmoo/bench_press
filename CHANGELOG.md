@@ -4,7 +4,8 @@
 - Added positional argument support (`<baseline> [current]`) to `bench_press diff` alongside `--baseline` (`-b`) and `--current` (`-c`).
 - Added `Blackhole.consumeString` and `Blackhole.consumeObject` overloads with `@pragma('dart2js:never-inline')` compiler barriers.
 - Added `maxSemRelativeError` option (default `0.03`) to `BenchmarkConfig` for steady-state warmup convergence.
-- Added `BenchmarkEntry.copyWith` method and updated `BenchmarkEntry.key` to include optional `group` (`$name:$target:$group`) with deterministic group/name/target ordering in `BenchmarkSuiteResult.deepMerge`.
+- Added `BenchmarkEntry.copyWith` method and updated `BenchmarkEntry.key` to include optional `group` (`$name:$target:$group`) with deterministic name/target ordering in `BenchmarkSuiteResult.deepMerge`.
+- Updated `BenchmarkSuiteResult.groups` to return group names in order of appearance rather than sorted alphabetically.
 - Aligned default `targetBatchDuration` to `100ms` across CLI runners and `BenchmarkConfig`.
 - Unified default benchmark discovery directories across `run` and `validate` commands (`benchmark`, `benchmarks`, `bench`).
 - Updated `BenchmarkDiscovery.discover` to filter out `BenchmarkFileKind.unknown` helper files during directory traversal (with `--verbose` logging).
