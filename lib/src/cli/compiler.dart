@@ -182,9 +182,20 @@ instantiatedApp.invokeMain(...process.argv.slice(2));
   /// genuinely suspends on `await` (not just trampolines through synchronous
   /// work) hits that scheduler, throws `ReferenceError: self is not
   /// defined,` and the resulting rejected Future is dropped silently (no
-  /// crash, no telemetry). This writes a `.node.js` wrapper next to the
-  /// compiled output that polyfills `self` before requiring it, and returns
-  /// its path for use as the actual runner script.
+  /// crash, no telemetry).
+  ///
+  /// Separately, the compiled output invokes `main` with a *hardcoded empty
+  /// arguments array* (`dartMainRunner(s,[])`) — CLI args like `--target js`
+  /// or `--trials N` never reach Dart's `main(args)` no matter what's passed
+  /// on the command line. `dartMainRunner` is dart2js's documented embedder
+  /// hook for exactly this: if defined as a global before the compiled
+  /// script runs, dart2js calls it instead of invoking `main` directly,
+  /// letting us supply the real args ourselves.
+  ///
+  /// This writes a `.node.js` wrapper next to the compiled output that
+  /// polyfills `self`, defines `dartMainRunner` to forward `process.argv`,
+  /// and requires the compiled artifact — and returns its path for use as
+  /// the actual runner script.
   String _writeJsRunner({
     required String outputDir,
     required String baseName,
@@ -196,6 +207,9 @@ instantiatedApp.invokeMain(...process.argv.slice(2));
 if (typeof self === 'undefined') {
   globalThis.self = globalThis;
 }
+globalThis.dartMainRunner = (main, _ignoredArgs) => {
+  main(process.argv.slice(2));
+};
 require('./$compiledFileName');
 ''');
     return runnerPath;
