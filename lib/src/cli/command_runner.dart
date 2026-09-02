@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:io/io.dart';
-import 'package:path/path.dart' as p;
 
 import '../telemetry/git_diff.dart';
 import '../telemetry/markdown_reporter.dart';
@@ -169,7 +168,16 @@ final class RunCommand({
     }
     final targetPath = _resolveTargetPath(argResults!.rest);
     final verbose = globalResults?.flag('verbose') ?? false;
-    final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+    final List<DiscoveredBenchmarkFile> files;
+    try {
+      files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+    } on FormatException catch (e) {
+      stderr.writeln(e.message);
+      return ExitCode.usage.code;
+    } on FileSystemException catch (e) {
+      stderr.writeln(e.message);
+      return ExitCode.noInput.code;
+    }
 
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
@@ -313,13 +321,8 @@ final class RunCommand({
     BenchmarkSuiteResult? accumulated;
     for (final entry in compilers.entries) {
       final label = entry.key;
-      final buildDir = Directory(
-        p.join('.dart_tool', 'bench_press', 'generated', label),
-      );
-      final executionFile = _resolveExecutionFile(discovered, buildDir);
       final result = await _executeSingleTarget(
         discovered: discovered,
-        executionFile: executionFile,
         runtime: runtime,
         trials: trials,
         forceRun: forceRun,
@@ -341,7 +344,6 @@ final class RunCommand({
 
   Future<BenchmarkSuiteResult?> _executeSingleTarget({
     required DiscoveredBenchmarkFile discovered,
-    required File executionFile,
     required TargetRuntime runtime,
     required int? trials,
     required bool forceRun,
@@ -358,7 +360,7 @@ final class RunCommand({
     }
 
     final compilation = await compiler.compile(
-      sourceFile: executionFile,
+      sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: compilerFlags,
     );
@@ -402,19 +404,6 @@ final class RunCommand({
 
   bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
       suite.benchmarks.any((b) => !b.metrics.isStable);
-
-  File _resolveExecutionFile(
-    DiscoveredBenchmarkFile discovered,
-    Directory buildDir,
-  ) {
-    if (discovered.kind == BenchmarkFileKind.benchmarksList) {
-      return BenchmarkDiscovery.generateWrapper(
-        benchmarkFile: discovered.file,
-        outputDir: buildDir,
-      );
-    }
-    return discovered.file;
-  }
 
   void _outputSuiteReport({
     required BenchmarkSuiteResult suite,
@@ -548,33 +537,31 @@ final class ValidateCommand({
     }
     final targetPath = _resolveTargetPath(argResults!.rest);
     final verbose = globalResults?.flag('verbose') ?? false;
+    final List<DiscoveredBenchmarkFile> files;
+    try {
+      files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+    } on FormatException catch (e) {
+      stderr.writeln(e.message);
+      return ExitCode.usage.code;
+    } on FileSystemException catch (e) {
+      stderr.writeln(e.message);
+      return ExitCode.noInput.code;
+    }
 
-    final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
       return ExitCode.noInput.code;
     }
 
     final compilerFlags = argResults!.multiOption('compiler-flag');
-    final buildDir = Directory(
-      p.join('.dart_tool', 'bench_press', 'validate_wrappers'),
-    );
 
     stdout.writeln('Validating benchmarks across ${targets.join(", ")}...');
     var allPassed = true;
 
     for (final discovered in files) {
-      final executionFile = discovered.kind == BenchmarkFileKind.benchmarksList
-          ? BenchmarkDiscovery.generateWrapper(
-              benchmarkFile: discovered.file,
-              outputDir: buildDir,
-            )
-          : discovered.file;
-
       for (final runtime in targets) {
         final passed = await _validateTarget(
           discovered: discovered,
-          executionFile: executionFile,
           runtime: runtime,
           compilerFlags: compilerFlags,
         );
@@ -587,7 +574,6 @@ final class ValidateCommand({
 
   Future<bool> _validateTarget({
     required DiscoveredBenchmarkFile discovered,
-    required File executionFile,
     required TargetRuntime runtime,
     required List<String> compilerFlags,
   }) async {
@@ -599,7 +585,7 @@ final class ValidateCommand({
     }
 
     final compilation = await compiler.compile(
-      sourceFile: executionFile,
+      sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: compilerFlags,
     );
@@ -830,5 +816,5 @@ String _resolveTargetPath(List<String> rest) {
   for (final dir in const ['benchmark', 'benchmarks', 'bench']) {
     if (Directory(dir).existsSync()) return dir;
   }
-  return '.';
+  return 'benchmark';
 }

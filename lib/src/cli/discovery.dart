@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 /// Represents the detected structural category of a benchmark file.
+@Deprecated('No longer used. All benchmark files are standalone executables.')
 enum BenchmarkFileKind() {
   /// The file provides a standalone `main(...)` entrypoint.
   standaloneMain,
@@ -18,9 +19,6 @@ enum BenchmarkFileKind() {
 final class const DiscoveredBenchmarkFile({
   /// The underlying Dart source file.
   required final File file,
-
-  /// The detected benchmark file structural category.
-  required final BenchmarkFileKind kind,
 }) {
   /// Absolute normalized path of the file.
   String get path => p.normalize(file.absolute.path);
@@ -29,36 +27,55 @@ final class const DiscoveredBenchmarkFile({
   String get basename => p.basename(file.path);
 
   @override
-  String toString() => 'DiscoveredBenchmarkFile($path, kind: $kind)';
+  String toString() => 'DiscoveredBenchmarkFile($path)';
 }
 
-/// Discovers benchmark files in repositories and directories, and generates
-/// executable runner wrappers when needed.
+/// Discovers benchmark files in repositories and directories.
 abstract final class BenchmarkDiscovery() {
+  /// File suffixes recognized as benchmark files during directory discovery.
+  static const List<String> benchmarkSuffixes = [
+    '_benchmark.dart',
+    '_bench.dart',
+  ];
+
   /// Discovers benchmark files within [targetPath] (which may be a specific
   /// file or a directory).
   ///
-  /// Recursively traverses directories, ignoring hidden folders, `.dart_tool`,
-  /// `build`, and non-Dart files.
+  /// If [targetPath] points to a file, it must have a `.dart` extension.
+  /// If [targetPath] points to a directory, it recursively finds all files
+  /// ending with `_benchmark.dart` or `_bench.dart`, ignoring hidden folders
+  /// (prefixed with `.`) and `build` directories.
+  ///
+  /// Throws [FormatException] if [targetPath] points to a non-Dart file.
+  /// Throws [PathNotFoundException] if [targetPath] does not exist.
   static List<DiscoveredBenchmarkFile> discover(
     String targetPath, {
     bool verbose = false,
   }) {
     final file = File(targetPath);
     if (file.existsSync()) {
-      if (p.extension(targetPath) != '.dart') return const [];
-      return [inspectFile(file)];
+      if (p.extension(targetPath) != '.dart') {
+        throw FormatException('Target path is not a Dart file: "$targetPath".');
+      }
+      return [DiscoveredBenchmarkFile(file: file)];
     }
 
     final dir = Directory(targetPath);
-    if (!dir.existsSync()) return const [];
+    if (!dir.existsSync()) {
+      throw PathNotFoundException(
+        targetPath,
+        const OSError(),
+        'Target path does not exist: "$targetPath".',
+      );
+    }
 
     final results = <DiscoveredBenchmarkFile>[];
     for (final entity in dir.listSync(recursive: true, followLinks: false)) {
-      if (entity is! File || _isIgnoredPath(entity.path, targetPath)) continue;
-      final inspected = inspectFile(entity);
-      if (inspected.kind != BenchmarkFileKind.unknown) {
-        results.add(inspected);
+      if (entity is! File) continue;
+      if (_isIgnoredPath(entity.path, targetPath)) continue;
+
+      if (_isBenchmarkFileName(entity.path)) {
+        results.add(DiscoveredBenchmarkFile(file: entity));
       } else if (verbose) {
         stderr.writeln('Skipping non-benchmark file: ${entity.path}');
       }
@@ -68,115 +85,23 @@ abstract final class BenchmarkDiscovery() {
     return results;
   }
 
+  static bool _isBenchmarkFileName(String filePath) {
+    final name = p.basename(filePath);
+    for (final suffix in benchmarkSuffixes) {
+      if (name.endsWith(suffix)) return true;
+    }
+    return false;
+  }
+
   static bool _isIgnoredPath(String filePath, String targetPath) {
     if (p.extension(filePath) != '.dart') return true;
     final relPath = p.relative(filePath, from: targetPath);
     for (final s in p.split(p.normalize(relPath))) {
       if (s == '.' || s == '..') continue;
-      if (s.startsWith('.') ||
-          s == 'build' ||
-          s == '.dart_tool' ||
-          s == 'packages') {
+      if (s.startsWith('.') || s == 'build') {
         return true;
       }
     }
     return false;
-  }
-
-  /// Inspects a Dart source file to determine its [BenchmarkFileKind].
-  static DiscoveredBenchmarkFile inspectFile(File file) {
-    try {
-      final content = file.readAsStringSync();
-      final kind = classifyContent(content);
-      return DiscoveredBenchmarkFile(file: file, kind: kind);
-    } on Object {
-      return DiscoveredBenchmarkFile(
-        file: file,
-        kind: BenchmarkFileKind.unknown,
-      );
-    }
-  }
-
-  static final _commentOrStringRegExp = RegExp(
-    r"""(r?'''[\s\S]*?'''|r?\"\"\"[\s\S]*?\"\"\"|r?'(?:\\.|[^'\\\n])*'|r?"(?:\\.|[^"\\\n])*")|(/\*[\s\S]*?\*/|//.*)""",
-  );
-
-  static String _stripComments(String content) => content.replaceAllMapped(
-    _commentOrStringRegExp,
-    (m) => m[1] != null ? ' ' : '',
-  );
-
-  /// Classifies Dart source code string content into a [BenchmarkFileKind].
-  static BenchmarkFileKind classifyContent(String content) {
-    final cleanContent = _stripComments(content);
-
-    final hasMain =
-        cleanContent.contains(RegExp(r'\bvoid\s+main\s*\(')) ||
-        cleanContent.contains(RegExp(r'\bFuture<[^>]*>\s+main\s*\(')) ||
-        cleanContent.contains(
-          RegExp(r'\bmain\s*\([^)]*\)\s*(?:async\s*)?(=>|\{)'),
-        );
-
-    if (hasMain) {
-      return BenchmarkFileKind.standaloneMain;
-    }
-
-    final hasBenchmarks =
-        cleanContent.contains(
-          RegExp(r'\b(final|const|var)\s+benchmarks\s*='),
-        ) ||
-        cleanContent.contains(RegExp(r'\bList<[^>]*>\s+benchmarks\s*=')) ||
-        cleanContent.contains(RegExp(r'\b(get\s+benchmarks|benchmarks\s*=>)'));
-
-    if (hasBenchmarks) {
-      return BenchmarkFileKind.benchmarksList;
-    }
-
-    return BenchmarkFileKind.unknown;
-  }
-
-  /// Generates an executable wrapper script that imports [benchmarkFile] and
-  /// executes its top-level `benchmarks` collection via `mainBenchmarkSuite`.
-  ///
-  /// Returns the generated wrapper [File] written into [outputDir].
-  static File generateWrapper({
-    required File benchmarkFile,
-    required Directory outputDir,
-    String? customPrefix,
-  }) {
-    outputDir.createSync(recursive: true);
-
-    final normalizedPath = p.normalize(benchmarkFile.absolute.path);
-    final fileUri = Uri.file(normalizedPath).toString();
-
-    final prefix = customPrefix ?? 'bench_wrapper';
-    final posixPath = p.posix.joinAll(p.split(normalizedPath));
-    final pathHash = _shortHash(posixPath);
-    final baseName = p.basenameWithoutExtension(benchmarkFile.path);
-    final wrapperName = '${prefix}_${pathHash}_$baseName.dart';
-    final wrapperFile = File(p.join(outputDir.path, wrapperName));
-
-    final buffer = StringBuffer();
-    buffer.writeln('// Generated by pkg:bench_press orchestrator');
-    buffer.writeln('// Target: $fileUri');
-    buffer.writeln();
-    buffer.writeln("import '$fileUri' as target;");
-    buffer.writeln("import 'package:bench_press/src/cli/suite_runner.dart';");
-    buffer.writeln();
-    buffer.writeln('Future<void> main(List<String> args) async {');
-    buffer.writeln('  await mainBenchmarkSuite(target.benchmarks, args);');
-    buffer.writeln('}');
-
-    wrapperFile.writeAsStringSync(buffer.toString());
-    return wrapperFile;
-  }
-
-  static String _shortHash(String input) {
-    var hash = 0x811c9dc5;
-    for (var i = 0; i < input.length; i++) {
-      hash ^= input.codeUnitAt(i);
-      hash = (hash * 0x01000193) & 0xFFFFFFFF;
-    }
-    return hash.toRadixString(16).padLeft(8, '0');
   }
 }
