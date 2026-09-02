@@ -234,7 +234,3 @@ final class AdaptiveWarmupDetector({
     return sum;
   }
 }
-
-/// Deprecated alias for [AdaptiveWarmupDetector].
-@Deprecated('Use AdaptiveWarmupDetector instead.')
-typedef KbssdWarmupDetector = AdaptiveWarmupDetector;
