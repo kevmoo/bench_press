@@ -101,7 +101,7 @@ When comparing two benchmark executions (Baseline $A$ vs. Candidate $B$), standa
 `bench_press` computes exact 95% confidence intervals on the speedup ratio $R = \bar{x}_A / \bar{x}_B$ using **Fieller's Theorem**:
 
 $$
-\text{CI}_{95\%} = \frac{R \pm t_{\text{crit}} \sqrt{(1 - g) \frac{s_A^2}{n_A \bar{x}_B^2} + \frac{s_B^2 R^2}{n_B \bar{x}_B^2}}}{1 - g}
+\text{CI}_{0.95} = \frac{R \pm t_{\text{crit}} \sqrt{(1 - g) \frac{s_A^2}{n_A \bar{x}_B^2} + \frac{s_B^2 R^2}{n_B \bar{x}_B^2}}}{1 - g}
 $$
 
 where $g = \frac{t_{\text{crit}}^2 s_B^2}{n_B \bar{x}_B^2}$. If $g \ge 1$ (indicating the denominator variance is too high for a bounded ratio), `bench_press` gracefully reports ratio bounds as indeterminate rather than producing false mathematical certainty.
