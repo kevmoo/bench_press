@@ -99,7 +99,16 @@ void main(List<String> args) => mainBenchmark(JsBenchmark(), args);
         check(result.success).isTrue();
         check(result.artifactPath).isNotNull();
         check(File(result.artifactPath!).existsSync()).isTrue();
-        check(result.runnerScriptPath).equals(result.artifactPath);
+        // The runner is a `.node.js` wrapper, not the compiled artifact
+        // itself — `dart compile js` output assumes a browser/worker `self`
+        // global for microtask/timer scheduling, absent under Node, so the
+        // wrapper polyfills it before requiring the real artifact.
+        check(result.runnerScriptPath).isNotNull();
+        check(result.runnerScriptPath).not((it) => it.equals(result.artifactPath));
+        check(File(result.runnerScriptPath!).existsSync()).isTrue();
+        check(
+          File(result.runnerScriptPath!).readAsStringSync(),
+        ).contains('globalThis.self');
       } finally {
         tempDir.deleteSync(recursive: true);
       }
