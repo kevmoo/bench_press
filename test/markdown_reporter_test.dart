@@ -457,7 +457,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     mode: 'sync',
     samples: samples.length,
     metrics: metrics,
-    coordinates: {'group': group},
+    coordinates: BenchmarkCoordinates({'group': group}),
     isBaseline: isBaseline,
   );
 }

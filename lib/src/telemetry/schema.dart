@@ -89,6 +89,47 @@ final class const EnvironmentInfo({
       'EnvironmentInfo(dart: $dartVersion, os: $os, arch: $arch)';
 }
 
+/// N-dimensional Cartesian benchmark coordinate mapping with typed getters for
+/// well-known dimensions.
+extension type const BenchmarkCoordinates._(Map<String, String> _map)
+    implements Map<String, String> {
+  /// Constructs a [BenchmarkCoordinates] instance.
+  const new([Map<String, String> map = const {}]) : _map = map;
+
+  /// Intra-file benchmark variant comparison group (set by `BenchmarkGroup`).
+  static const String groupKey = 'group';
+
+  /// Target compilation runtime (`jit`, `aot`, `wasm`, `js`).
+  static const String runtimeKey = 'runtime';
+
+  /// Alias for [runtimeKey].
+  static const String targetKey = 'target';
+
+  /// Dart SDK binary path or label to compile and run against.
+  static const String sdkKey = 'sdk';
+
+  /// Extra flags forwarded to `dart compile`.
+  static const String compilerFlagsKey = 'compiler_flags';
+
+  /// Extra flags forwarded to the Dart VM or JavaScript runner.
+  static const String vmFlagsKey = 'vm_flags';
+
+  /// Returns the group identifier, if present.
+  String? get group => this[groupKey];
+
+  /// Returns the SDK label or path, if present.
+  String? get sdk => this[sdkKey];
+
+  /// Returns the target runtime (`jit`, `aot`, `wasm`, `js`), if present.
+  String? get runtime => this[runtimeKey] ?? this[targetKey];
+
+  /// Returns extra compiler flags, if present.
+  String? get compilerFlags => this[compilerFlagsKey];
+
+  /// Returns extra VM flags, if present.
+  String? get vmFlags => this[vmFlagsKey];
+}
+
 /// Telemetry record for a single benchmark workload executed against a target.
 final class const BenchmarkEntry({
   /// The unique benchmark workload name (e.g. 'json_decode/small').
@@ -116,7 +157,7 @@ final class const BenchmarkEntry({
   final int? calibratedBatchIterations,
 
   /// N-dimensional matrix coordinates.
-  final Map<String, String> coordinates = const {},
+  final BenchmarkCoordinates coordinates = const BenchmarkCoordinates(),
 
   /// Whether this entry was designated as the baseline for its group.
   final bool isBaseline = false,
@@ -148,7 +189,9 @@ final class const BenchmarkEntry({
       rawTrialsNs: rawTrialsNs,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatchIterations,
-      coordinates: coordinates ?? this.coordinates,
+      coordinates: coordinates != null
+          ? BenchmarkCoordinates(coordinates)
+          : this.coordinates,
       isBaseline: isBaseline ?? this.isBaseline,
       throughput: throughput,
     );
@@ -162,7 +205,7 @@ final class const BenchmarkEntry({
   }) {
     final coordinates = <String, String>{};
     if (result.group != null && result.group!.isNotEmpty) {
-      coordinates['group'] = result.group!;
+      coordinates[BenchmarkCoordinates.groupKey] = result.group!;
     }
     return BenchmarkEntry(
       name: result.name,
@@ -179,7 +222,7 @@ final class const BenchmarkEntry({
         'elapsed_seconds': result.warmupResult.elapsedSeconds,
       },
       calibratedBatchIterations: result.calibratedBatch.iterations,
-      coordinates: coordinates,
+      coordinates: BenchmarkCoordinates(coordinates),
       isBaseline: result.isBaseline,
       throughput: result.throughput,
     );
@@ -288,8 +331,8 @@ final class const BenchmarkEntry({
         ),
       };
 
-  static Map<String, String> _parseCoordinates(Object? value, String name) {
-    if (value == null) return const {};
+  static BenchmarkCoordinates _parseCoordinates(Object? value, String name) {
+    if (value == null) return const BenchmarkCoordinates();
     if (value is! Map) {
       throw FormatException(
         'Invalid "coordinates" in benchmark "$name": expected Map, '
@@ -307,7 +350,7 @@ final class const BenchmarkEntry({
         );
       }
     }
-    return Map.unmodifiable(result);
+    return BenchmarkCoordinates(Map.unmodifiable(result));
   }
 
   static bool _parseIsBaseline(Object? value, String name) => switch (value) {
@@ -426,7 +469,7 @@ final class const BenchmarkSuiteResult({
   List<String> get groups {
     final set = <String>{};
     for (final entry in benchmarks) {
-      final g = entry.coordinates['group'] ?? entry.coordinates['sdk'];
+      final g = entry.coordinates.group ?? entry.coordinates.sdk;
       if (g != null && g.isNotEmpty) {
         set.add(g);
       }
@@ -437,7 +480,7 @@ final class const BenchmarkSuiteResult({
   /// Returns all entries belonging to [groupName].
   List<BenchmarkEntry> getEntriesForGroup(String groupName) =>
       benchmarks.where((e) {
-        final g = e.coordinates['group'] ?? e.coordinates['sdk'];
+        final g = e.coordinates.group ?? e.coordinates.sdk;
         return g == groupName;
       }).toList();
 

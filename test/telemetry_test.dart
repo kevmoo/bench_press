@@ -329,20 +329,38 @@ void main() {
           mode: 'sync',
           samples: 10,
           metrics: metrics,
-          coordinates: {'group': 'CryptoGroup'},
+          coordinates: BenchmarkCoordinates({
+            BenchmarkCoordinates.groupKey: 'CryptoGroup',
+            BenchmarkCoordinates.sdkKey: 'stock',
+            BenchmarkCoordinates.runtimeKey: 'aot',
+            BenchmarkCoordinates.compilerFlagsKey: '-O3',
+            BenchmarkCoordinates.vmFlagsKey: '--test',
+          }),
           isBaseline: true,
           throughput: Throughput.bytes(1024),
         );
 
+        check(entry.coordinates.group).equals('CryptoGroup');
+        check(entry.coordinates.sdk).equals('stock');
+        check(entry.coordinates.runtime).equals('aot');
+        check(entry.coordinates.compilerFlags).equals('-O3');
+        check(entry.coordinates.vmFlags).equals('--test');
+
         final json = entry.toJson();
-        check(json['coordinates'] as Map?)
-            .isNotNull()
-            .deepEquals({'group': 'CryptoGroup'});
+        check(json['coordinates'] as Map?).isNotNull().deepEquals({
+          'group': 'CryptoGroup',
+          'sdk': 'stock',
+          'runtime': 'aot',
+          'compiler_flags': '-O3',
+          'vm_flags': '--test',
+        });
         check(json['is_baseline']).equals(true);
         check(json['throughput']).isNotNull();
 
         final deserialized = BenchmarkEntry.fromJson(json);
-        check(deserialized.coordinates['group']).equals('CryptoGroup');
+        check(deserialized.coordinates.group).equals('CryptoGroup');
+        check(deserialized.coordinates.sdk).equals('stock');
+        check(deserialized.coordinates.runtime).equals('aot');
         check(deserialized.isBaseline).isTrue();
         check(deserialized.throughput).equals(const Throughput.bytes(1024));
       },

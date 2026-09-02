@@ -23,10 +23,11 @@ abstract final class MarkdownReporter() {
 
     final isLegacyGrouped =
         suite.benchmarks.isNotEmpty &&
-        suite.benchmarks.any((b) => b.coordinates.containsKey('group')) &&
+        suite.benchmarks.any((b) => b.coordinates.group != null) &&
         suite.benchmarks.every(
           (b) =>
-              b.coordinates.length == 1 && b.coordinates.containsKey('group'),
+              b.coordinates.length == 1 &&
+              b.coordinates.containsKey(BenchmarkCoordinates.groupKey),
         );
 
     if (isLegacyGrouped) {
@@ -215,7 +216,7 @@ abstract final class MarkdownReporter() {
     final buffer = StringBuffer();
     final map = <(String, String), List<BenchmarkEntry>>{};
     for (final entry in suite.benchmarks) {
-      final group = entry.coordinates['group'];
+      final group = entry.coordinates.group;
       if (group != null && group.isNotEmpty) {
         map.putIfAbsent((group, entry.target), () => []).add(entry);
       }
@@ -252,7 +253,7 @@ abstract final class MarkdownReporter() {
     if (entries.isEmpty) return '';
     final strippedEntries = entries.map((e) {
       final newCoords = Map<String, String>.from(e.coordinates);
-      newCoords.remove('group');
+      newCoords.remove(BenchmarkCoordinates.groupKey);
       return e.copyWith(coordinates: newCoords);
     }).toList();
     final legacyHeading = 'Group: $groupName (`$target`)';

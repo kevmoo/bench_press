@@ -210,7 +210,10 @@ final class RunCommand({
           output: '',
           isolateMode: false,
         ),
-        matrix: MatrixConfig(explicitBaseline: {}, axes: {'sdk': sdkMap}),
+        matrix: MatrixConfig(
+          explicitBaseline: {},
+          axes: {BenchmarkCoordinates.sdkKey: sdkMap},
+        ),
       );
       return (config: config, isLegacyComparison: true);
     }
@@ -518,8 +521,12 @@ final class RunCommand({
     if (sdkLabel != null) {
       final taggedBenchmarks = suiteResult.benchmarks
           .map(
-            (b) =>
-                b.copyWith(coordinates: {...b.coordinates, 'group': sdkLabel}),
+            (b) => b.copyWith(
+              coordinates: {
+                ...b.coordinates,
+                BenchmarkCoordinates.groupKey: sdkLabel,
+              },
+            ),
           )
           .toList();
       suiteResult = BenchmarkSuiteResult(
@@ -605,7 +612,7 @@ final class RunCommand({
   }
 
   DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord) {
-    final sdkPath = coord.resolvedValues['sdk'];
+    final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
     var cleanedPath = sdkPath ?? '';
     if (cleanedPath == 'stock') cleanedPath = '';
     if (cleanedPath.startsWith('~')) {
@@ -632,7 +639,9 @@ final class RunCommand({
     MatrixCoordinate coord,
     List<TargetRuntime> defaultTargets,
   ) {
-    final runtimeTarget = coord.resolvedValues['runtime'];
+    final runtimeTarget =
+        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
+        coord.resolvedValues[BenchmarkCoordinates.targetKey];
     return (runtimeTarget != null && runtimeTarget.isNotEmpty)
         ? TargetRuntime.parseTargets([runtimeTarget]).first
         : defaultTargets.first;

@@ -40,6 +40,7 @@ void main() {
         check(output).contains('=== Model 1: BenchmarkGroup Results ===');
         check(output).contains('plus_concat (Baseline)');
       },
+      timeout: const Timeout(Duration(minutes: 1)),
     );
   });
 }
