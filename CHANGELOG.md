@@ -5,7 +5,7 @@
 - Added `MarkdownReporter.renderMatrixComparisonTable` to render multidimensional matrix reports with grouped left-hand dimension columns and Fieller 95% ratio confidence intervals.
 
 - Extracted mathematical and calibration constants (`Lanczos`, `Acklam`, and `BenchmarkCalibrator` thresholds) with detailed doc comments.
-- Added `--compare-sdk` multi-option flag to `bench_press run` to isolate and strictly evaluate target performance characteristics against different Dart SDK paths using mathematically sound Fieller 95% ratio confidence interval deltas.
+- Removed legacy transitional `--compare-sdk` option in favor of unified Cartesian matrix configurations in `bench_press.yaml`.
 - Added positional argument support (`<baseline> [current]`) to `bench_press diff` alongside `--baseline` (`-b`) and `--current` (`-c`).
 - Added `Blackhole.consumeString` and `Blackhole.consumeObject` overloads with `@pragma('dart2js:never-inline')` compiler barriers.
 - Added `maxSemRelativeError` option (default `0.03`) to `BenchmarkConfig` for steady-state warmup convergence.

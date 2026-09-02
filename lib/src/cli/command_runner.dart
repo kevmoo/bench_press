@@ -156,10 +156,6 @@ final class RunCommand({
         'vm-flag',
         help: 'Extra flags forwarded to Dart VM or Node/D8 runner.',
       )
-      ..addMultiOption(
-        'compare-sdk',
-        help: 'Compare additional Dart SDKs (format: Label=Path).',
-      )
       ..addOption(
         'format',
         defaultsTo: 'markdown',
@@ -171,19 +167,13 @@ final class RunCommand({
 
   @override
   Future<int> run() async {
-    final runConfig = _resolveRunConfig();
-    if (runConfig == null) return ExitCode.usage.code;
-    final (:config, :isLegacyComparison) = runConfig;
+    final config = _resolveRunConfig();
 
     final targets = _resolveRunTargets(config);
     if (targets == null) return ExitCode.usage.code;
 
     final (:files, :exitCode) = _discoverRunFiles();
     if (exitCode != null) return exitCode;
-
-    if (config == null) {
-      return await _executeLegacySuite(files!, targets);
-    }
 
     if (argResults!.flag('dry-run')) {
       _printDryRunPlan(config.generateCoordinates(), files!);
@@ -194,53 +184,25 @@ final class RunCommand({
       files: files!,
       config: config,
       targets: targets,
-      isLegacyComparison: isLegacyComparison,
     );
   }
 
-  ({BenchPressConfig? config, bool isLegacyComparison})? _resolveRunConfig() {
-    final compareSdks = argResults!.multiOption('compare-sdk');
-    if (compareSdks.isNotEmpty) {
-      final sdkMap = _parseCompareSdks(compareSdks);
-      if (sdkMap == null) return null;
-      final config = BenchPressConfig(
-        defaults: DefaultsConfig(
-          targets: ['jit'],
-          trials: 15,
-          output: '',
-          isolateMode: false,
-        ),
-        matrix: MatrixConfig(
-          explicitBaseline: {},
-          axes: {BenchmarkCoordinates.sdkKey: sdkMap},
-        ),
-      );
-      return (config: config, isLegacyComparison: true);
-    }
+  BenchPressConfig _resolveRunConfig() {
     final configPath = argResults!.option('config') ?? 'bench_press.yaml';
-    return (
-      config: BenchPressConfig.loadFrom(configPath),
-      isLegacyComparison: false,
-    );
-  }
-
-  Map<String, String>? _parseCompareSdks(List<String> compareSdks) {
-    final sdkMap = <String, String>{'Default': 'stock'};
-    for (final opt in compareSdks) {
-      final parts = opt.split('=');
-      if (parts.length != 2) {
-        stderr.writeln(
-          'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
+    return BenchPressConfig.loadFrom(configPath) ??
+        BenchPressConfig(
+          defaults: DefaultsConfig(
+            targets: ['jit'],
+            trials: 15,
+            output: '',
+            isolateMode: false,
+          ),
+          matrix: MatrixConfig(explicitBaseline: {}, axes: {}),
         );
-        return null;
-      }
-      sdkMap[parts[0]] = parts[1];
-    }
-    return sdkMap;
   }
 
-  List<TargetRuntime>? _resolveRunTargets(BenchPressConfig? config) {
-    if (argResults!.wasParsed('target') || config == null) {
+  List<TargetRuntime>? _resolveRunTargets(BenchPressConfig config) {
+    if (argResults!.wasParsed('target')) {
       try {
         return TargetRuntime.parseTargets(argResults!.multiOption('target'));
       } on FormatException catch (e) {
@@ -293,33 +255,10 @@ final class RunCommand({
     }
   }
 
-  Future<int> _executeLegacySuite(
-    List<DiscoveredBenchmarkFile> files,
-    List<TargetRuntime> targets,
-  ) async {
-    final compareSdks = argResults!.multiOption('compare-sdk');
-    final toolchains = _setupToolchains(compareSdks);
-    if (toolchains == null) return ExitCode.usage.code;
-
-    final accumulated = await _executeDiscoveredFiles(
-      files,
-      targets,
-      toolchains.compilers,
-      toolchains.processRunners,
-    );
-    if (accumulated == null || accumulated.benchmarks.isEmpty) {
-      stderr.writeln('No benchmark results produced.');
-      return ExitCode.software.code;
-    }
-
-    return _finishSuiteExecution(accumulated, compareSdks.isNotEmpty);
-  }
-
   Future<int> _executeMatrixSuite({
     required List<DiscoveredBenchmarkFile> files,
     required BenchPressConfig config,
     required List<TargetRuntime> targets,
-    required bool isLegacyComparison,
   }) async {
     try {
       ConfigValidator.validateConfig(config);
@@ -335,10 +274,10 @@ final class RunCommand({
       return ExitCode.software.code;
     }
 
-    return _finishSuiteExecution(accumulated, isLegacyComparison);
+    return _finishSuiteExecution(accumulated);
   }
 
-  int _finishSuiteExecution(BenchmarkSuiteResult suite, bool isComparison) {
+  int _finishSuiteExecution(BenchmarkSuiteResult suite) {
     final noSave = argResults!.flag('no-save');
     final outputPath =
         argResults!.option('save') ?? argResults!.option('output')!;
@@ -350,7 +289,6 @@ final class RunCommand({
       title: argResults!.option('title'),
       diffRef: argResults!.option('diff'),
       outputPath: outputPath,
-      isComparison: isComparison,
     );
 
     if (argResults!.flag('fail-on-unstable') &&
@@ -361,182 +299,6 @@ final class RunCommand({
       return 2;
     }
     return ExitCode.success.code;
-  }
-
-  ({
-    Map<String, TargetCompiler> compilers,
-    Map<String, BenchmarkProcessRunner> processRunners,
-  })?
-  _setupToolchains(List<String> compareSdks) {
-    final sdkMap = <String, DartSdk>{};
-    if (compareSdks.isEmpty || compareSdks.length == 1) {
-      sdkMap['Default'] = sdk;
-    }
-    for (final opt in compareSdks) {
-      final parts = opt.split('=');
-      if (parts.length != 2) {
-        stderr.writeln(
-          'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
-        );
-        return null;
-      }
-      sdkMap[parts[0]] = DartSdk(customSdkPath: parts[1]);
-    }
-
-    final processRunners = <String, BenchmarkProcessRunner>{};
-    final compilers = <String, TargetCompiler>{};
-    for (final entry in sdkMap.entries) {
-      if (identical(entry.value, sdk)) {
-        compilers[entry.key] = compiler;
-        processRunners[entry.key] = processRunner;
-      } else {
-        compilers[entry.key] = TargetCompiler(sdk: entry.value);
-        processRunners[entry.key] = BenchmarkProcessRunner(sdk: entry.value);
-      }
-    }
-    return (compilers: compilers, processRunners: processRunners);
-  }
-
-  Future<BenchmarkSuiteResult?> _executeDiscoveredFiles(
-    List<DiscoveredBenchmarkFile> files,
-    List<TargetRuntime> targets,
-    Map<String, TargetCompiler> compilers,
-    Map<String, BenchmarkProcessRunner> processRunners,
-  ) async {
-    final trials = int.tryParse(argResults!.option('trials') ?? '');
-    final forceRun = argResults!.flag('force-run');
-    final isolateMode = argResults!.flag('isolate-mode');
-    final compilerFlags = argResults!.multiOption('compiler-flag');
-    final vmFlags = argResults!.multiOption('vm-flag');
-    final isComparison = argResults!.multiOption('compare-sdk').isNotEmpty;
-
-    BenchmarkSuiteResult? accumulated;
-
-    for (final discovered in files) {
-      for (final runtime in targets) {
-        final result = await _executeTargetAcrossSdks(
-          discovered: discovered,
-          runtime: runtime,
-          compilers: compilers,
-          processRunners: processRunners,
-          trials: trials,
-          forceRun: forceRun,
-          isolateMode: isolateMode,
-          compilerFlags: compilerFlags,
-          vmFlags: vmFlags,
-          isComparison: isComparison,
-        );
-        if (result != null) {
-          accumulated = accumulated == null
-              ? result
-              : accumulated.deepMerge(result);
-        }
-      }
-    }
-    return accumulated;
-  }
-
-  Future<BenchmarkSuiteResult?> _executeTargetAcrossSdks({
-    required DiscoveredBenchmarkFile discovered,
-    required TargetRuntime runtime,
-    required Map<String, TargetCompiler> compilers,
-    required Map<String, BenchmarkProcessRunner> processRunners,
-    required int? trials,
-    required bool forceRun,
-    required bool isolateMode,
-    required List<String> compilerFlags,
-    required List<String> vmFlags,
-    required bool isComparison,
-  }) async {
-    BenchmarkSuiteResult? accumulated;
-    for (final entry in compilers.entries) {
-      final label = entry.key;
-      final result = await _executeSingleTarget(
-        discovered: discovered,
-        runtime: runtime,
-        trials: trials,
-        forceRun: forceRun,
-        isolateMode: isolateMode,
-        compilerFlags: compilerFlags,
-        vmFlags: vmFlags,
-        compiler: entry.value,
-        processRunner: processRunners[label]!,
-        sdkLabel: isComparison ? label : null,
-      );
-      if (result != null) {
-        accumulated = accumulated == null
-            ? result
-            : accumulated.deepMerge(result);
-      }
-    }
-    return accumulated;
-  }
-
-  Future<BenchmarkSuiteResult?> _executeSingleTarget({
-    required DiscoveredBenchmarkFile discovered,
-    required TargetRuntime runtime,
-    required int? trials,
-    required bool forceRun,
-    required bool isolateMode,
-    required List<String> compilerFlags,
-    required List<String> vmFlags,
-    required TargetCompiler compiler,
-    required BenchmarkProcessRunner processRunner,
-    required String? sdkLabel,
-  }) async {
-    if (!compiler.sdk.isRuntimeAvailable(runtime)) {
-      stderr.writeln('Warning: Runtime "$runtime" is not available.');
-      return null;
-    }
-
-    final compilation = await compiler.compile(
-      sourceFile: discovered.file,
-      runtime: runtime,
-      compilerFlags: compilerFlags,
-    );
-
-    if (!compilation.success) {
-      stderr.writeln(
-        'Compilation failed for ${discovered.basename} ($runtime):',
-      );
-      stderr.writeln(compilation.stderr);
-      return null;
-    }
-
-    final execResult = await processRunner.execute(
-      compilationResult: compilation,
-      isolateMode: isolateMode,
-      trials: trials,
-      forceRun: forceRun,
-      vmFlags: vmFlags,
-    );
-
-    if (!execResult.success || execResult.suiteResult == null) {
-      stderr.writeln('Execution failed for ${discovered.basename} ($runtime):');
-      stderr.writeln(execResult.errorMessage ?? execResult.stderr);
-      return null;
-    }
-
-    var suiteResult = execResult.suiteResult!;
-    if (sdkLabel != null) {
-      final taggedBenchmarks = suiteResult.benchmarks
-          .map(
-            (b) => b.copyWith(
-              coordinates: {
-                ...b.coordinates,
-                BenchmarkCoordinates.groupKey: sdkLabel,
-              },
-            ),
-          )
-          .toList();
-      suiteResult = BenchmarkSuiteResult(
-        version: suiteResult.version,
-        timestamp: suiteResult.timestamp,
-        environment: suiteResult.environment,
-        benchmarks: taggedBenchmarks,
-      );
-    }
-    return suiteResult;
   }
 
   Future<BenchmarkSuiteResult?> _executeMatrix(
@@ -554,13 +316,12 @@ final class RunCommand({
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
     final compilerFlags = argResults!.multiOption('compiler-flag');
     final vmFlags = argResults!.multiOption('vm-flag');
-    final compareSdks = argResults!.multiOption('compare-sdk');
 
     BenchmarkSuiteResult? accumulated;
 
     for (final discovered in files) {
       for (final coord in coords) {
-        final result = await _executeMatrixEntry(
+        final result = await _executeMatrixCoordinate(
           discovered: discovered,
           coord: coord,
           defaultTargets: defaultTargets,
@@ -569,7 +330,6 @@ final class RunCommand({
           isolateMode: isolateMode,
           compilerFlags: compilerFlags,
           vmFlags: vmFlags,
-          compareSdks: compareSdks,
         );
         if (result != null) {
           accumulated = accumulated == null
@@ -581,7 +341,7 @@ final class RunCommand({
     return accumulated;
   }
 
-  Future<BenchmarkSuiteResult?> _executeMatrixEntry({
+  Future<BenchmarkSuiteResult?> _executeMatrixCoordinate({
     required DiscoveredBenchmarkFile discovered,
     required MatrixCoordinate coord,
     required List<TargetRuntime> defaultTargets,
@@ -590,10 +350,46 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
-    required List<String> compareSdks,
+  }) async {
+    final coordRuntime =
+        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
+        coord.resolvedValues[BenchmarkCoordinates.targetKey];
+    final runtimes = (coordRuntime != null && coordRuntime.isNotEmpty)
+        ? TargetRuntime.parseTargets([coordRuntime])
+        : defaultTargets;
+
+    BenchmarkSuiteResult? coordAccumulated;
+    for (final runtime in runtimes) {
+      final result = await _executeMatrixEntry(
+        discovered: discovered,
+        coord: coord,
+        runtime: runtime,
+        trials: trials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        compilerFlags: compilerFlags,
+        vmFlags: vmFlags,
+      );
+      if (result != null) {
+        coordAccumulated = coordAccumulated == null
+            ? result
+            : coordAccumulated.deepMerge(result);
+      }
+    }
+    return coordAccumulated;
+  }
+
+  Future<BenchmarkSuiteResult?> _executeMatrixEntry({
+    required DiscoveredBenchmarkFile discovered,
+    required MatrixCoordinate coord,
+    required TargetRuntime runtime,
+    required int? trials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> compilerFlags,
+    required List<String> vmFlags,
   }) async {
     final currentSdk = _resolveSdkFromCoordinate(coord);
-    final runtime = _resolveRuntimeFromCoordinate(coord, defaultTargets);
     final execFlags = _resolveFlagsFromCoordinate(coord, compilerFlags);
 
     return await _executeMatrixSingleTarget(
@@ -607,7 +403,6 @@ final class RunCommand({
       compiler: TargetCompiler(sdk: currentSdk),
       processRunner: BenchmarkProcessRunner(sdk: currentSdk),
       coordinate: coord,
-      compareSdks: compareSdks,
     );
   }
 
@@ -635,18 +430,6 @@ final class RunCommand({
     return execFlags;
   }
 
-  TargetRuntime _resolveRuntimeFromCoordinate(
-    MatrixCoordinate coord,
-    List<TargetRuntime> defaultTargets,
-  ) {
-    final runtimeTarget =
-        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
-        coord.resolvedValues[BenchmarkCoordinates.targetKey];
-    return (runtimeTarget != null && runtimeTarget.isNotEmpty)
-        ? TargetRuntime.parseTargets([runtimeTarget]).first
-        : defaultTargets.first;
-  }
-
   Future<BenchmarkSuiteResult?> _executeMatrixSingleTarget({
     required DiscoveredBenchmarkFile discovered,
     required TargetRuntime runtime,
@@ -658,7 +441,6 @@ final class RunCommand({
     required TargetCompiler compiler,
     required BenchmarkProcessRunner processRunner,
     required MatrixCoordinate coordinate,
-    required List<String> compareSdks,
   }) async {
     if (!compiler.sdk.isRuntimeAvailable(runtime)) {
       stderr.writeln('Warning: Runtime "$runtime" is not available.');
@@ -693,15 +475,14 @@ final class RunCommand({
       return null;
     }
 
-    var suiteResult = execResult.suiteResult!;
-    final taggedBenchmarks = suiteResult.benchmarks
-        .map(
-          (b) => b.copyWith(
-            coordinates: coordinate.coordinates,
-            isBaseline: coordinate.isBaseline,
-          ),
-        )
-        .toList();
+    final suiteResult = execResult.suiteResult!;
+    final taggedBenchmarks = suiteResult.benchmarks.map((b) {
+      if (coordinate.coordinates.isEmpty) return b;
+      return b.copyWith(
+        coordinates: {...b.coordinates, ...coordinate.coordinates},
+        isBaseline: coordinate.isBaseline,
+      );
+    }).toList();
     return BenchmarkSuiteResult(
       version: suiteResult.version,
       timestamp: suiteResult.timestamp,
@@ -719,14 +500,9 @@ final class RunCommand({
     String? title,
     String? diffRef,
     required String outputPath,
-    bool isComparison = false,
   }) {
     if (format == 'json') {
       stdout.writeln(suite.toFormattedJson());
-      return;
-    }
-
-    if (isComparison && _tryOutputComparisonReport(suite, title)) {
       return;
     }
 
@@ -735,42 +511,8 @@ final class RunCommand({
       return;
     }
 
-    final report = MarkdownReporter.renderSuite(
-      suite,
-      title: title ?? (isComparison ? 'SDK Comparison Report' : null),
-    );
+    final report = MarkdownReporter.renderSuite(suite, title: title);
     stdout.writeln(report);
-  }
-
-  bool _tryOutputComparisonReport(BenchmarkSuiteResult suite, String? title) {
-    final sdks = suite.groups;
-    if (sdks.length < 2) return false;
-
-    final baseSdk = sdks[0];
-    final baseSuite = BenchmarkSuiteResult(
-      version: suite.version,
-      timestamp: suite.timestamp,
-      environment: suite.environment,
-      benchmarks: suite.getEntriesForGroup(baseSdk),
-    );
-    for (var i = 1; i < sdks.length; i++) {
-      final currentSdk = sdks[i];
-      final currentSuite = BenchmarkSuiteResult(
-        version: suite.version,
-        timestamp: suite.timestamp,
-        environment: suite.environment,
-        benchmarks: suite.getEntriesForGroup(currentSdk),
-      );
-      final report = MarkdownReporter.renderDeltaTable(
-        baseline: baseSuite,
-        current: currentSuite,
-        title: title ?? 'SDK Comparison: `$baseSdk` vs `$currentSdk`',
-        baselineLabel: baseSdk,
-        currentLabel: currentSdk,
-      );
-      stdout.writeln(report);
-    }
-    return true;
   }
 
   void _outputDiffReport(
