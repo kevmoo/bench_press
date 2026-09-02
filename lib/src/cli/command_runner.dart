@@ -168,7 +168,8 @@ final class RunCommand({
       return ExitCode.usage.code;
     }
     final targetPath = _resolveTargetPath(argResults!.rest);
-    final files = BenchmarkDiscovery.discover(targetPath);
+    final verbose = globalResults?.flag('verbose') ?? false;
+    final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
 
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
@@ -546,8 +547,9 @@ final class ValidateCommand({
       return ExitCode.usage.code;
     }
     final targetPath = _resolveTargetPath(argResults!.rest);
+    final verbose = globalResults?.flag('verbose') ?? false;
 
-    final files = BenchmarkDiscovery.discover(targetPath);
+    final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
       return ExitCode.noInput.code;
@@ -695,7 +697,7 @@ final class DiffCommand() extends Command<int> {
 
   @override
   String get invocation =>
-      '${runner!.executableName} $name [arguments] [<baseline> [current]]';
+      '${runner!.executableName} $name [arguments] <baseline> [current]';
 
   this {
     argParser
@@ -725,12 +727,28 @@ final class DiffCommand() extends Command<int> {
       );
   }
 
-  @override
-  Future<int> run() async {
-    final baselineArg =
-        argResults!.option('baseline') ??
-        (argResults!.rest.isNotEmpty ? argResults!.rest[0] : null);
-    if (baselineArg == null) {
+  ({String baseline, String current}) _resolveDiffArgs() {
+    final hasBaselineFlag = argResults!.wasParsed('baseline');
+    final rest = argResults!.rest;
+
+    if (hasBaselineFlag && rest.length > 1) {
+      throw UsageException(
+        'Too many positional arguments when --baseline is specified.',
+        usage,
+      );
+    }
+    if (!hasBaselineFlag && rest.length > 2) {
+      throw UsageException(
+        'Too many positional arguments. Expected <baseline> [current].',
+        usage,
+      );
+    }
+
+    final baseline = hasBaselineFlag
+        ? argResults!.option('baseline')
+        : (rest.isNotEmpty ? rest[0] : null);
+
+    if (baseline == null) {
       throw UsageException(
         'Missing baseline file path. Specify via --baseline (-b) or '
         'positional argument <baseline>.',
@@ -738,23 +756,35 @@ final class DiffCommand() extends Command<int> {
       );
     }
 
-    final currentArg = argResults!.wasParsed('current')
-        ? argResults!.option('current')!
-        : (argResults!.rest.length >= 2
-              ? argResults!.rest[1]
-              : defaultTelemetryFileName);
+    final String current;
+    if (argResults!.wasParsed('current')) {
+      current = argResults!.option('current')!;
+    } else if (hasBaselineFlag && rest.isNotEmpty) {
+      current = rest[0];
+    } else if (!hasBaselineFlag && rest.length >= 2) {
+      current = rest[1];
+    } else {
+      current = defaultTelemetryFileName;
+    }
+
+    return (baseline: baseline, current: current);
+  }
+
+  @override
+  Future<int> run() async {
+    final (:baseline, :current) = _resolveDiffArgs();
     final targetFileArg = argResults!.option('target-file')!;
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
 
-    final currentFile = File(currentArg);
+    final currentFile = File(current);
     if (!currentFile.existsSync()) {
-      stderr.writeln('Current telemetry file "$currentArg" does not exist.');
+      stderr.writeln('Current telemetry file "$current" does not exist.');
       return ExitCode.noInput.code;
     }
 
     String report;
-    final baselineFile = File(baselineArg);
+    final baselineFile = File(baseline);
     if (baselineFile.existsSync()) {
       report = MarkdownReporter.renderDeltaFromFiles(
         baselineFile: baselineFile,
@@ -764,7 +794,7 @@ final class DiffCommand() extends Command<int> {
     } else {
       final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
       report = GitDiffReporter.renderGitDiffReport(
-        gitRef: baselineArg,
+        gitRef: baseline,
         filePath: targetFileArg,
         current: currentSuite,
         title: title,

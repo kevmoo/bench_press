@@ -112,12 +112,20 @@ abstract final class BenchmarkCalibrator() {
     double perOpUs,
     BenchmarkConfig config,
   ) {
-    if (elapsedUs <= 0 && !config.forceRun) {
-      throw CalibrationException(
-        'Maximum probe batch produced 0 elapsed ticks. '
-        'Operation is too fast or timer resolution is insufficient.',
-        perOpUs,
+    if (elapsedUs <= 0) {
+      if (!config.forceRun) {
+        throw CalibrationException(
+          'Maximum probe batch produced 0 elapsed ticks. '
+          'Operation is too fast or timer resolution is insufficient.',
+          perOpUs,
+        );
+      }
+      config.logger?.call(
+        'Warning: Maximum probe batch produced 0 elapsed ticks '
+        '(elapsedUs == 0). Timer quantization detected; measurements may '
+        'have high quantization error.',
       );
+      return;
     }
 
     if (perOpUs > 200000.0) {

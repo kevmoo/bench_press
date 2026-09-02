@@ -40,14 +40,14 @@ abstract final class BenchmarkDiscovery() {
   ///
   /// Recursively traverses directories, ignoring hidden folders, `.dart_tool`,
   /// `build`, and non-Dart files.
-  static List<DiscoveredBenchmarkFile> discover(String targetPath) {
+  static List<DiscoveredBenchmarkFile> discover(
+    String targetPath, {
+    bool verbose = false,
+  }) {
     final file = File(targetPath);
     if (file.existsSync()) {
       if (p.extension(targetPath) != '.dart') return const [];
-      final inspected = inspectFile(file);
-      return inspected.kind == BenchmarkFileKind.unknown
-          ? const []
-          : [inspected];
+      return [inspectFile(file)];
     }
 
     final dir = Directory(targetPath);
@@ -55,10 +55,12 @@ abstract final class BenchmarkDiscovery() {
 
     final results = <DiscoveredBenchmarkFile>[];
     for (final entity in dir.listSync(recursive: true, followLinks: false)) {
-      if (entity is! File || _isIgnoredPath(entity.path)) continue;
+      if (entity is! File || _isIgnoredPath(entity.path, targetPath)) continue;
       final inspected = inspectFile(entity);
       if (inspected.kind != BenchmarkFileKind.unknown) {
         results.add(inspected);
+      } else if (verbose) {
+        stderr.writeln('Skipping non-benchmark file: ${entity.path}');
       }
     }
 
@@ -66,9 +68,11 @@ abstract final class BenchmarkDiscovery() {
     return results;
   }
 
-  static bool _isIgnoredPath(String filePath) {
+  static bool _isIgnoredPath(String filePath, String targetPath) {
     if (p.extension(filePath) != '.dart') return true;
-    for (final s in p.split(p.normalize(filePath))) {
+    final relPath = p.relative(filePath, from: targetPath);
+    for (final s in p.split(p.normalize(relPath))) {
+      if (s == '.' || s == '..') continue;
       if (s.startsWith('.') ||
           s == 'build' ||
           s == '.dart_tool' ||
@@ -97,8 +101,10 @@ abstract final class BenchmarkDiscovery() {
     r"""(r?'''[\s\S]*?'''|r?\"\"\"[\s\S]*?\"\"\"|r?'(?:\\.|[^'\\\n])*'|r?"(?:\\.|[^"\\\n])*")|(/\*[\s\S]*?\*/|//.*)""",
   );
 
-  static String _stripComments(String content) =>
-      content.replaceAllMapped(_commentOrStringRegExp, (m) => m[1] ?? '');
+  static String _stripComments(String content) => content.replaceAllMapped(
+    _commentOrStringRegExp,
+    (m) => m[1] != null ? ' ' : '',
+  );
 
   /// Classifies Dart source code string content into a [BenchmarkFileKind].
   static BenchmarkFileKind classifyContent(String content) {
@@ -107,7 +113,9 @@ abstract final class BenchmarkDiscovery() {
     final hasMain =
         cleanContent.contains(RegExp(r'\bvoid\s+main\s*\(')) ||
         cleanContent.contains(RegExp(r'\bFuture<[^>]*>\s+main\s*\(')) ||
-        cleanContent.contains(RegExp(r'\bmain\s*\([^)]*\)\s*(=>|\{)'));
+        cleanContent.contains(
+          RegExp(r'\bmain\s*\([^)]*\)\s*(?:async\s*)?(=>|\{)'),
+        );
 
     if (hasMain) {
       return BenchmarkFileKind.standaloneMain;

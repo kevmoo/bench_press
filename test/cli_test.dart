@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:path/path.dart' as p;
@@ -404,13 +405,48 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
             ],
           ).saveToFile(currFile);
 
+          final outFile = File(p.join(tempDir.path, 'diff_out.md'));
           final runner = BenchPressCommandRunner();
           final exitCode = await runner.run([
             'diff',
             baseFile.path,
             currFile.path,
+            '-o',
+            outFile.path,
           ]);
           check(exitCode).equals(0);
+          check(outFile.existsSync()).isTrue();
+          final report = outFile.readAsStringSync();
+          check(report).contains('pos_test_bench');
+          check(report).contains('95% CI (Fieller)');
+
+          // Test -b base.json curr.json
+          final outFlagFile = File(p.join(tempDir.path, 'diff_flag_out.md'));
+          final exitCodeFlag = await runner.run([
+            'diff',
+            '-b',
+            baseFile.path,
+            currFile.path,
+            '-o',
+            outFlagFile.path,
+          ]);
+          check(exitCodeFlag).equals(0);
+          check(outFlagFile.existsSync()).isTrue();
+          check(outFlagFile.readAsStringSync()).contains('pos_test_bench');
+
+          // Test surplus positional arguments throw UsageException
+          await check(
+            runner.run(['diff', baseFile.path, currFile.path, 'extra.json']),
+          ).throws<UsageException>();
+          await check(
+            runner.run([
+              'diff',
+              '-b',
+              baseFile.path,
+              currFile.path,
+              'extra.json',
+            ]),
+          ).throws<UsageException>();
         } finally {
           tempDir.deleteSync(recursive: true);
         }

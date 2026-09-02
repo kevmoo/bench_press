@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:io/io.dart';
+import 'package:meta/meta.dart';
 
 import '../config.dart';
 import '../harness.dart';
@@ -57,8 +58,8 @@ Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
 /// Standalone CLI entrypoint for an arbitrary collection or single instance of
 /// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or
 /// [BenchmarkGroup]).
-Future<void> mainBenchmarkSuite(Object? benchmarks, List<String> args) async {
-  _validateBenchmarks(benchmarks);
+Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
+  validateBenchmarks(benchmarks);
   final parser = ArgParser()
     ..addOption('json-output', help: 'Path to write output telemetry JSON')
     ..addFlag('json', help: 'Emit streaming JSON markers to stdout')
@@ -99,7 +100,7 @@ Future<void> mainBenchmarkSuite(Object? benchmarks, List<String> args) async {
 
   final benchmarkList = benchmarks is Iterable
       ? List<Object>.from(benchmarks)
-      : <Object>[benchmarks!];
+      : <Object>[benchmarks];
 
   final results = <BenchmarkResult>[];
   for (final item in benchmarkList) {
@@ -142,9 +143,12 @@ Future<void> mainBenchmarkSuite(Object? benchmarks, List<String> args) async {
   stdout.writeln(wrapJsonInMarkers(jsonText));
 }
 
-void _validateBenchmarks(Object? benchmarks) {
-  if (benchmarks == null ||
-      (benchmarks is Iterable && benchmarks.any((e) => e == null))) {
+@visibleForTesting
+void validateBenchmarks(Object? benchmarks) {
+  if (benchmarks == null) {
+    throw ArgumentError('Benchmark suite argument cannot be null.');
+  }
+  if (benchmarks is Iterable && benchmarks.any((e) => e == null)) {
     throw ArgumentError('Benchmark suite list cannot contain null elements.');
   }
 }

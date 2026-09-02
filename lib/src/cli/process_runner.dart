@@ -225,6 +225,8 @@ final class const BenchmarkProcessRunner({
 
       try {
         await Future.any([exitPort.first, errorCompleter.future]);
+        // Drain any queued isolate error port messages before inspecting
+        // errorCompleter.
         await Future<void>.delayed(Duration.zero);
       } finally {
         isolate.kill(priority: Isolate.immediate);

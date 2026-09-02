@@ -171,7 +171,8 @@ final benchmarks = [];
           ..not((it) => it.contains(p.normalize(helperFile.absolute.path)));
 
         final singleUnknown = BenchmarkDiscovery.discover(helperFile.path);
-        check(singleUnknown).isEmpty();
+        check(singleUnknown.length).equals(1);
+        check(singleUnknown.first.kind).equals(BenchmarkFileKind.unknown);
       } finally {
         tempDir.deleteSync(recursive: true);
       }
@@ -200,14 +201,60 @@ final benchmarks = [];
 ''';
         check(BenchmarkDiscovery.classifyContent(lineTokenInString))
             .equals(BenchmarkFileKind.benchmarksList);
+
+        const codeLookalikeInString = '''
+final str = '/* void main() {} */';
+class Helper {}
+''';
+        check(BenchmarkDiscovery.classifyContent(codeLookalikeInString))
+            .equals(BenchmarkFileKind.unknown);
       },
     );
 
+    test('classifyContent supports omitted return type async main', () {
+      const asyncBlockMain = '''
+main() async {
+  print('async main');
+}
+''';
+      check(BenchmarkDiscovery.classifyContent(asyncBlockMain))
+          .equals(BenchmarkFileKind.standaloneMain);
+
+      const asyncArrowMain = '''
+main(args) async => print(args);
+''';
+      check(BenchmarkDiscovery.classifyContent(asyncArrowMain))
+          .equals(BenchmarkFileKind.standaloneMain);
+    });
+
+    test('discover handles relative paths with parent traversal (..)', () {
+      final tempDir = Directory.systemTemp.createTempSync('discovery_rel_');
+      final origCwd = Directory.current;
+      try {
+        final pkgA = Directory(p.join(tempDir.path, 'pkg_a'))..createSync();
+        final pkgB = Directory(p.join(tempDir.path, 'pkg_b', 'benchmark'))
+          ..createSync(recursive: true);
+        File(p.join(pkgB.path, 'my_bench.dart'))
+            .writeAsStringSync('void main() {}');
+
+        Directory.current = pkgA;
+        final relTarget = p.join('..', 'pkg_b', 'benchmark');
+        final discovered = BenchmarkDiscovery.discover(relTarget);
+        check(discovered.length).equals(1);
+        check(discovered.first.kind).equals(BenchmarkFileKind.standaloneMain);
+      } finally {
+        Directory.current = origCwd;
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
     test('generateWrapper produces CWD-invariant wrapper filenames', () {
       final tempDir = Directory.systemTemp.createTempSync('wrapper_cwd_');
+      final origCwd = Directory.current;
       try {
-        final benchFile = File(p.join(tempDir.path, 'sub', 'my_bench.dart'))
-          ..createSync(recursive: true)
+        final subDir = Directory(p.join(tempDir.path, 'sub'))
+          ..createSync(recursive: true);
+        final benchFile = File(p.join(subDir.path, 'my_bench.dart'))
           ..writeAsStringSync('final benchmarks = [];');
         final outputDir = Directory(p.join(tempDir.path, 'generated'));
 
@@ -215,13 +262,16 @@ final benchmarks = [];
           benchmarkFile: File(benchFile.absolute.path),
           outputDir: outputDir,
         );
+
+        Directory.current = subDir;
         final wrapperFromRel = BenchmarkDiscovery.generateWrapper(
-          benchmarkFile: File(p.relative(benchFile.path)),
+          benchmarkFile: File('my_bench.dart'),
           outputDir: outputDir,
         );
 
         check(wrapperFromAbs.path).equals(wrapperFromRel.path);
       } finally {
+        Directory.current = origCwd;
         tempDir.deleteSync(recursive: true);
       }
     });

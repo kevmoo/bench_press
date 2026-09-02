@@ -163,10 +163,9 @@ final class const FiellerInterval({
 /// Computes the critical value for Student's $t$-distribution given two-tailed
 /// upper quantile [p] and degrees of freedom [df].
 ///
-/// Uses exact analytical closed forms for `df == 1` and `df == 2`, and Hill's
-/// Algorithm 396 (1970) continuous approximation for all `df > 2`, achieving
-/// accuracy `< 1e-3` relative error across all integer and fractional degrees
-/// of freedom.
+/// Uses exact analytical closed forms for `df == 1` and `df == 2`, bracketed
+/// bisection with the regularized incomplete beta CDF for `1 < df < 2`, and
+/// Hill's Algorithm 396 (1970) continuous approximation for `df > 2`.
 double studentTQuantile(double p, double df) {
   if (p <= 0.5 || p >= 1.0) {
     throw ArgumentError.value(
@@ -269,21 +268,57 @@ double _logGamma(double z) {
       math.log(x);
 }
 
-double _studentTPdf(double t, double df) {
-  final coef =
-      math.exp(_logGamma((df + 1.0) / 2.0) - _logGamma(df / 2.0)) /
-      math.sqrt(df * math.pi);
-  return coef * math.pow(1.0 + (t * t) / df, -(df + 1.0) / 2.0);
+double _clampTiny(double val) => val.abs() < 1e-30 ? 1e-30 : val;
+
+double _regularizedIncompleteBeta(double x, double a, double b) {
+  if (x <= 0.0) return 0.0;
+  if (x >= 1.0) return 1.0;
+
+  if (x > (a + 1.0) / (a + b + 2.0)) {
+    return 1.0 - _regularizedIncompleteBeta(1.0 - x, b, a);
+  }
+
+  final logBeta = _logGamma(a) + _logGamma(b) - _logGamma(a + b);
+  final front = math.exp(a * math.log(x) + b * math.log(1.0 - x) - logBeta) / a;
+
+  const maxIterations = 200;
+  const eps = 3e-14;
+
+  final qab = a + b;
+  final qap = a + 1.0;
+  final qam = a - 1.0;
+
+  var c = 1.0;
+  var d = 1.0 / _clampTiny(1.0 - qab * x / qap);
+  var h = d;
+
+  for (var m = 1; m <= maxIterations; m++) {
+    final m2 = 2 * m;
+    final aaEven = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1.0 / _clampTiny(1.0 + aaEven * d);
+    c = _clampTiny(1.0 + aaEven / c);
+    h *= d * c;
+
+    final aaOdd = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1.0 / _clampTiny(1.0 + aaOdd * d);
+    c = _clampTiny(1.0 + aaOdd / c);
+    final del = d * c;
+    h *= del;
+
+    if ((del - 1.0).abs() < eps) break;
+  }
+
+  return front * h;
 }
 
+/// Computes the cumulative distribution function (CDF) for Student's
+/// $t$-distribution at [t] (`t >= 0`) with [df] degrees of freedom using the
+/// regularized incomplete beta function evaluated via Lentz's continued
+/// fraction algorithm.
 double _studentTCdf(double t, double df) {
-  const n = 200;
-  final dt = t / n;
-  var s = _studentTPdf(0.0, df) + _studentTPdf(t, df);
-  for (var i = 1; i < n; i++) {
-    s += (i.isOdd ? 4.0 : 2.0) * _studentTPdf(i * dt, df);
-  }
-  return 0.5 + s * dt / 3.0;
+  if (t <= 0.0) return 0.5;
+  final x = df / (df + t * t);
+  return 1.0 - 0.5 * _regularizedIncompleteBeta(x, df / 2.0, 0.5);
 }
 
 /// Standard normal inverse CDF (Wichura / Acklam approximation).

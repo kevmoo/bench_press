@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
+import 'package:bench_press/src/cli/suite_runner.dart';
 import 'package:checks/checks.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
@@ -140,13 +141,19 @@ void main() {
       },
     );
 
-    test(
-      'mainBenchmarkSuite throws descriptive ArgumentError on null elements',
-      () async {
-        await check(mainBenchmarkSuite([null], [])).throws<ArgumentError>();
+    test('mainBenchmarkSuite throws descriptive ArgumentError on null argument '
+        'or null elements', () async {
+      await check(mainBenchmarkSuite([null], [])).throws<ArgumentError>();
 
-        await check(mainBenchmarkSuite(null, [])).throws<ArgumentError>();
-      },
-    );
+      check(() => validateBenchmarks([null]))
+          .throws<ArgumentError>()
+          .has((e) => e.message, 'message')
+          .equals('Benchmark suite list cannot contain null elements.');
+
+      check(() => validateBenchmarks(null))
+          .throws<ArgumentError>()
+          .has((e) => e.message, 'message')
+          .equals('Benchmark suite argument cannot be null.');
+    });
   });
 }

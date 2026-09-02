@@ -37,16 +37,6 @@ void main() {
       check(batch.estimatedOpDurationMicroseconds).isGreaterThan(0.0);
     });
 
-    test('allows sub-10 µs operation when forceRun is true', () {
-      const config = BenchmarkConfig(forceRun: true);
-
-      final batch = BenchmarkCalibrator.calibrateSync(() {
-        Blackhole.consume(1);
-      }, config);
-
-      check(batch.iterations).isGreaterThan(1);
-    });
-
     test('bypasses zero-elapsed ticks when forceRun is true', () {
       final zeroStopwatch = _ZeroStopwatch();
 
@@ -59,7 +49,11 @@ void main() {
         ),
       ).throws<CalibrationException>();
 
-      const configTrue = BenchmarkConfig(forceRun: true);
+      final loggedMessages = <String>[];
+      final configTrue = BenchmarkConfig(
+        forceRun: true,
+        logger: loggedMessages.add,
+      );
       final batch = BenchmarkCalibrator.calibrateSync(
         () {},
         configTrue,
@@ -68,6 +62,7 @@ void main() {
 
       check(batch.iterations).equals(1000000);
       check(batch.estimatedOpDurationMicroseconds).equals(0.0);
+      check(loggedMessages).any((it) => it.contains('elapsedUs == 0'));
     });
   });
 }

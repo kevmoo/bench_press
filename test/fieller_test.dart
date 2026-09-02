@@ -38,6 +38,8 @@ void main() {
         // Extreme upper tail quantiles for small fractional df=1.5:
         check((studentTQuantile(0.99, 1.5) - 11.197).abs()).isLessThan(1e-2);
         check((studentTQuantile(0.995, 1.5) - 17.820).abs()).isLessThan(1e-2);
+        check((studentTQuantile(0.999, 1.5) - 52.184).abs()).isLessThan(1e-2);
+        check((studentTQuantile(0.999999, 1.5) - 5219.5).abs()).isLessThan(1.0);
       },
     );
 
