@@ -302,7 +302,45 @@ void main() {
         check(deserialized.throughput).equals(const Throughput.bytes(1024));
       },
     );
+
+    test(
+      'AsyncBenchmark results serialize mode: async in JSON telemetry',
+      () async {
+        final benchmark = _TestAsyncBenchmark('async_task');
+        final result = await BenchmarkRunner.runAsync(benchmark);
+        check(result.mode).equals('async');
+
+        final entry = BenchmarkEntry.fromResult(result, target: 'jit');
+        check(entry.mode).equals('async');
+
+        final json = entry.toJson();
+        check(json['mode']).equals('async');
+
+        final suite = BenchmarkSuiteResult.fromResults([result], target: 'jit');
+        final suiteJson = suite.toJson();
+        final benchmarksJson = suiteJson['benchmarks'] as List;
+        check((benchmarksJson.first as Map)['mode']).equals('async');
+      },
+    );
   });
+}
+
+final class _TestAsyncBenchmark(super.name) extends AsyncBenchmark {
+  this
+    : super(
+        config: const BenchmarkConfig(
+          trials: 1,
+          minWarmupIterations: 1,
+          maxWarmupIterations: 2,
+          targetBatchDuration: Duration(milliseconds: 1),
+          forceRun: true,
+        ),
+      );
+
+  @override
+  Future<void> run() async {
+    Blackhole.consume(1);
+  }
 }
 
 BenchmarkEntry _createEntry(String name, String target, double meanNs) {

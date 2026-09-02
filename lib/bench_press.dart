@@ -33,8 +33,9 @@ export 'src/harness.dart'
 export 'src/runner.dart' show BenchmarkResult, BenchmarkRunner;
 export 'src/stats/fieller.dart'
     show FiellerInterval, normalQuantile, studentTQuantile;
-export 'src/stats/kbssd.dart' show KbssdWarmupDetector, WarmupResult;
 export 'src/stats/metrics.dart' show BenchmarkMetrics;
+export 'src/stats/warmup.dart'
+    show AdaptiveWarmupDetector, KbssdWarmupDetector, WarmupResult;
 export 'src/telemetry/git_diff.dart'
     show GitBaselineDiffResult, GitBaselineExtractor, GitDiffReporter;
 export 'src/telemetry/markdown_reporter.dart' show MarkdownReporter;

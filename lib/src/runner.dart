@@ -5,8 +5,8 @@ import 'blackhole.dart';
 import 'calibration.dart';
 import 'config.dart';
 import 'harness.dart';
-import 'stats/kbssd.dart';
 import 'stats/metrics.dart';
+import 'stats/warmup.dart';
 import 'throughput.dart';
 
 /// The comprehensive result of executing a benchmark through its full
@@ -38,10 +38,14 @@ final class const BenchmarkResult({
 
   /// Declared throughput processed per invocation (bytes or element count).
   final Throughput? throughput,
+
+  /// The execution mode ('sync' or 'async').
+  final String mode = 'sync',
 }) {
   /// Converts the benchmark result to a canonical JSON representation.
   Map<String, Object?> toJson() => {
     'name': name,
+    'mode': mode,
     'metrics': metrics.toJson(),
     if (group != null) 'group': group,
     if (isBaseline) 'is_baseline': isBaseline,
@@ -79,7 +83,7 @@ abstract final class BenchmarkRunner() {
         config,
       );
 
-      final warmupDetector = KbssdWarmupDetector(config: config);
+      final warmupDetector = AdaptiveWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
@@ -140,7 +144,7 @@ abstract final class BenchmarkRunner() {
         config,
       );
 
-      final warmupDetector = KbssdWarmupDetector(config: config);
+      final warmupDetector = AdaptiveWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
@@ -177,6 +181,7 @@ abstract final class BenchmarkRunner() {
 
       return BenchmarkResult(
         name: benchmark.name,
+        mode: 'async',
         metrics: metrics,
         warmupResult: warmupResult,
         rawTrialLatenciesNs: trials,
@@ -198,18 +203,19 @@ abstract final class BenchmarkRunner() {
   }) async {
     variant.setup?.call();
     try {
-      final calibrated = await BenchmarkCalibrator.calibrateAsync(
-        variant.executeAsync,
-        config,
-      );
-
       final probe = variant.action();
       final isAsync = probe is Future;
       if (isAsync) {
         await probe;
       }
+      final calibrated = isAsync
+          ? await BenchmarkCalibrator.calibrateAsync(
+              variant.executeAsync,
+              config,
+            )
+          : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
 
-      final warmupDetector = KbssdWarmupDetector(config: config);
+      final warmupDetector = AdaptiveWarmupDetector(config: config);
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
@@ -248,6 +254,7 @@ abstract final class BenchmarkRunner() {
 
       return BenchmarkResult(
         name: variant.name,
+        mode: isAsync ? 'async' : 'sync',
         metrics: metrics,
         warmupResult: warmupResult,
         rawTrialLatenciesNs: trials,

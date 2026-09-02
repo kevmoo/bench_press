@@ -25,25 +25,65 @@ void main() {
       },
     );
 
-    test('aborts with CalibrationException when operation is below 10 µs', () {
+    test('calibrates sub-10 µs operation cleanly without forceRun', () {
       const config = BenchmarkConfig(forceRun: false);
 
-      check(() {
-        BenchmarkCalibrator.calibrateSync(() {
-          // Extremely fast operation (< 1 µs)
-          Blackhole.consume(1);
-        }, config);
-      }).throws<CalibrationException>();
-    });
-
-    test('allows sub-10 µs operation when forceRun is true', () {
-      const config = BenchmarkConfig(forceRun: true);
-
       final batch = BenchmarkCalibrator.calibrateSync(() {
+        // Extremely fast operation (< 1 µs)
         Blackhole.consume(1);
       }, config);
 
       check(batch.iterations).isGreaterThan(1);
+      check(batch.estimatedOpDurationMicroseconds).isGreaterThan(0.0);
+    });
+
+    test('bypasses zero-elapsed ticks when forceRun is true', () {
+      final zeroStopwatch = _ZeroStopwatch();
+
+      const configFalse = BenchmarkConfig(forceRun: false);
+      check(
+        () => BenchmarkCalibrator.calibrateSync(
+          () {},
+          configFalse,
+          stopwatch: zeroStopwatch,
+        ),
+      ).throws<CalibrationException>();
+
+      final loggedMessages = <String>[];
+      final configTrue = BenchmarkConfig(
+        forceRun: true,
+        logger: loggedMessages.add,
+      );
+      final batch = BenchmarkCalibrator.calibrateSync(
+        () {},
+        configTrue,
+        stopwatch: zeroStopwatch,
+      );
+
+      check(batch.iterations).equals(1000000);
+      check(batch.estimatedOpDurationMicroseconds).equals(0.0);
+      check(loggedMessages).any((it) => it.contains('elapsedUs == 0'));
     });
   });
+}
+
+final class _ZeroStopwatch() implements Stopwatch {
+  @override
+  Duration get elapsed => Duration.zero;
+  @override
+  int get elapsedMicroseconds => 0;
+  @override
+  int get elapsedMilliseconds => 0;
+  @override
+  int get elapsedTicks => 0;
+  @override
+  int get frequency => 1000000;
+  @override
+  bool get isRunning => false;
+  @override
+  void reset() {}
+  @override
+  void start() {}
+  @override
+  void stop() {}
 }

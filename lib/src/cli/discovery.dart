@@ -40,43 +40,47 @@ abstract final class BenchmarkDiscovery() {
   ///
   /// Recursively traverses directories, ignoring hidden folders, `.dart_tool`,
   /// `build`, and non-Dart files.
-  static List<DiscoveredBenchmarkFile> discover(String targetPath) {
-    final results = <DiscoveredBenchmarkFile>[];
+  static List<DiscoveredBenchmarkFile> discover(
+    String targetPath, {
+    bool verbose = false,
+  }) {
     final file = File(targetPath);
-
     if (file.existsSync()) {
-      if (p.extension(targetPath) == '.dart') {
-        results.add(inspectFile(file));
-      }
-      return results;
+      if (p.extension(targetPath) != '.dart') return const [];
+      return [inspectFile(file)];
     }
 
     final dir = Directory(targetPath);
-    if (!dir.existsSync()) {
-      return results;
-    }
+    if (!dir.existsSync()) return const [];
 
-    final entities = dir.listSync(recursive: true, followLinks: false);
-    for (final entity in entities) {
-      if (entity is! File) continue;
-      final filePath = entity.path;
-      if (p.extension(filePath) != '.dart') continue;
-
-      final segments = p.split(p.normalize(filePath));
-      final hasIgnoredSegment = segments.any(
-        (s) =>
-            s.startsWith('.') ||
-            s == 'build' ||
-            s == '.dart_tool' ||
-            s == 'packages',
-      );
-      if (hasIgnoredSegment) continue;
-
-      results.add(inspectFile(entity));
+    final results = <DiscoveredBenchmarkFile>[];
+    for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+      if (entity is! File || _isIgnoredPath(entity.path, targetPath)) continue;
+      final inspected = inspectFile(entity);
+      if (inspected.kind != BenchmarkFileKind.unknown) {
+        results.add(inspected);
+      } else if (verbose) {
+        stderr.writeln('Skipping non-benchmark file: ${entity.path}');
+      }
     }
 
     results.sort((a, b) => a.path.compareTo(b.path));
     return results;
+  }
+
+  static bool _isIgnoredPath(String filePath, String targetPath) {
+    if (p.extension(filePath) != '.dart') return true;
+    final relPath = p.relative(filePath, from: targetPath);
+    for (final s in p.split(p.normalize(relPath))) {
+      if (s == '.' || s == '..') continue;
+      if (s.startsWith('.') ||
+          s == 'build' ||
+          s == '.dart_tool' ||
+          s == 'packages') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Inspects a Dart source file to determine its [BenchmarkFileKind].
@@ -93,21 +97,36 @@ abstract final class BenchmarkDiscovery() {
     }
   }
 
+  static final _commentOrStringRegExp = RegExp(
+    r"""(r?'''[\s\S]*?'''|r?\"\"\"[\s\S]*?\"\"\"|r?'(?:\\.|[^'\\\n])*'|r?"(?:\\.|[^"\\\n])*")|(/\*[\s\S]*?\*/|//.*)""",
+  );
+
+  static String _stripComments(String content) => content.replaceAllMapped(
+    _commentOrStringRegExp,
+    (m) => m[1] != null ? ' ' : '',
+  );
+
   /// Classifies Dart source code string content into a [BenchmarkFileKind].
   static BenchmarkFileKind classifyContent(String content) {
+    final cleanContent = _stripComments(content);
+
     final hasMain =
-        content.contains(RegExp(r'\bvoid\s+main\s*\(')) ||
-        content.contains(RegExp(r'\bFuture<[^>]*>\s+main\s*\(')) ||
-        content.contains(RegExp(r'\bmain\s*\([^)]*\)\s*(=>|\{)'));
+        cleanContent.contains(RegExp(r'\bvoid\s+main\s*\(')) ||
+        cleanContent.contains(RegExp(r'\bFuture<[^>]*>\s+main\s*\(')) ||
+        cleanContent.contains(
+          RegExp(r'\bmain\s*\([^)]*\)\s*(?:async\s*)?(=>|\{)'),
+        );
 
     if (hasMain) {
       return BenchmarkFileKind.standaloneMain;
     }
 
     final hasBenchmarks =
-        content.contains(RegExp(r'\b(final|const|var)\s+benchmarks\s*=')) ||
-        content.contains(RegExp(r'\bList<[^>]*>\s+benchmarks\s*=')) ||
-        content.contains(RegExp(r'\b(get\s+benchmarks|benchmarks\s*=>)'));
+        cleanContent.contains(
+          RegExp(r'\b(final|const|var)\s+benchmarks\s*='),
+        ) ||
+        cleanContent.contains(RegExp(r'\bList<[^>]*>\s+benchmarks\s*=')) ||
+        cleanContent.contains(RegExp(r'\b(get\s+benchmarks|benchmarks\s*=>)'));
 
     if (hasBenchmarks) {
       return BenchmarkFileKind.benchmarksList;
@@ -131,8 +150,10 @@ abstract final class BenchmarkDiscovery() {
     final fileUri = Uri.file(normalizedPath).toString();
 
     final prefix = customPrefix ?? 'bench_wrapper';
-    final baseNameWithoutExt = p.basenameWithoutExtension(benchmarkFile.path);
-    final wrapperName = '${prefix}_$baseNameWithoutExt.dart';
+    final posixPath = p.posix.joinAll(p.split(normalizedPath));
+    final pathHash = _shortHash(posixPath);
+    final baseName = p.basenameWithoutExtension(benchmarkFile.path);
+    final wrapperName = '${prefix}_${pathHash}_$baseName.dart';
     final wrapperFile = File(p.join(outputDir.path, wrapperName));
 
     final buffer = StringBuffer();
@@ -148,5 +169,14 @@ abstract final class BenchmarkDiscovery() {
 
     wrapperFile.writeAsStringSync(buffer.toString());
     return wrapperFile;
+  }
+
+  static String _shortHash(String input) {
+    var hash = 0x811c9dc5;
+    for (var i = 0; i < input.length; i++) {
+      hash ^= input.codeUnitAt(i);
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
   }
 }

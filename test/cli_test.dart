@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:path/path.dart' as p;
@@ -328,6 +329,161 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
           check(stdout).contains('### Baseline Delta: `${baseFile.path}`');
           check(stdout).contains('diff_cli_workload');
           check(stdout).contains('95% CI (Fieller)');
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'bench_press diff supports positional arguments <baseline> [current]',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('cli_diff_pos_');
+        try {
+          final baseFile = File(p.join(tempDir.path, 'base.json'));
+          final currFile = File(p.join(tempDir.path, 'curr.json'));
+          const env = EnvironmentInfo(
+            dartVersion: '3.14.0',
+            os: 'linux',
+            arch: 'x64',
+          );
+
+          const baseMetrics = BenchmarkMetrics(
+            meanNs: 100.0,
+            medianNs: 100.0,
+            minNs: 90.0,
+            maxNs: 110.0,
+            stddevNs: 2.0,
+            cv: 0.02,
+            p95Ns: 103.0,
+            p99Ns: 105.0,
+            opsPerSec: 10000000.0,
+            isStable: true,
+          );
+          const currMetrics = BenchmarkMetrics(
+            meanNs: 50.0,
+            medianNs: 50.0,
+            minNs: 45.0,
+            maxNs: 55.0,
+            stddevNs: 1.0,
+            cv: 0.02,
+            p95Ns: 52.0,
+            p99Ns: 53.0,
+            opsPerSec: 20000000.0,
+            isStable: true,
+          );
+
+          BenchmarkSuiteResult(
+            version: currentTelemetrySchemaVersion,
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: const [
+              BenchmarkEntry(
+                name: 'pos_test_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: baseMetrics,
+                rawTrialsNs: [98.0, 100.0, 102.0],
+              ),
+              BenchmarkEntry(
+                name: 'unique_curr_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: baseMetrics,
+                rawTrialsNs: [98.0, 100.0, 102.0],
+              ),
+            ],
+          ).saveToFile(baseFile);
+
+          BenchmarkSuiteResult(
+            version: currentTelemetrySchemaVersion,
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: const [
+              BenchmarkEntry(
+                name: 'pos_test_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: currMetrics,
+                rawTrialsNs: [49.0, 50.0, 51.0],
+              ),
+              BenchmarkEntry(
+                name: 'unique_curr_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: currMetrics,
+                rawTrialsNs: [49.0, 50.0, 51.0],
+              ),
+            ],
+          ).saveToFile(currFile);
+
+          final outFile = File(p.join(tempDir.path, 'diff_out.md'));
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'diff',
+            baseFile.path,
+            currFile.path,
+            '-o',
+            outFile.path,
+          ]);
+          check(exitCode).equals(0);
+          check(outFile.existsSync()).isTrue();
+          final report = outFile.readAsStringSync();
+          check(report).contains('pos_test_bench');
+          check(report).contains('95% CI (Fieller)');
+
+          // Test -b base.json curr.json
+          final outFlagFile = File(p.join(tempDir.path, 'diff_flag_out.md'));
+          final exitCodeFlag = await runner.run([
+            'diff',
+            '-b',
+            baseFile.path,
+            currFile.path,
+            '-o',
+            outFlagFile.path,
+          ]);
+          check(exitCodeFlag).equals(0);
+          check(outFlagFile.existsSync()).isTrue();
+          final flagReport = outFlagFile.readAsStringSync();
+          check(flagReport).contains('pos_test_bench');
+          check(flagReport).contains('unique_curr_bench');
+
+          // Test surplus positional arguments throw UsageException
+          await check(
+            runner.run(['diff', baseFile.path, currFile.path, 'extra.json']),
+          ).throws<UsageException>();
+          await check(
+            runner.run([
+              'diff',
+              '-b',
+              baseFile.path,
+              currFile.path,
+              'extra.json',
+            ]),
+          ).throws<UsageException>();
+          await check(
+            runner.run([
+              'diff',
+              baseFile.path,
+              currFile.path,
+              '-c',
+              currFile.path,
+            ]),
+          ).throws<UsageException>();
+          await check(
+            runner.run([
+              'diff',
+              '-b',
+              baseFile.path,
+              '-c',
+              currFile.path,
+              currFile.path,
+            ]),
+          ).throws<UsageException>();
         } finally {
           tempDir.deleteSync(recursive: true);
         }

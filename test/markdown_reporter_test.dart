@@ -354,6 +354,78 @@ void main() {
       check(table).contains('`v2_second`');
       check(table).contains('**2.00x faster**');
     });
+
+    test('renderDeltaTable geometric mean handles extreme speedups without '
+        'overflow/underflow', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      // Three 1e200 speedup entries whose naive product (1e600) would overflow
+      // double to Infinity, verifying that log-sum computes the exact geometric
+      // mean (1e200).
+      final baseEntry1 = _createEntry('extreme_fast_1', 'jit', 1e200);
+      final curEntry1 = _createEntry('extreme_fast_1', 'jit', 1.0);
+
+      final baseEntry2 = _createEntry('extreme_fast_2', 'jit', 1e200);
+      final curEntry2 = _createEntry('extreme_fast_2', 'jit', 1.0);
+
+      final baseEntry3 = _createEntry('extreme_fast_3', 'jit', 1e200);
+      final curEntry3 = _createEntry('extreme_fast_3', 'jit', 1.0);
+
+      final baseline = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [baseEntry1, baseEntry2, baseEntry3],
+      );
+
+      final current = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [curEntry1, curEntry2, curEntry3],
+      );
+
+      final deltaReport = MarkdownReporter.renderDeltaTable(
+        baseline: baseline,
+        current: current,
+      );
+
+      check(deltaReport).contains('Geometric Mean Speedup: **1');
+      check(deltaReport).contains('e+200x**');
+      check(deltaReport)
+          .not((it) => it.contains('Geometric Mean Speedup: **Infinity'));
+      check(deltaReport)
+          .not((it) => it.contains('Geometric Mean Speedup: **NaN'));
+    });
+
+    test(
+      'renderSummaryTable formats ops/s for < 10 ops/s and integer thousands',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+
+        final slowEntry1 = _createEntry('slow_workload_1', 'jit', 1e9 / 0.42);
+        final slowEntry2 = _createEntry('slow_workload_2', 'jit', 1e9 / 2.15);
+        final fastEntry = _createEntry('fast_workload', 'jit', 1e9 / 1234567.0);
+
+        final suite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+          environment: env,
+          benchmarks: [slowEntry1, slowEntry2, fastEntry],
+        );
+
+        final table = MarkdownReporter.renderSummaryTable(suite);
+
+        check(table).contains('0.42 ops/s');
+        check(table).contains('2.15 ops/s');
+        check(table).contains('1,234,567 ops/s');
+      },
+    );
   });
 }
 

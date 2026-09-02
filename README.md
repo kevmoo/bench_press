@@ -5,7 +5,7 @@ framework for Dart and Flutter.
 
 * **Multi-Runtime Orchestration**: Run benchmarks across VM JIT (`dart run`), Native AOT (`dart compile exe`), WebAssembly (`dart compile wasm`), and JavaScript (`dart compile js`) with a single command.
 * **Dead Code Elimination (DCE) Barrier**: `Blackhole` prevents optimizing compilers (LLVM, Binaryen, V8) from erasing benchmark loops while maintaining zero per-iteration heap allocations.
-* **Automated Warmup Detection**: Adaptive Kallithea-Borg Self-Stopping Detection (KBSSD) determines true steady-state execution so you never have to guess warmup iteration counts.
+* **Automated Warmup Detection**: Adaptive Steady-State Warmup Detection (RBF Kernel MMD + SEM Relative Error) determines true steady-state execution so you never have to guess warmup iteration counts.
 * **Payload-Aware Throughput**: Sealed `Throughput.bytes` and `Throughput.elements` automatically calculate and format rates (`MB/s`, `GB/s`, `items/s`).
 * **Implementation Comparisons**: `BenchmarkGroup` compares multiple implementations within a run (e.g. `concat` vs `StringBuffer`), computing speedup multipliers and exact Fieller 95% confidence intervals.
 * **Git Baseline Diffing**: `--diff <ref>` compares live runs against prior git commits (or stored JSON baselines) with isolated Before vs. After delta tables.
@@ -46,7 +46,7 @@ final class JsonDecodeBenchmark extends Benchmark {
 }
 
 void main(List<String> args) =>
-    mainBenchmark(args, () => JsonDecodeBenchmark('{"key": "value"}'));
+    mainBenchmark(JsonDecodeBenchmark('{"key": "value"}'), args);
 ```
 
 ### 2. Compare Implementations (`BenchmarkGroup`)
@@ -82,17 +82,18 @@ final class StringBufferBenchmark extends Benchmark {
   }
 }
 
-void main(List<String> args) => mainBenchmarkGroup(
-      args,
-      BenchmarkGroup('String Group', [
-        BenchmarkVariant(
-          'concat',
-          () => StringConcatBenchmark(),
-          isBaseline: true,
-        ),
-        BenchmarkVariant('buffer', () => StringBufferBenchmark()),
-      ]),
-    );
+Future<void> main(List<String> args) async {
+  final concatBench = StringConcatBenchmark();
+  final bufferBench = StringBufferBenchmark();
+  final group = BenchmarkGroup(
+    'String Group',
+    [
+      BenchmarkVariant('concat', concatBench.run),
+      BenchmarkVariant('buffer', bufferBench.run),
+    ],
+  );
+  await mainBenchmarkGroup(group, args);
+}
 ```
 
 ### 3. Asynchronous Benchmarks (`AsyncBenchmark`)
@@ -111,8 +112,8 @@ final class AsyncFetchBenchmark extends AsyncBenchmark {
   }
 }
 
-void main(List<String> args) =>
-    mainAsyncBenchmark(args, () => AsyncFetchBenchmark());
+Future<void> main(List<String> args) async =>
+    await mainAsyncBenchmark(AsyncFetchBenchmark(), args);
 ```
 
 ---
@@ -193,7 +194,7 @@ jobs:
 
 ## Architecture & Statistical Methodology
 
-For in-depth details on compiler mechanics, `Blackhole` static sinks, KBSSD sliding-window MMD warmup convergence, and Fieller ratio confidence intervals, see:
+For in-depth details on compiler mechanics, `Blackhole` static sinks, Adaptive Steady-State Warmup Detection (RBF Kernel MMD + SEM Relative Error), and Fieller ratio confidence intervals, see:
 
 * [**Architecture & Statistical Methodology**](doc/background.md)
 

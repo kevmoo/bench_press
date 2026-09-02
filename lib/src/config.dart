@@ -17,7 +17,12 @@ final class const BenchmarkConfig({
   /// Maximum seconds allocated to the warmup phase before budget exhaustion.
   final double maxWarmupDurationSeconds = 5.0,
 
-  /// If `true`, bypasses the 10 µs calibration lower-bound abort.
+  /// Maximum relative error of the Standard Error of the Mean (SEM) permitted
+  /// for steady-state warmup convergence (default: 0.03, i.e., 3%).
+  final double maxSemRelativeError = 0.03,
+
+  /// If true, bypasses the zero-elapsed-ticks calibration abort (timer
+  /// quantization).
   final bool forceRun = false,
 
   /// Optional logger callback to intercept benchmark diagnostics and warnings.

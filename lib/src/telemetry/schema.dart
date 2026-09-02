@@ -147,12 +147,12 @@ final class const BenchmarkEntry({
   factory fromResult(
     BenchmarkResult result, {
     String target = 'jit',
-    String mode = 'sync',
+    String? mode,
   }) {
     return BenchmarkEntry(
       name: result.name,
       target: target,
-      mode: mode,
+      mode: mode ?? result.mode,
       samples: result.rawTrialLatenciesNs.length,
       metrics: result.metrics,
       rawTrialsNs: List<double>.unmodifiable(result.rawTrialLatenciesNs),
@@ -268,7 +268,7 @@ final class const BenchmarkSuiteResult({
     EnvironmentInfo? environment,
     DateTime? timestamp,
     String target = 'jit',
-    String mode = 'sync',
+    String? mode,
   }) {
     final entries = results
         .map((r) => BenchmarkEntry.fromResult(r, target: target, mode: mode))
@@ -333,9 +333,10 @@ final class const BenchmarkSuiteResult({
 
   /// Performs a deterministic deep-merge of [other] into this suite result.
   ///
-  /// Matching entries (keyed by `name:target`) from [other] replace existing
-  /// entries. New entries are appended. The resulting entries are sorted
-  /// deterministically by benchmark name and then target name.
+  /// Matching entries (keyed by [BenchmarkEntry.key]: `name:target` or
+  /// `name:target:group`) from [other] replace existing entries. New entries
+  /// are appended. The resulting entries are sorted deterministically by
+  /// benchmark name and then target name.
   BenchmarkSuiteResult deepMerge(BenchmarkSuiteResult other) {
     final map = <String, BenchmarkEntry>{};
     for (final entry in benchmarks) {

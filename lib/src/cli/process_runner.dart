@@ -225,21 +225,20 @@ final class const BenchmarkProcessRunner({
 
       try {
         await Future.any([exitPort.first, errorCompleter.future]);
+        // Drain any queued isolate error port messages before inspecting
+        // errorCompleter.
+        await Future<void>.delayed(Duration.zero);
       } finally {
         isolate.kill(priority: Isolate.immediate);
       }
       stopwatch.stop();
 
-      BenchmarkSuiteResult? suite;
-      if (tempJsonFile.existsSync()) {
-        try {
-          suite = BenchmarkSuiteResult.loadFromFile(tempJsonFile);
-        } on Object {
-          suite = null;
-        }
-      }
+      final isolateErrorStr = errorCompleter.isCompleted
+          ? _formatIsolateError(await errorCompleter.future)
+          : null;
+      final suite = _loadSuiteResultSafe(tempJsonFile);
+      final success = suite != null && isolateErrorStr == null;
 
-      final success = suite != null;
       return ProcessExecutionResult(
         success: success,
         runtime: runtime,
@@ -247,8 +246,10 @@ final class const BenchmarkProcessRunner({
         suiteResult: suite,
         executionDuration: stopwatch.elapsed,
         stdout: '',
-        stderr: '',
-        errorMessage: success ? null : 'Failed to collect isolate telemetry.',
+        stderr: isolateErrorStr ?? '',
+        errorMessage:
+            isolateErrorStr ??
+            (success ? null : 'Failed to collect isolate telemetry.'),
       );
     } on Object catch (e) {
       stopwatch.stop();
@@ -264,6 +265,26 @@ final class const BenchmarkProcessRunner({
     } finally {
       exitPort.close();
       errorPort.close();
+    }
+  }
+
+  static String _formatIsolateError(Object? err) {
+    if (err is List && err.isNotEmpty) {
+      final exceptionStr = err[0]?.toString() ?? 'Unknown exception';
+      final stackStr = err.length > 1 ? err[1]?.toString() : null;
+      return stackStr != null && stackStr.isNotEmpty
+          ? 'Unhandled isolate exception: $exceptionStr\n$stackStr'
+          : 'Unhandled isolate exception: $exceptionStr';
+    }
+    return 'Unhandled isolate exception: $err';
+  }
+
+  static BenchmarkSuiteResult? _loadSuiteResultSafe(File tempJsonFile) {
+    if (!tempJsonFile.existsSync()) return null;
+    try {
+      return BenchmarkSuiteResult.loadFromFile(tempJsonFile);
+    } on Object {
+      return null;
     }
   }
 

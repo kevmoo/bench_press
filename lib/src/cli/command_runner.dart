@@ -117,7 +117,9 @@ final class RunCommand({
       ..addFlag(
         'force-run',
         negatable: false,
-        help: 'Force execution bypassing calibration safety aborts (<10µs).',
+        help:
+            'Bypass calibration safety aborts on zero-elapsed-time timer '
+            'quantization.',
       )
       ..addFlag(
         'isolate-mode',
@@ -166,7 +168,8 @@ final class RunCommand({
       return ExitCode.usage.code;
     }
     final targetPath = _resolveTargetPath(argResults!.rest);
-    final files = BenchmarkDiscovery.discover(targetPath);
+    final verbose = globalResults?.flag('verbose') ?? false;
+    final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
 
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
@@ -400,13 +403,6 @@ final class RunCommand({
   bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
       suite.benchmarks.any((b) => !b.metrics.isStable);
 
-  String _resolveTargetPath(List<String> rest) {
-    if (rest.isNotEmpty) return rest.first;
-    if (Directory('benchmark').existsSync()) return 'benchmark';
-    if (Directory('benchmarks').existsSync()) return 'benchmarks';
-    return '.';
-  }
-
   File _resolveExecutionFile(
     DiscoveredBenchmarkFile discovered,
     Directory buildDir,
@@ -550,11 +546,10 @@ final class ValidateCommand({
       stderr.writeln(e.message);
       return ExitCode.usage.code;
     }
-    final targetPath = argResults!.rest.isNotEmpty
-        ? argResults!.rest.first
-        : (Directory('benchmark').existsSync() ? 'benchmark' : '.');
+    final targetPath = _resolveTargetPath(argResults!.rest);
+    final verbose = globalResults?.flag('verbose') ?? false;
 
-    final files = BenchmarkDiscovery.discover(targetPath);
+    final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
     if (files.isEmpty) {
       stderr.writeln('No benchmark files found at "$targetPath".');
       return ExitCode.noInput.code;
@@ -700,12 +695,15 @@ final class DiffCommand() extends Command<int> {
       'Diff two JSON telemetry files or diff current telemetry against '
       'a Git ref.';
 
+  @override
+  String get invocation =>
+      '${runner!.executableName} $name [arguments] <baseline> [current]';
+
   this {
     argParser
       ..addOption(
         'baseline',
         abbr: 'b',
-        mandatory: true,
         help: 'Baseline JSON file path OR Git ref (e.g. HEAD~1, main).',
       )
       ..addOption(
@@ -729,22 +727,77 @@ final class DiffCommand() extends Command<int> {
       );
   }
 
+  ({String baseline, String current}) _resolveDiffArgs() {
+    final hasBaselineFlag = argResults!.wasParsed('baseline');
+    final hasCurrentFlag = argResults!.wasParsed('current');
+    final rest = argResults!.rest;
+
+    _validateDiffArgCounts(
+      hasBaselineFlag: hasBaselineFlag,
+      hasCurrentFlag: hasCurrentFlag,
+      restCount: rest.length,
+    );
+
+    final baseline = hasBaselineFlag
+        ? argResults!.option('baseline')
+        : (rest.isNotEmpty ? rest[0] : null);
+
+    if (baseline == null) {
+      throw UsageException(
+        'Missing baseline file path. Specify via --baseline (-b) or '
+        'positional argument <baseline>.',
+        usage,
+      );
+    }
+
+    final String current;
+    if (hasCurrentFlag) {
+      current = argResults!.option('current')!;
+    } else if (hasBaselineFlag && rest.isNotEmpty) {
+      current = rest[0];
+    } else if (!hasBaselineFlag && rest.length >= 2) {
+      current = rest[1];
+    } else {
+      current = defaultTelemetryFileName;
+    }
+
+    return (baseline: baseline, current: current);
+  }
+
+  void _validateDiffArgCounts({
+    required bool hasBaselineFlag,
+    required bool hasCurrentFlag,
+    required int restCount,
+  }) {
+    final maxPositional = switch ((hasBaselineFlag, hasCurrentFlag)) {
+      (true, true) => 0,
+      (true, false) => 1,
+      (false, true) => 1,
+      (false, false) => 2,
+    };
+    if (restCount > maxPositional) {
+      throw UsageException(
+        'Too many positional arguments for the specified options.',
+        usage,
+      );
+    }
+  }
+
   @override
   Future<int> run() async {
-    final baselineArg = argResults!.option('baseline')!;
-    final currentArg = argResults!.option('current')!;
+    final (:baseline, :current) = _resolveDiffArgs();
     final targetFileArg = argResults!.option('target-file')!;
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
 
-    final currentFile = File(currentArg);
+    final currentFile = File(current);
     if (!currentFile.existsSync()) {
-      stderr.writeln('Current telemetry file "$currentArg" does not exist.');
+      stderr.writeln('Current telemetry file "$current" does not exist.');
       return ExitCode.noInput.code;
     }
 
     String report;
-    final baselineFile = File(baselineArg);
+    final baselineFile = File(baseline);
     if (baselineFile.existsSync()) {
       report = MarkdownReporter.renderDeltaFromFiles(
         baselineFile: baselineFile,
@@ -754,7 +807,7 @@ final class DiffCommand() extends Command<int> {
     } else {
       final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
       report = GitDiffReporter.renderGitDiffReport(
-        gitRef: baselineArg,
+        gitRef: baseline,
         filePath: targetFileArg,
         current: currentSuite,
         title: title,
@@ -770,4 +823,12 @@ final class DiffCommand() extends Command<int> {
     }
     return ExitCode.success.code;
   }
+}
+
+String _resolveTargetPath(List<String> rest) {
+  if (rest.isNotEmpty) return rest.first;
+  for (final dir in const ['benchmark', 'benchmarks', 'bench']) {
+    if (Directory(dir).existsSync()) return dir;
+  }
+  return '.';
 }

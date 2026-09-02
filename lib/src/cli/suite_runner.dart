@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:io/io.dart';
+import 'package:meta/meta.dart';
 
 import '../config.dart';
 import '../harness.dart';
@@ -54,12 +55,11 @@ Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
   await mainBenchmarkSuite([group], args);
 }
 
-/// Standalone CLI entrypoint for an arbitrary collection of benchmarks
-/// ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or [BenchmarkGroup]).
-Future<void> mainBenchmarkSuite(
-  List<Object> benchmarks,
-  List<String> args,
-) async {
+/// Standalone CLI entrypoint for an arbitrary collection or single instance of
+/// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or
+/// [BenchmarkGroup]).
+Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
+  validateBenchmarks(benchmarks);
   final parser = ArgParser()
     ..addOption('json-output', help: 'Path to write output telemetry JSON')
     ..addFlag('json', help: 'Emit streaming JSON markers to stdout')
@@ -70,7 +70,9 @@ Future<void> mainBenchmarkSuite(
     ..addOption('target-batch-ms', help: 'Override target batch duration (ms)')
     ..addFlag(
       'force-run',
-      help: 'Bypass calibration safety aborts on sub-10µs runs',
+      help:
+          'Bypass calibration safety aborts on zero-elapsed-time timer '
+          'quantization.',
     )
     ..addFlag(
       'validate',
@@ -96,8 +98,12 @@ Future<void> mainBenchmarkSuite(
   final isValidate = parsed.flag('validate');
   final config = _buildConfigFromArgs(parsed, isValidate: isValidate);
 
+  final benchmarkList = benchmarks is Iterable
+      ? List<Object>.from(benchmarks)
+      : <Object>[benchmarks];
+
   final results = <BenchmarkResult>[];
-  for (final item in benchmarks) {
+  for (final item in benchmarkList) {
     switch (item) {
       case Benchmark b:
         results.add(BenchmarkRunner.run(_applyConfigToBenchmark(b, config)));
@@ -131,19 +137,31 @@ Future<void> mainBenchmarkSuite(
   final jsonText = const JsonEncoder.withIndent('  ')
       .convert(suiteResult.toJson());
 
-  final jsonOutputPath = parsed.option('json-output');
-  if (jsonOutputPath != null && jsonOutputPath.isNotEmpty) {
-    try {
-      final file = File(jsonOutputPath);
-      file.parent.createSync(recursive: true);
-      file.writeAsStringSync('$jsonText\n');
-    } on Object catch (e) {
-      stderr.writeln('Warning: Failed to write JSON output: $e');
-    }
-  }
+  _writeJsonOutput(parsed.option('json-output'), jsonText);
 
   // Always emit stream markers for subprocess communication
   stdout.writeln(wrapJsonInMarkers(jsonText));
+}
+
+@visibleForTesting
+void validateBenchmarks(Object? benchmarks) {
+  if (benchmarks == null) {
+    throw ArgumentError('Benchmark suite argument cannot be null.');
+  }
+  if (benchmarks is Iterable && benchmarks.any((e) => e == null)) {
+    throw ArgumentError('Benchmark suite list cannot contain null elements.');
+  }
+}
+
+void _writeJsonOutput(String? jsonOutputPath, String jsonText) {
+  if (jsonOutputPath == null || jsonOutputPath.isEmpty) return;
+  try {
+    final file = File(jsonOutputPath);
+    file.parent.createSync(recursive: true);
+    file.writeAsStringSync('$jsonText\n');
+  } on Object catch (e) {
+    stderr.writeln('Warning: Failed to write JSON output: $e');
+  }
 }
 
 BenchmarkConfig _buildConfigFromArgs(
@@ -172,7 +190,7 @@ BenchmarkConfig _buildConfigFromArgs(
     maxWarmupIterations: maxWarmup ?? 200,
     targetBatchDuration: batchMs != null
         ? Duration(milliseconds: batchMs)
-        : const Duration(milliseconds: 10),
+        : const Duration(milliseconds: 100),
     forceRun: forceRun,
   );
 }

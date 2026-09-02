@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'blackhole.dart';
 import 'config.dart';
 import 'runner.dart';
 import 'throughput.dart';
@@ -86,13 +87,15 @@ final class BenchmarkVariant(
   Future<void> executeAsync() async {
     final result = action();
     if (result is Future) {
-      await result;
+      Blackhole.consume(await result);
+    } else {
+      Blackhole.consume(result);
     }
   }
 
   /// Executes the variant synchronously.
   void executeSync() {
-    action();
+    Blackhole.consume(action());
   }
 
   /// Executes this variant through the full lifecycle [BenchmarkRunner].
