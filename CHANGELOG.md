@@ -8,7 +8,9 @@
 - Updated `BenchmarkSuiteResult.groups` to return group names in order of appearance rather than sorted alphabetically.
 - Aligned default `targetBatchDuration` to `100ms` across CLI runners and `BenchmarkConfig`.
 - Unified default benchmark discovery directories across `run` and `validate` commands (`benchmark`, `benchmarks`, `bench`).
-- Updated `BenchmarkDiscovery.discover` to filter out `BenchmarkFileKind.unknown` helper files during directory traversal (with `--verbose` logging).
+- Simplified benchmark discovery to convention-based matching (targeting files ending in `*_benchmark.dart` or `*_bench.dart`) requiring standard `void main()` entrypoints, eliminating ad-hoc regex content parsing and dynamic wrapper script generation.
+- Updated benchmark discovery to default strictly to `benchmark/` (or `benchmarks/`, `bench/`) and throw explicit errors (`FormatException` for non-Dart files, `PathNotFoundException` for nonexistent paths) rather than silently ignoring files or walking the entire repository root.
+- Deprecated `BenchmarkFileKind` and removed `BenchmarkFileKind.benchmarksList` wrapper generation.
 - Renamed `KbssdWarmupDetector` to `AdaptiveWarmupDetector` (`src/stats/warmup.dart`) and deprecated the old name.
 - Fixed steady-state warmup convergence math using Standard Error of the Mean (SEM) relative error (`<= 3%`) and stationarity checks.
 - Hardened `Blackhole.drain()` compiler barrier against whole-program Dead-Store Elimination across AOT, Wasm, and JavaScript.
@@ -16,7 +18,6 @@
 - Added `mode` (`'sync'` vs `'async'`) property to `BenchmarkResult` (which `BenchmarkEntry.fromResult` now inherits for JSON telemetry).
 - Implemented continuous Student's t-distribution quantile calculation (regularized incomplete beta for `1 < df < 2` and Hill's Algorithm 396 for `df > 2`) for accurate Fieller confidence intervals across all degrees of freedom.
 - Fixed unhandled exception propagation in Isolate execution mode (`BenchmarkProcessRunner`).
-- Stripped comments during benchmark discovery (preserving string literals/URLs) and disambiguated generated wrapper filenames.
 - Prevented floating-point overflow in geometric mean speedup reporting via log-sum calculation.
 - Updated `FiellerInterval.compute` to return `isValid: false` (with `NaN` bounds) when sample size is degenerate (`N < 2`).
 

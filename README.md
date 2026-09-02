@@ -123,15 +123,26 @@ Future<void> main(List<String> args) async =>
 Run benchmarks using the `bench_press` CLI:
 
 ```bash
-# Run on default target (JIT)
-dart run bench_press run benchmark/
+# Run on default target (JIT) across benchmark/
+dart run bench_press run
 
 # Run across multiple runtime targets (JIT, AOT, WasmGC, JS)
-dart run bench_press run -t jit -t aot -t wasm benchmark/
+dart run bench_press run -t jit -t aot -t wasm
+
+# Run a specific benchmark file or directory
+dart run bench_press run benchmark/json_benchmark.dart
 
 # Fast validation smoke-test (verifies build & runtime health in ~2s)
-dart run bench_press validate benchmark/
+dart run bench_press validate
 ```
+
+### Benchmark Discovery
+
+`bench_press` discovers benchmarks using standard Dart conventions:
+
+* **File Suffixes**: When scanning a directory (defaulting to `benchmark/`), it discovers all files ending in `*_benchmark.dart` or `*_bench.dart`. Helper files (e.g. `utils.dart`, `fixtures.dart`) are cleanly ignored.
+* **Direct File Targets**: You can also target any individual `.dart` file directly (e.g. `dart run bench_press run benchmark/my_custom_run.dart`).
+* **Entrypoints**: Every benchmark file must be an executable script declaring a `main` entrypoint (such as `void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);`).
 
 ### Comparing Against Git Baselines (`--diff`)
 
