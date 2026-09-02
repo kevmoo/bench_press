@@ -113,6 +113,49 @@ void main() {
           .throws<FormatException>();
       check(() => BenchmarkEntry.fromJson({'name': 'foo', 'target': 'wasm'}))
           .throws<FormatException>();
+
+      final validBase = {
+        'name': 'foo',
+        'target': 'jit',
+        'metrics': metrics.toJson(),
+      };
+
+      check(() => BenchmarkEntry.fromJson({...validBase, 'mode': 'fast'}))
+          .throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'coordinates': 'bad'}))
+          .throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({
+          ...validBase,
+          'coordinates': {'sdk': 123},
+        }),
+      ).throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({...validBase, 'raw_trials_ns': 'bad'}),
+      ).throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({
+          ...validBase,
+          'raw_trials_ns': ['not_a_num'],
+        }),
+      ).throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'samples': -1}))
+          .throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'samples': 'ten'}))
+          .throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({...validBase, 'is_baseline': 'true'}),
+      ).throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'warmup': 'bad'}))
+          .throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({
+          ...validBase,
+          'calibrated_batch_iterations': -5,
+        }),
+      ).throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'throughput': 'bad'}))
+          .throws<FormatException>();
     });
 
     test('BenchmarkSuiteResult rejects incompatible schema versions', () {
@@ -286,18 +329,38 @@ void main() {
           mode: 'sync',
           samples: 10,
           metrics: metrics,
-          group: 'CryptoGroup',
+          coordinates: BenchmarkCoordinates({
+            BenchmarkCoordinates.groupKey: 'CryptoGroup',
+            BenchmarkCoordinates.sdkKey: 'stock',
+            BenchmarkCoordinates.runtimeKey: 'aot',
+            BenchmarkCoordinates.compilerFlagsKey: '-O3',
+            BenchmarkCoordinates.vmFlagsKey: '--test',
+          }),
           isBaseline: true,
           throughput: Throughput.bytes(1024),
         );
 
+        check(entry.coordinates.group).equals('CryptoGroup');
+        check(entry.coordinates.sdk).equals('stock');
+        check(entry.coordinates.runtime).equals('aot');
+        check(entry.coordinates.compilerFlags).equals('-O3');
+        check(entry.coordinates.vmFlags).equals('--test');
+
         final json = entry.toJson();
-        check(json['group']).equals('CryptoGroup');
+        check(json['coordinates'] as Map?).isNotNull().deepEquals({
+          'group': 'CryptoGroup',
+          'sdk': 'stock',
+          'runtime': 'aot',
+          'compiler_flags': '-O3',
+          'vm_flags': '--test',
+        });
         check(json['is_baseline']).equals(true);
         check(json['throughput']).isNotNull();
 
         final deserialized = BenchmarkEntry.fromJson(json);
-        check(deserialized.group).equals('CryptoGroup');
+        check(deserialized.coordinates.group).equals('CryptoGroup');
+        check(deserialized.coordinates.sdk).equals('stock');
+        check(deserialized.coordinates.runtime).equals('aot');
         check(deserialized.isBaseline).isTrue();
         check(deserialized.throughput).equals(const Throughput.bytes(1024));
       },

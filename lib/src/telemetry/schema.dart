@@ -89,6 +89,47 @@ final class const EnvironmentInfo({
       'EnvironmentInfo(dart: $dartVersion, os: $os, arch: $arch)';
 }
 
+/// N-dimensional Cartesian benchmark coordinate mapping with typed getters for
+/// well-known dimensions.
+extension type const BenchmarkCoordinates._(Map<String, String> _map)
+    implements Map<String, String> {
+  /// Constructs a [BenchmarkCoordinates] instance.
+  const new([Map<String, String> map = const {}]) : _map = map;
+
+  /// Intra-file benchmark variant comparison group (set by `BenchmarkGroup`).
+  static const String groupKey = 'group';
+
+  /// Target compilation runtime (`jit`, `aot`, `wasm`, `js`).
+  static const String runtimeKey = 'runtime';
+
+  /// Alias for [runtimeKey].
+  static const String targetKey = 'target';
+
+  /// Dart SDK binary path or label to compile and run against.
+  static const String sdkKey = 'sdk';
+
+  /// Extra flags forwarded to `dart compile`.
+  static const String compilerFlagsKey = 'compiler_flags';
+
+  /// Extra flags forwarded to the Dart VM or JavaScript runner.
+  static const String vmFlagsKey = 'vm_flags';
+
+  /// Returns the group identifier, if present.
+  String? get group => this[groupKey];
+
+  /// Returns the SDK label or path, if present.
+  String? get sdk => this[sdkKey];
+
+  /// Returns the target runtime (`jit`, `aot`, `wasm`, `js`), if present.
+  String? get runtime => this[runtimeKey] ?? this[targetKey];
+
+  /// Returns extra compiler flags, if present.
+  String? get compilerFlags => this[compilerFlagsKey];
+
+  /// Returns extra VM flags, if present.
+  String? get vmFlags => this[vmFlagsKey];
+}
+
 /// Telemetry record for a single benchmark workload executed against a target.
 final class const BenchmarkEntry({
   /// The unique benchmark workload name (e.g. 'json_decode/small').
@@ -115,8 +156,8 @@ final class const BenchmarkEntry({
   /// Calibrated batch iterations used in the inner measurement loop.
   final int? calibratedBatchIterations,
 
-  /// Optional group identifier for intra-run variant comparisons.
-  final String? group,
+  /// N-dimensional matrix coordinates.
+  final BenchmarkCoordinates coordinates = const BenchmarkCoordinates(),
 
   /// Whether this entry was designated as the baseline for its group.
   final bool isBaseline = false,
@@ -124,10 +165,21 @@ final class const BenchmarkEntry({
   /// Declared throughput processed per invocation (bytes or element count).
   final Throughput? throughput,
 }) {
-  /// The unique composite key identifying this benchmark and target pair.
-  String get key => group != null ? '$name:$target:$group' : '$name:$target';
+  /// Unique composite key identifying this workload and its matrix coordinate.
+  String get key {
+    if (coordinates.isEmpty) {
+      return '$name:$target';
+    }
+    final sortedCoords = coordinates.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final coordStr = sortedCoords.map((e) => '${e.key}=${e.value}').join(',');
+    return '$name:$target:$coordStr';
+  }
 
-  BenchmarkEntry copyWith({String? group, bool? isBaseline}) {
+  BenchmarkEntry copyWith({
+    Map<String, String>? coordinates,
+    bool? isBaseline,
+  }) {
     return BenchmarkEntry(
       name: name,
       target: target,
@@ -137,7 +189,9 @@ final class const BenchmarkEntry({
       rawTrialsNs: rawTrialsNs,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatchIterations,
-      group: group ?? this.group,
+      coordinates: coordinates != null
+          ? BenchmarkCoordinates(coordinates)
+          : this.coordinates,
       isBaseline: isBaseline ?? this.isBaseline,
       throughput: throughput,
     );
@@ -149,6 +203,10 @@ final class const BenchmarkEntry({
     String target = 'jit',
     String? mode,
   }) {
+    final coordinates = <String, String>{};
+    if (result.group != null && result.group!.isNotEmpty) {
+      coordinates[BenchmarkCoordinates.groupKey] = result.group!;
+    }
     return BenchmarkEntry(
       name: result.name,
       target: target,
@@ -164,7 +222,7 @@ final class const BenchmarkEntry({
         'elapsed_seconds': result.warmupResult.elapsedSeconds,
       },
       calibratedBatchIterations: result.calibratedBatch.iterations,
-      group: result.group,
+      coordinates: BenchmarkCoordinates(coordinates),
       isBaseline: result.isBaseline,
       throughput: result.throughput,
     );
@@ -177,7 +235,7 @@ final class const BenchmarkEntry({
     'mode': mode,
     'samples': samples,
     'metrics': metrics.toJson(),
-    if (group != null) 'group': group,
+    if (coordinates.isNotEmpty) 'coordinates': coordinates,
     if (isBaseline) 'is_baseline': isBaseline,
     if (throughput != null) 'throughput': throughput!.toJson(),
     if (rawTrialsNs.isNotEmpty) 'raw_trials_ns': rawTrialsNs,
@@ -200,9 +258,6 @@ final class const BenchmarkEntry({
         'Missing or invalid "target" in benchmark entry',
       );
     }
-    final mode = (json['mode'] as String?) ?? 'sync';
-    final samples = (json['samples'] as num?)?.toInt() ?? 0;
-
     final rawMetrics = json['metrics'];
     if (rawMetrics is! Map<String, Object?>) {
       throw FormatException(
@@ -211,36 +266,130 @@ final class const BenchmarkEntry({
     }
     final metrics = BenchmarkMetrics.fromJson(rawMetrics);
 
-    final rawTrialsList = json['raw_trials_ns'];
-    final rawTrials = rawTrialsList is List
-        ? rawTrialsList.map((e) => (e as num).toDouble()).toList()
-        : const <double>[];
-
-    final warmup = json['warmup'] as Map<String, Object?>?;
-    final calibratedBatch = (json['calibrated_batch_iterations'] as num?)
-        ?.toInt();
-    final group = json['group'] as String?;
-    final isBaseline = (json['is_baseline'] as bool?) ?? false;
-
-    final rawThroughput = json['throughput'];
-    final throughput = rawThroughput is Map<String, Object?>
-        ? Throughput.fromJson(rawThroughput)
-        : null;
+    final mode = _parseMode(json['mode'], rawName);
+    final rawTrials = _parseRawTrials(json['raw_trials_ns'], rawName);
+    final samples = _parseSamples(json['samples'], rawTrials.length, rawName);
+    final coordinates = _parseCoordinates(json['coordinates'], rawName);
+    final isBaseline = _parseIsBaseline(json['is_baseline'], rawName);
+    final warmup = _parseWarmup(json['warmup'], rawName);
+    final calibratedBatch = _parseCalibratedBatch(
+      json['calibrated_batch_iterations'],
+      rawName,
+    );
+    final throughput = _parseThroughput(json['throughput'], rawName);
 
     return BenchmarkEntry(
       name: rawName,
       target: rawTarget,
       mode: mode,
-      samples: samples > 0 ? samples : rawTrials.length,
+      samples: samples,
       metrics: metrics,
       rawTrialsNs: rawTrials,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatch,
-      group: group,
+      coordinates: coordinates,
       isBaseline: isBaseline,
       throughput: throughput,
     );
   }
+
+  static String _parseMode(Object? value, String name) => switch (value) {
+    null => 'sync',
+    'sync' || 'async' => value as String,
+    final other => throw FormatException(
+      'Invalid "mode": "$other" in benchmark "$name" '
+      '(expected "sync" or "async")',
+    ),
+  };
+
+  static List<double> _parseRawTrials(Object? value, String name) {
+    if (value == null) return const <double>[];
+    if (value is! List) {
+      throw FormatException(
+        'Invalid "raw_trials_ns" in benchmark "$name": expected List, '
+        'got ${value.runtimeType}',
+      );
+    }
+    return [
+      for (final e in value)
+        if (e is num)
+          e.toDouble()
+        else
+          throw FormatException(
+            'Invalid trial value: $e in benchmark "$name" (expected num)',
+          ),
+    ];
+  }
+
+  static int _parseSamples(Object? value, int fallback, String name) =>
+      switch (value) {
+        null => fallback,
+        final int s when s >= 0 => s > 0 ? s : fallback,
+        final other => throw FormatException(
+          'Invalid "samples": $other in benchmark "$name" '
+          '(expected non-negative integer)',
+        ),
+      };
+
+  static BenchmarkCoordinates _parseCoordinates(Object? value, String name) {
+    if (value == null) return const BenchmarkCoordinates();
+    if (value is! Map) {
+      throw FormatException(
+        'Invalid "coordinates" in benchmark "$name": expected Map, '
+        'got ${value.runtimeType}',
+      );
+    }
+    final result = <String, String>{};
+    for (final MapEntry(:key, :value) in value.entries) {
+      if (key is String && value is String) {
+        result[key] = value;
+      } else {
+        throw FormatException(
+          'Invalid coordinate in benchmark "$name": $key=$value '
+          '(expected String: String)',
+        );
+      }
+    }
+    return BenchmarkCoordinates(Map.unmodifiable(result));
+  }
+
+  static bool _parseIsBaseline(Object? value, String name) => switch (value) {
+    null => false,
+    final bool b => b,
+    final other => throw FormatException(
+      'Invalid "is_baseline" in benchmark "$name": expected bool, got $other',
+    ),
+  };
+
+  static Map<String, Object?>? _parseWarmup(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final Map<String, Object?> m => m,
+        final other => throw FormatException(
+          'Invalid "warmup" in benchmark "$name": expected Map, '
+          'got ${other.runtimeType}',
+        ),
+      };
+
+  static int? _parseCalibratedBatch(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final int n when n >= 0 => n,
+        final other => throw FormatException(
+          'Invalid "calibrated_batch_iterations" in benchmark "$name": '
+          'expected non-negative integer, got $other',
+        ),
+      };
+
+  static Throughput? _parseThroughput(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final Map<String, Object?> m => Throughput.fromJson(m),
+        final other => throw FormatException(
+          'Invalid "throughput" in benchmark "$name": expected Map, '
+          'got ${other.runtimeType}',
+        ),
+      };
 
   @override
   String toString() =>
@@ -320,8 +469,9 @@ final class const BenchmarkSuiteResult({
   List<String> get groups {
     final set = <String>{};
     for (final entry in benchmarks) {
-      if (entry.group != null && entry.group!.isNotEmpty) {
-        set.add(entry.group!);
+      final g = entry.coordinates.group ?? entry.coordinates.sdk;
+      if (g != null && g.isNotEmpty) {
+        set.add(g);
       }
     }
     return set.toList();
@@ -329,12 +479,15 @@ final class const BenchmarkSuiteResult({
 
   /// Returns all entries belonging to [groupName].
   List<BenchmarkEntry> getEntriesForGroup(String groupName) =>
-      benchmarks.where((e) => e.group == groupName).toList();
+      benchmarks.where((e) {
+        final g = e.coordinates.group ?? e.coordinates.sdk;
+        return g == groupName;
+      }).toList();
 
   /// Performs a deterministic deep-merge of [other] into this suite result.
   ///
   /// Matching entries (keyed by [BenchmarkEntry.key]: `name:target` or
-  /// `name:target:group`) from [other] replace existing entries. New entries
+  /// `name:target:coordStr`) from [other] replace existing entries. New entries
   /// are appended. The resulting entries are sorted deterministically by
   /// benchmark name and then target name.
   BenchmarkSuiteResult deepMerge(BenchmarkSuiteResult other) {

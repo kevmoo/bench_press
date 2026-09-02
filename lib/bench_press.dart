@@ -40,6 +40,7 @@ export 'src/telemetry/git_diff.dart'
 export 'src/telemetry/markdown_reporter.dart' show MarkdownReporter;
 export 'src/telemetry/schema.dart'
     show
+        BenchmarkCoordinates,
         BenchmarkEntry,
         BenchmarkSuiteResult,
         EnvironmentInfo,

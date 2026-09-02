@@ -5,6 +5,8 @@ import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:io/io.dart';
 
+import '../config/bench_press_config.dart';
+import '../config/validator.dart';
 import '../telemetry/git_diff.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
@@ -87,6 +89,16 @@ final class RunCommand({
 
   this {
     argParser
+      ..addOption(
+        'config',
+        abbr: 'c',
+        help: 'Path to bench_press.yaml configuration file.',
+      )
+      ..addFlag(
+        'dry-run',
+        negatable: false,
+        help: 'Print the resolved Cartesian matrix execution plan and exit.',
+      )
       ..addMultiOption(
         'target',
         abbr: 't',
@@ -159,36 +171,135 @@ final class RunCommand({
 
   @override
   Future<int> run() async {
-    final List<TargetRuntime> targets;
-    try {
-      targets = TargetRuntime.parseTargets(argResults!.multiOption('target'));
-    } on FormatException catch (e) {
-      stderr.writeln(e.message);
-      return ExitCode.usage.code;
+    final runConfig = _resolveRunConfig();
+    if (runConfig == null) return ExitCode.usage.code;
+    final (:config, :isLegacyComparison) = runConfig;
+
+    final targets = _resolveRunTargets(config);
+    if (targets == null) return ExitCode.usage.code;
+
+    final (:files, :exitCode) = _discoverRunFiles();
+    if (exitCode != null) return exitCode;
+
+    if (config == null) {
+      return await _executeLegacySuite(files!, targets);
     }
+
+    if (argResults!.flag('dry-run')) {
+      _printDryRunPlan(config.generateCoordinates(), files!);
+      return ExitCode.success.code;
+    }
+
+    return await _executeMatrixSuite(
+      files: files!,
+      config: config,
+      targets: targets,
+      isLegacyComparison: isLegacyComparison,
+    );
+  }
+
+  ({BenchPressConfig? config, bool isLegacyComparison})? _resolveRunConfig() {
+    final compareSdks = argResults!.multiOption('compare-sdk');
+    if (compareSdks.isNotEmpty) {
+      final sdkMap = _parseCompareSdks(compareSdks);
+      if (sdkMap == null) return null;
+      final config = BenchPressConfig(
+        defaults: DefaultsConfig(
+          targets: ['jit'],
+          trials: 15,
+          output: '',
+          isolateMode: false,
+        ),
+        matrix: MatrixConfig(
+          explicitBaseline: {},
+          axes: {BenchmarkCoordinates.sdkKey: sdkMap},
+        ),
+      );
+      return (config: config, isLegacyComparison: true);
+    }
+    final configPath = argResults!.option('config') ?? 'bench_press.yaml';
+    return (
+      config: BenchPressConfig.loadFrom(configPath),
+      isLegacyComparison: false,
+    );
+  }
+
+  Map<String, String>? _parseCompareSdks(List<String> compareSdks) {
+    final sdkMap = <String, String>{'Default': 'stock'};
+    for (final opt in compareSdks) {
+      final parts = opt.split('=');
+      if (parts.length != 2) {
+        stderr.writeln(
+          'Invalid --compare-sdk format: "$opt". Expected Label=Path.',
+        );
+        return null;
+      }
+      sdkMap[parts[0]] = parts[1];
+    }
+    return sdkMap;
+  }
+
+  List<TargetRuntime>? _resolveRunTargets(BenchPressConfig? config) {
+    if (argResults!.wasParsed('target') || config == null) {
+      try {
+        return TargetRuntime.parseTargets(argResults!.multiOption('target'));
+      } on FormatException catch (e) {
+        stderr.writeln(e.message);
+        return null;
+      }
+    }
+    try {
+      return TargetRuntime.parseTargets(config.defaults.targets);
+    } catch (e) {
+      stderr.writeln('Invalid targets in configuration: $e');
+      return null;
+    }
+  }
+
+  ({List<DiscoveredBenchmarkFile>? files, int? exitCode}) _discoverRunFiles() {
     final targetPath = _resolveTargetPath(argResults!.rest);
     final verbose = globalResults?.flag('verbose') ?? false;
-    final List<DiscoveredBenchmarkFile> files;
     try {
-      files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+      final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+      if (files.isEmpty) {
+        stderr.writeln('No benchmark files found at "$targetPath".');
+        return (files: null, exitCode: ExitCode.noInput.code);
+      }
+      return (files: files, exitCode: null);
     } on FormatException catch (e) {
       stderr.writeln(e.message);
-      return ExitCode.usage.code;
+      return (files: null, exitCode: ExitCode.usage.code);
     } on FileSystemException catch (e) {
       stderr.writeln(e.message);
-      return ExitCode.noInput.code;
+      return (files: null, exitCode: ExitCode.noInput.code);
     }
+  }
 
-    if (files.isEmpty) {
-      stderr.writeln('No benchmark files found at "$targetPath".');
-      return ExitCode.noInput.code;
+  void _printDryRunPlan(
+    List<MatrixCoordinate> coords,
+    List<DiscoveredBenchmarkFile> files,
+  ) {
+    stdout.writeln(
+      'Resolved Matrix Plan (${coords.length * files.length} total '
+      'executions across ${files.length} benchmark file(s)):',
+    );
+    for (var i = 0; i < coords.length; i++) {
+      final c = coords[i];
+      final baseLabel = c.isBaseline ? ' (BASELINE REFERENCE)' : '';
+      final str = c.coordinates.entries
+          .map((e) => '${e.key}=${e.value}')
+          .join(' | ');
+      stdout.writeln('  [${i + 1}] $str$baseLabel');
     }
+  }
 
+  Future<int> _executeLegacySuite(
+    List<DiscoveredBenchmarkFile> files,
+    List<TargetRuntime> targets,
+  ) async {
     final compareSdks = argResults!.multiOption('compare-sdk');
     final toolchains = _setupToolchains(compareSdks);
-    if (toolchains == null) {
-      return ExitCode.usage.code;
-    }
+    if (toolchains == null) return ExitCode.usage.code;
 
     final accumulated = await _executeDiscoveredFiles(
       files,
@@ -201,35 +312,54 @@ final class RunCommand({
       return ExitCode.software.code;
     }
 
-    final noSave = argResults!.flag('no-save');
-    final saveOption = argResults!.option('save');
-    final outputPath = saveOption ?? argResults!.option('output')!;
-    final shouldSave = !noSave;
-    final format = argResults!.option('format')!;
-    final title = argResults!.option('title');
-    final diffRef = argResults!.option('diff');
-    final failOnUnstable = argResults!.flag('fail-on-unstable');
+    return _finishSuiteExecution(accumulated, compareSdks.isNotEmpty);
+  }
 
-    final finalSuite = shouldSave
-        ? accumulated.mergeAndSave(File(outputPath))
-        : accumulated;
+  Future<int> _executeMatrixSuite({
+    required List<DiscoveredBenchmarkFile> files,
+    required BenchPressConfig config,
+    required List<TargetRuntime> targets,
+    required bool isLegacyComparison,
+  }) async {
+    try {
+      ConfigValidator.validateConfig(config);
+    } catch (e) {
+      stderr.writeln(e.toString());
+      return ExitCode.config.code;
+    }
+
+    final coords = config.generateCoordinates();
+    final accumulated = await _executeMatrix(files, coords, config, targets);
+    if (accumulated == null || accumulated.benchmarks.isEmpty) {
+      stderr.writeln('No benchmark results produced.');
+      return ExitCode.software.code;
+    }
+
+    return _finishSuiteExecution(accumulated, isLegacyComparison);
+  }
+
+  int _finishSuiteExecution(BenchmarkSuiteResult suite, bool isComparison) {
+    final noSave = argResults!.flag('no-save');
+    final outputPath =
+        argResults!.option('save') ?? argResults!.option('output')!;
+    final finalSuite = !noSave ? suite.mergeAndSave(File(outputPath)) : suite;
 
     _outputSuiteReport(
       suite: finalSuite,
-      format: format,
-      title: title,
-      diffRef: diffRef,
+      format: argResults!.option('format')!,
+      title: argResults!.option('title'),
+      diffRef: argResults!.option('diff'),
       outputPath: outputPath,
-      isComparison: compareSdks.isNotEmpty,
+      isComparison: isComparison,
     );
 
-    if (failOnUnstable && _hasUnstableBenchmark(finalSuite)) {
+    if (argResults!.flag('fail-on-unstable') &&
+        _hasUnstableBenchmark(finalSuite)) {
       stderr.writeln(
         'Failure: One or more benchmarks failed steady-state warmup.',
       );
       return 2;
     }
-
     return ExitCode.success.code;
   }
 
@@ -390,7 +520,14 @@ final class RunCommand({
     var suiteResult = execResult.suiteResult!;
     if (sdkLabel != null) {
       final taggedBenchmarks = suiteResult.benchmarks
-          .map((b) => b.copyWith(group: sdkLabel))
+          .map(
+            (b) => b.copyWith(
+              coordinates: {
+                ...b.coordinates,
+                BenchmarkCoordinates.groupKey: sdkLabel,
+              },
+            ),
+          )
           .toList();
       suiteResult = BenchmarkSuiteResult(
         version: suiteResult.version,
@@ -400,6 +537,177 @@ final class RunCommand({
       );
     }
     return suiteResult;
+  }
+
+  Future<BenchmarkSuiteResult?> _executeMatrix(
+    List<DiscoveredBenchmarkFile> files,
+    List<MatrixCoordinate> coords,
+    BenchPressConfig config,
+    List<TargetRuntime> defaultTargets,
+  ) async {
+    final trialsStr = argResults!.option('trials');
+    final trials = trialsStr != null
+        ? int.tryParse(trialsStr)
+        : config.defaults.trials;
+    final forceRun = argResults!.flag('force-run');
+    final isolateMode =
+        argResults!.flag('isolate-mode') || config.defaults.isolateMode;
+    final compilerFlags = argResults!.multiOption('compiler-flag');
+    final vmFlags = argResults!.multiOption('vm-flag');
+    final compareSdks = argResults!.multiOption('compare-sdk');
+
+    BenchmarkSuiteResult? accumulated;
+
+    for (final discovered in files) {
+      for (final coord in coords) {
+        final result = await _executeMatrixEntry(
+          discovered: discovered,
+          coord: coord,
+          defaultTargets: defaultTargets,
+          trials: trials,
+          forceRun: forceRun,
+          isolateMode: isolateMode,
+          compilerFlags: compilerFlags,
+          vmFlags: vmFlags,
+          compareSdks: compareSdks,
+        );
+        if (result != null) {
+          accumulated = accumulated == null
+              ? result
+              : accumulated.deepMerge(result);
+        }
+      }
+    }
+    return accumulated;
+  }
+
+  Future<BenchmarkSuiteResult?> _executeMatrixEntry({
+    required DiscoveredBenchmarkFile discovered,
+    required MatrixCoordinate coord,
+    required List<TargetRuntime> defaultTargets,
+    required int? trials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> compilerFlags,
+    required List<String> vmFlags,
+    required List<String> compareSdks,
+  }) async {
+    final currentSdk = _resolveSdkFromCoordinate(coord);
+    final runtime = _resolveRuntimeFromCoordinate(coord, defaultTargets);
+    final execFlags = _resolveFlagsFromCoordinate(coord, compilerFlags);
+
+    return await _executeMatrixSingleTarget(
+      discovered: discovered,
+      runtime: runtime,
+      trials: trials,
+      forceRun: forceRun,
+      isolateMode: isolateMode,
+      compilerFlags: execFlags,
+      vmFlags: vmFlags,
+      compiler: TargetCompiler(sdk: currentSdk),
+      processRunner: BenchmarkProcessRunner(sdk: currentSdk),
+      coordinate: coord,
+      compareSdks: compareSdks,
+    );
+  }
+
+  DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord) {
+    final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
+    var cleanedPath = sdkPath ?? '';
+    if (cleanedPath == 'stock') cleanedPath = '';
+    if (cleanedPath.startsWith('~')) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE']!;
+      cleanedPath = cleanedPath.replaceFirst('~', home);
+    }
+    return cleanedPath.isNotEmpty ? DartSdk(customSdkPath: cleanedPath) : sdk;
+  }
+
+  List<String> _resolveFlagsFromCoordinate(
+    MatrixCoordinate coord,
+    List<String> compilerFlags,
+  ) {
+    final execFlags = [...compilerFlags];
+    final flagVal = coord.resolvedValues['flags'];
+    if (flagVal != null && flagVal.isNotEmpty) {
+      execFlags.addAll(flagVal.split(' '));
+    }
+    return execFlags;
+  }
+
+  TargetRuntime _resolveRuntimeFromCoordinate(
+    MatrixCoordinate coord,
+    List<TargetRuntime> defaultTargets,
+  ) {
+    final runtimeTarget =
+        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
+        coord.resolvedValues[BenchmarkCoordinates.targetKey];
+    return (runtimeTarget != null && runtimeTarget.isNotEmpty)
+        ? TargetRuntime.parseTargets([runtimeTarget]).first
+        : defaultTargets.first;
+  }
+
+  Future<BenchmarkSuiteResult?> _executeMatrixSingleTarget({
+    required DiscoveredBenchmarkFile discovered,
+    required TargetRuntime runtime,
+    required int? trials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> compilerFlags,
+    required List<String> vmFlags,
+    required TargetCompiler compiler,
+    required BenchmarkProcessRunner processRunner,
+    required MatrixCoordinate coordinate,
+    required List<String> compareSdks,
+  }) async {
+    if (!compiler.sdk.isRuntimeAvailable(runtime)) {
+      stderr.writeln('Warning: Runtime "$runtime" is not available.');
+      return null;
+    }
+
+    final compilation = await compiler.compile(
+      sourceFile: discovered.file,
+      runtime: runtime,
+      compilerFlags: compilerFlags,
+    );
+
+    if (!compilation.success) {
+      stderr.writeln(
+        'Compilation failed for ${discovered.basename} ($runtime):',
+      );
+      stderr.writeln(compilation.stderr);
+      return null;
+    }
+
+    final execResult = await processRunner.execute(
+      compilationResult: compilation,
+      isolateMode: isolateMode,
+      trials: trials,
+      forceRun: forceRun,
+      vmFlags: vmFlags,
+    );
+
+    if (!execResult.success || execResult.suiteResult == null) {
+      stderr.writeln('Execution failed for ${discovered.basename} ($runtime):');
+      stderr.writeln(execResult.errorMessage ?? execResult.stderr);
+      return null;
+    }
+
+    var suiteResult = execResult.suiteResult!;
+    final taggedBenchmarks = suiteResult.benchmarks
+        .map(
+          (b) => b.copyWith(
+            coordinates: coordinate.coordinates,
+            isBaseline: coordinate.isBaseline,
+          ),
+        )
+        .toList();
+    return BenchmarkSuiteResult(
+      version: suiteResult.version,
+      timestamp: suiteResult.timestamp,
+      environment: suiteResult.environment,
+      benchmarks: taggedBenchmarks,
+    );
   }
 
   bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
@@ -514,6 +822,11 @@ final class ValidateCommand({
 
   this {
     argParser
+      ..addOption(
+        'config',
+        abbr: 'c',
+        help: 'Path to bench_press.yaml configuration file.',
+      )
       ..addMultiOption(
         'target',
         abbr: 't',
@@ -528,36 +841,78 @@ final class ValidateCommand({
 
   @override
   Future<int> run() async {
-    final List<TargetRuntime> targets;
-    try {
-      targets = TargetRuntime.parseTargets(argResults!.multiOption('target'));
-    } on FormatException catch (e) {
-      stderr.writeln(e.message);
-      return ExitCode.usage.code;
-    }
-    final targetPath = _resolveTargetPath(argResults!.rest);
-    final verbose = globalResults?.flag('verbose') ?? false;
-    final List<DiscoveredBenchmarkFile> files;
-    try {
-      files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
-    } on FormatException catch (e) {
-      stderr.writeln(e.message);
-      return ExitCode.usage.code;
-    } on FileSystemException catch (e) {
-      stderr.writeln(e.message);
-      return ExitCode.noInput.code;
-    }
+    final configPath = argResults!.option('config') ?? 'bench_press.yaml';
+    final config = BenchPressConfig.loadFrom(configPath);
 
-    if (files.isEmpty) {
-      stderr.writeln('No benchmark files found at "$targetPath".');
-      return ExitCode.noInput.code;
-    }
+    final targets = _resolveValidateTargets(config);
+    if (targets == null) return ExitCode.usage.code;
+
+    final (:files, :exitCode) = _discoverValidateFiles();
+    if (exitCode != null) return exitCode;
 
     final compilerFlags = argResults!.multiOption('compiler-flag');
-
     stdout.writeln('Validating benchmarks across ${targets.join(", ")}...');
-    var allPassed = true;
 
+    final allPassed = await _runValidation(
+      config: config,
+      files: files!,
+      targets: targets,
+      compilerFlags: compilerFlags,
+    );
+
+    return allPassed ? ExitCode.success.code : ExitCode.software.code;
+  }
+
+  List<TargetRuntime>? _resolveValidateTargets(BenchPressConfig? config) {
+    if (argResults!.wasParsed('target') || config == null) {
+      try {
+        return TargetRuntime.parseTargets(argResults!.multiOption('target'));
+      } on FormatException catch (e) {
+        stderr.writeln(e.message);
+        return null;
+      }
+    }
+    return TargetRuntime.parseTargets(config.defaults.targets);
+  }
+
+  ({List<DiscoveredBenchmarkFile>? files, int? exitCode})
+  _discoverValidateFiles() {
+    final targetPath = _resolveTargetPath(argResults!.rest);
+    final verbose = globalResults?.flag('verbose') ?? false;
+    try {
+      final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+      if (files.isEmpty) {
+        stderr.writeln('No benchmark files found at "$targetPath".');
+        return (files: null, exitCode: ExitCode.noInput.code);
+      }
+      return (files: files, exitCode: null);
+    } on FormatException catch (e) {
+      stderr.writeln(e.message);
+      return (files: null, exitCode: ExitCode.usage.code);
+    } on FileSystemException catch (e) {
+      stderr.writeln(e.message);
+      return (files: null, exitCode: ExitCode.noInput.code);
+    }
+  }
+
+  Future<bool> _runValidation({
+    required BenchPressConfig? config,
+    required List<DiscoveredBenchmarkFile> files,
+    required List<TargetRuntime> targets,
+    required List<String> compilerFlags,
+  }) {
+    if (config == null) {
+      return _validateSimpleTargets(files, targets, compilerFlags);
+    }
+    return _validateMatrixTargets(files, config, targets, compilerFlags);
+  }
+
+  Future<bool> _validateSimpleTargets(
+    List<DiscoveredBenchmarkFile> files,
+    List<TargetRuntime> targets,
+    List<String> compilerFlags,
+  ) async {
+    var allPassed = true;
     for (final discovered in files) {
       for (final runtime in targets) {
         final passed = await _validateTarget(
@@ -568,8 +923,32 @@ final class ValidateCommand({
         if (!passed) allPassed = false;
       }
     }
+    return allPassed;
+  }
 
-    return allPassed ? ExitCode.success.code : ExitCode.software.code;
+  Future<bool> _validateMatrixTargets(
+    List<DiscoveredBenchmarkFile> files,
+    BenchPressConfig config,
+    List<TargetRuntime> targets,
+    List<String> compilerFlags,
+  ) async {
+    var allPassed = true;
+    final coords = config.generateCoordinates();
+    for (final discovered in files) {
+      for (final coord in coords) {
+        final runtimeTarget = coord.resolvedValues['runtime'];
+        final runtime = (runtimeTarget != null && runtimeTarget.isNotEmpty)
+            ? TargetRuntime.parseTargets([runtimeTarget]).first
+            : targets.first;
+        final passed = await _validateTarget(
+          discovered: discovered,
+          runtime: runtime,
+          compilerFlags: compilerFlags,
+        );
+        if (!passed) allPassed = false;
+      }
+    }
+    return allPassed;
   }
 
   Future<bool> _validateTarget({
