@@ -240,28 +240,46 @@ double _studentTQuantileHill(double p, double n) {
   return math.sqrt(n * y);
 }
 
+/// The constant parameter $g$ in the Lanczos approximation for $\ln \Gamma(z)$.
+///
+/// With $g = 7$ and 9 rational coefficients ([_lanczosCoefficients]), this
+/// approximation yields precision of approximately 15 significant decimal
+/// digits for $\text{Re}(z) > 0$.
+const int _lanczosG = 7;
+
+/// Lanczos approximation coefficients $p_0, \dots, p_8$ for $\ln \Gamma(z)$
+/// with $g = 7$.
+///
+/// Computes the Gamma function approximation published by Cornelius Lanczos
+/// (1964):
+///
+/// $$\Gamma(z + 1) = \sqrt{2\pi} (z + g + 1/2)^{z + 1/2} e^{-(z + g + 1/2)}$$
+/// $$\times \left( p_0 + \sum_{i=1}^N \frac{p_i}{z + i} \right)$$
+///
+/// These coefficients provide double-precision accuracy across the entire
+/// domain.
+const List<double> _lanczosCoefficients = [
+  0.99999999999980993,
+  676.5203681218851,
+  -1259.1392167224028,
+  771.32342877765313,
+  -176.61502916214059,
+  12.507343278686905,
+  -0.13857109526572012,
+  9.9843695780195716e-6,
+  1.5056327351493116e-7,
+];
+
 double _logGamma(double z) {
-  const g = 7;
-  const p = [
-    0.99999999999980993,
-    676.5203681218851,
-    -1259.1392167224028,
-    771.32342877765313,
-    -176.61502916214059,
-    12.507343278686905,
-    -0.13857109526572012,
-    9.9843695780195716e-6,
-    1.5056327351493116e-7,
-  ];
   if (z < 0.5) {
     return math.log(math.pi / math.sin(math.pi * z)) - _logGamma(1.0 - z);
   }
   final zMinus1 = z - 1.0;
-  var x = p[0];
-  for (var i = 1; i < g + 2; i++) {
-    x += p[i] / (zMinus1 + i);
+  var x = _lanczosCoefficients[0];
+  for (var i = 1; i < _lanczosG + 2; i++) {
+    x += _lanczosCoefficients[i] / (zMinus1 + i);
   }
-  final t = zMinus1 + g + 0.5;
+  final t = zMinus1 + _lanczosG + 0.5;
   return 0.5 * math.log(2.0 * math.pi) +
       (zMinus1 + 0.5) * math.log(t) -
       t +
@@ -321,6 +339,81 @@ double _studentTCdf(double t, double df) {
   return 1.0 - 0.5 * _regularizedIncompleteBeta(x, df / 2.0, 0.5);
 }
 
+/// Lower tail probability boundary for Peter J. Acklam's inverse normal CDF
+/// algorithm.
+///
+/// For $p < \_acklamQLow$ or $p > \_acklamQHigh$, the rational approximation
+/// in the tail using coefficients ([_acklamTailNumerator],
+/// [_acklamTailDenominator]) is evaluated.
+const double _acklamQLow = 0.02425;
+
+/// Upper tail probability boundary for Peter J. Acklam's inverse normal CDF
+/// algorithm.
+const double _acklamQHigh = 1.0 - _acklamQLow;
+
+/// Numerator coefficients $a_1, \dots, a_6$ for Peter J. Acklam's rational
+/// approximation of the inverse normal CDF in the central region
+/// ($\_acklamQLow \le p \le \_acklamQHigh$).
+///
+/// Evaluated with $q = p - 0.5$ and $r = q^2$ as:
+///
+/// $$\text{num}(r) = (((((a_0 r + a_1) r + a_2) r + a_3) r + a_4) r + a_5) q$$
+const List<double> _acklamCentralNumerator = [
+  -3.969683028665376e+01,
+  2.209460984245205e+02,
+  -2.759285104469687e+02,
+  1.383577518672690e+02,
+  -3.066479806614716e+01,
+  2.506628277459239e+00,
+];
+
+/// Denominator coefficients $b_1, \dots, b_5$ for Peter J. Acklam's rational
+/// approximation of the inverse normal CDF in the central region
+/// ($\_acklamQLow \le p \le \_acklamQHigh$).
+///
+/// Evaluated with $q = p - 0.5$ and $r = q^2$ as:
+///
+/// $$\text{den}(r) = ((((b_0 r + b_1) r + b_2) r + b_3) r + b_4) r + 1.0$$
+const List<double> _acklamCentralDenominator = [
+  -5.447609879822406e+01,
+  1.615858368580409e+02,
+  -1.556989798598866e+02,
+  6.680131188771972e+01,
+  -1.328068155288572e+01,
+];
+
+/// Numerator coefficients $c_1, \dots, c_6$ for Peter J. Acklam's rational
+/// approximation of the inverse normal CDF in the tail regions
+/// ($p < \_acklamQLow$ or $p > \_acklamQHigh$).
+///
+/// Evaluated with $q = \sqrt{-2 \ln(p)}$ (lower tail) or
+/// $q = \sqrt{-2 \ln(1 - p)}$ (upper tail) as:
+///
+/// $$\text{num}(q) = ((((c_0 q + c_1) q + c_2) q + c_3) q + c_4) q + c_5$$
+const List<double> _acklamTailNumerator = [
+  -7.784894002430293e-03,
+  -3.223964580411365e-01,
+  -2.400758277161838e+00,
+  -2.549732539343734e+00,
+  4.374664141464968e+00,
+  2.938163982698783e+00,
+];
+
+/// Denominator coefficients $d_1, \dots, d_4$ for Peter J. Acklam's rational
+/// approximation of the inverse normal CDF in the tail regions
+/// ($p < \_acklamQLow$ or $p > \_acklamQHigh$).
+///
+/// Evaluated with $q = \sqrt{-2 \ln(p)}$ (lower tail) or
+/// $q = \sqrt{-2 \ln(1 - p)}$ (upper tail) as:
+///
+/// $$\text{den}(q) = (((d_0 q + d_1) q + d_2) q + d_3) q + 1.0$$
+const List<double> _acklamTailDenominator = [
+  7.784695709041462e-03,
+  3.224671290700398e-01,
+  2.445134137142996e+00,
+  3.754408661907416e+00,
+];
+
 /// Standard normal inverse CDF (Wichura / Acklam approximation).
 double normalQuantile(double p) {
   if (p <= 0.0 || p >= 1.0) {
@@ -331,55 +424,49 @@ double normalQuantile(double p) {
     );
   }
 
-  final a = [
-    -3.969683028665376e+01,
-    2.209460984245205e+02,
-    -2.759285104469687e+02,
-    1.383577518672690e+02,
-    -3.066479806614716e+01,
-    2.506628277459239e+00,
-  ];
-  final b = [
-    -5.447609879822406e+01,
-    1.615858368580409e+02,
-    -1.556989798598866e+02,
-    6.680131188771972e+01,
-    -1.328068155288572e+01,
-  ];
-  final c = [
-    -7.784894002430293e-03,
-    -3.223964580411365e-01,
-    -2.400758277161838e+00,
-    -2.549732539343734e+00,
-    4.374664141464968e+00,
-    2.938163982698783e+00,
-  ];
-  final d = [
-    7.784695709041462e-03,
-    3.224671290700398e-01,
-    2.445134137142996e+00,
-    3.754408661907416e+00,
-  ];
-
-  const qLow = 0.02425;
-  const qHigh = 1.0 - qLow;
-
-  if (p < qLow) {
+  if (p < _acklamQLow) {
     final q = math.sqrt(-2.0 * math.log(p));
-    return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q +
-            c[5]) /
-        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0);
+    return _evalAcklamTail(q);
   }
-  if (p <= qHigh) {
+  if (p <= _acklamQHigh) {
     final q = p - 0.5;
     final r = q * q;
-    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r +
-            a[5]) *
+    return (((((_acklamCentralNumerator[0] * r + _acklamCentralNumerator[1]) *
+                                        r +
+                                    _acklamCentralNumerator[2]) *
+                                r +
+                            _acklamCentralNumerator[3]) *
+                        r +
+                    _acklamCentralNumerator[4]) *
+                r +
+            _acklamCentralNumerator[5]) *
         q /
-        (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0);
+        (((((_acklamCentralDenominator[0] * r + _acklamCentralDenominator[1]) *
+                                        r +
+                                    _acklamCentralDenominator[2]) *
+                                r +
+                            _acklamCentralDenominator[3]) *
+                        r +
+                    _acklamCentralDenominator[4]) *
+                r +
+            1.0);
   }
   final q = math.sqrt(-2.0 * math.log(1.0 - p));
-  return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q +
-          c[5]) /
-      ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0);
+  return -_evalAcklamTail(q);
 }
+
+double _evalAcklamTail(double q) =>
+    (((((_acklamTailNumerator[0] * q + _acklamTailNumerator[1]) * q +
+                                _acklamTailNumerator[2]) *
+                            q +
+                        _acklamTailNumerator[3]) *
+                    q +
+                _acklamTailNumerator[4]) *
+            q +
+        _acklamTailNumerator[5]) /
+    ((((_acklamTailDenominator[0] * q + _acklamTailDenominator[1]) * q +
+                        _acklamTailDenominator[2]) *
+                    q +
+                _acklamTailDenominator[3]) *
+            q +
+        1.0);
