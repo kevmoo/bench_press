@@ -215,9 +215,6 @@ final class const BenchmarkEntry({
         'Missing or invalid "target" in benchmark entry',
       );
     }
-    final mode = (json['mode'] as String?) ?? 'sync';
-    final samples = (json['samples'] as num?)?.toInt() ?? 0;
-
     final rawMetrics = json['metrics'];
     if (rawMetrics is! Map<String, Object?>) {
       throw FormatException(
@@ -226,43 +223,130 @@ final class const BenchmarkEntry({
     }
     final metrics = BenchmarkMetrics.fromJson(rawMetrics);
 
-    final rawTrialsList = json['raw_trials_ns'];
-    final rawTrials = rawTrialsList is List
-        ? rawTrialsList.map((e) => (e as num).toDouble()).toList()
-        : const <double>[];
-
-    final warmup = json['warmup'] as Map<String, Object?>?;
-    final calibratedBatch = (json['calibrated_batch_iterations'] as num?)
-        ?.toInt();
-
-    final rawCoords = json['coordinates'];
-    final coordinates = <String, String>{};
-    if (rawCoords is Map) {
-      for (final key in rawCoords.keys) {
-        coordinates[key.toString()] = rawCoords[key].toString();
-      }
-    }
-    final isBaseline = (json['is_baseline'] as bool?) ?? false;
-
-    final rawThroughput = json['throughput'];
-    final throughput = rawThroughput is Map<String, Object?>
-        ? Throughput.fromJson(rawThroughput)
-        : null;
+    final mode = _parseMode(json['mode'], rawName);
+    final rawTrials = _parseRawTrials(json['raw_trials_ns'], rawName);
+    final samples = _parseSamples(json['samples'], rawTrials.length, rawName);
+    final coordinates = _parseCoordinates(json['coordinates'], rawName);
+    final isBaseline = _parseIsBaseline(json['is_baseline'], rawName);
+    final warmup = _parseWarmup(json['warmup'], rawName);
+    final calibratedBatch = _parseCalibratedBatch(
+      json['calibrated_batch_iterations'],
+      rawName,
+    );
+    final throughput = _parseThroughput(json['throughput'], rawName);
 
     return BenchmarkEntry(
       name: rawName,
       target: rawTarget,
       mode: mode,
-      samples: samples > 0 ? samples : rawTrials.length,
+      samples: samples,
       metrics: metrics,
       rawTrialsNs: rawTrials,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatch,
-      coordinates: Map.unmodifiable(coordinates),
+      coordinates: coordinates,
       isBaseline: isBaseline,
       throughput: throughput,
     );
   }
+
+  static String _parseMode(Object? value, String name) => switch (value) {
+    null => 'sync',
+    'sync' || 'async' => value as String,
+    final other => throw FormatException(
+      'Invalid "mode": "$other" in benchmark "$name" '
+      '(expected "sync" or "async")',
+    ),
+  };
+
+  static List<double> _parseRawTrials(Object? value, String name) {
+    if (value == null) return const <double>[];
+    if (value is! List) {
+      throw FormatException(
+        'Invalid "raw_trials_ns" in benchmark "$name": expected List, '
+        'got ${value.runtimeType}',
+      );
+    }
+    return [
+      for (final e in value)
+        if (e is num)
+          e.toDouble()
+        else
+          throw FormatException(
+            'Invalid trial value: $e in benchmark "$name" (expected num)',
+          ),
+    ];
+  }
+
+  static int _parseSamples(Object? value, int fallback, String name) =>
+      switch (value) {
+        null => fallback,
+        final int s when s >= 0 => s > 0 ? s : fallback,
+        final other => throw FormatException(
+          'Invalid "samples": $other in benchmark "$name" '
+          '(expected non-negative integer)',
+        ),
+      };
+
+  static Map<String, String> _parseCoordinates(Object? value, String name) {
+    if (value == null) return const {};
+    if (value is! Map) {
+      throw FormatException(
+        'Invalid "coordinates" in benchmark "$name": expected Map, '
+        'got ${value.runtimeType}',
+      );
+    }
+    final result = <String, String>{};
+    for (final MapEntry(:key, :value) in value.entries) {
+      if (key is String && value is String) {
+        result[key] = value;
+      } else {
+        throw FormatException(
+          'Invalid coordinate in benchmark "$name": $key=$value '
+          '(expected String: String)',
+        );
+      }
+    }
+    return Map.unmodifiable(result);
+  }
+
+  static bool _parseIsBaseline(Object? value, String name) => switch (value) {
+    null => false,
+    final bool b => b,
+    final other => throw FormatException(
+      'Invalid "is_baseline" in benchmark "$name": expected bool, got $other',
+    ),
+  };
+
+  static Map<String, Object?>? _parseWarmup(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final Map<String, Object?> m => m,
+        final other => throw FormatException(
+          'Invalid "warmup" in benchmark "$name": expected Map, '
+          'got ${other.runtimeType}',
+        ),
+      };
+
+  static int? _parseCalibratedBatch(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final int n when n >= 0 => n,
+        final other => throw FormatException(
+          'Invalid "calibrated_batch_iterations" in benchmark "$name": '
+          'expected non-negative integer, got $other',
+        ),
+      };
+
+  static Throughput? _parseThroughput(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final Map<String, Object?> m => Throughput.fromJson(m),
+        final other => throw FormatException(
+          'Invalid "throughput" in benchmark "$name": expected Map, '
+          'got ${other.runtimeType}',
+        ),
+      };
 
   @override
   String toString() =>

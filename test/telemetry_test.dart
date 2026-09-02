@@ -113,6 +113,49 @@ void main() {
           .throws<FormatException>();
       check(() => BenchmarkEntry.fromJson({'name': 'foo', 'target': 'wasm'}))
           .throws<FormatException>();
+
+      final validBase = {
+        'name': 'foo',
+        'target': 'jit',
+        'metrics': metrics.toJson(),
+      };
+
+      check(() => BenchmarkEntry.fromJson({...validBase, 'mode': 'fast'}))
+          .throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'coordinates': 'bad'}))
+          .throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({
+          ...validBase,
+          'coordinates': {'sdk': 123},
+        }),
+      ).throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({...validBase, 'raw_trials_ns': 'bad'}),
+      ).throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({
+          ...validBase,
+          'raw_trials_ns': ['not_a_num'],
+        }),
+      ).throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'samples': -1}))
+          .throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'samples': 'ten'}))
+          .throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({...validBase, 'is_baseline': 'true'}),
+      ).throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'warmup': 'bad'}))
+          .throws<FormatException>();
+      check(
+        () => BenchmarkEntry.fromJson({
+          ...validBase,
+          'calibrated_batch_iterations': -5,
+        }),
+      ).throws<FormatException>();
+      check(() => BenchmarkEntry.fromJson({...validBase, 'throughput': 'bad'}))
+          .throws<FormatException>();
     });
 
     test('BenchmarkSuiteResult rejects incompatible schema versions', () {
