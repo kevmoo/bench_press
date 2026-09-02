@@ -517,7 +517,10 @@ final class RunCommand({
     var suiteResult = execResult.suiteResult!;
     if (sdkLabel != null) {
       final taggedBenchmarks = suiteResult.benchmarks
-          .map((b) => b.copyWith(group: sdkLabel))
+          .map(
+            (b) =>
+                b.copyWith(coordinates: {...b.coordinates, 'group': sdkLabel}),
+          )
           .toList();
       suiteResult = BenchmarkSuiteResult(
         version: suiteResult.version,
@@ -682,15 +685,11 @@ final class RunCommand({
     }
 
     var suiteResult = execResult.suiteResult!;
-    final mappedGroup = coordinate.coordinates.isEmpty
-        ? null
-        : coordinate.coordinates.values.join('-');
     final taggedBenchmarks = suiteResult.benchmarks
         .map(
           (b) => b.copyWith(
             coordinates: coordinate.coordinates,
             isBaseline: coordinate.isBaseline,
-            group: compareSdks.isNotEmpty ? mappedGroup : b.group,
           ),
         )
         .toList();

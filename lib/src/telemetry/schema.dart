@@ -121,16 +121,13 @@ final class const BenchmarkEntry({
   /// Whether this entry was designated as the baseline for its group.
   final bool isBaseline = false,
 
-  /// Optional group identifier for intra-run variant comparisons.
-  @Deprecated('Use coordinates instead') final String? group,
-
   /// Declared throughput processed per invocation (bytes or element count).
   final Throughput? throughput,
 }) {
   /// Unique composite key identifying this workload and its matrix coordinate.
   String get key {
     if (coordinates.isEmpty) {
-      return group != null ? '$name:$target:$group' : '$name:$target';
+      return '$name:$target';
     }
     final sortedCoords = coordinates.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -141,7 +138,6 @@ final class const BenchmarkEntry({
   BenchmarkEntry copyWith({
     Map<String, String>? coordinates,
     bool? isBaseline,
-    @Deprecated('Use coordinates') String? group,
   }) {
     return BenchmarkEntry(
       name: name,
@@ -154,7 +150,6 @@ final class const BenchmarkEntry({
       calibratedBatchIterations: calibratedBatchIterations,
       coordinates: coordinates ?? this.coordinates,
       isBaseline: isBaseline ?? this.isBaseline,
-      group: group ?? this.group,
       throughput: throughput,
     );
   }
@@ -165,6 +160,10 @@ final class const BenchmarkEntry({
     String target = 'jit',
     String? mode,
   }) {
+    final coordinates = <String, String>{};
+    if (result.group != null && result.group!.isNotEmpty) {
+      coordinates['group'] = result.group!;
+    }
     return BenchmarkEntry(
       name: result.name,
       target: target,
@@ -180,9 +179,8 @@ final class const BenchmarkEntry({
         'elapsed_seconds': result.warmupResult.elapsedSeconds,
       },
       calibratedBatchIterations: result.calibratedBatch.iterations,
-      coordinates: const {},
+      coordinates: coordinates,
       isBaseline: result.isBaseline,
-      group: result.group,
       throughput: result.throughput,
     );
   }
@@ -195,7 +193,6 @@ final class const BenchmarkEntry({
     'samples': samples,
     'metrics': metrics.toJson(),
     if (coordinates.isNotEmpty) 'coordinates': coordinates,
-    if (group != null) 'group': group,
     if (isBaseline) 'is_baseline': isBaseline,
     if (throughput != null) 'throughput': throughput!.toJson(),
     if (rawTrialsNs.isNotEmpty) 'raw_trials_ns': rawTrialsNs,
@@ -268,7 +265,6 @@ final class const BenchmarkEntry({
       calibratedBatchIterations: calibratedBatch,
       coordinates: Map.unmodifiable(coordinates),
       isBaseline: isBaseline,
-      group: group,
       throughput: throughput,
     );
   }
@@ -351,8 +347,9 @@ final class const BenchmarkSuiteResult({
   List<String> get groups {
     final set = <String>{};
     for (final entry in benchmarks) {
-      if (entry.group != null && entry.group!.isNotEmpty) {
-        set.add(entry.group!);
+      final g = entry.coordinates['group'] ?? entry.coordinates['sdk'];
+      if (g != null && g.isNotEmpty) {
+        set.add(g);
       }
     }
     return set.toList();
@@ -360,12 +357,15 @@ final class const BenchmarkSuiteResult({
 
   /// Returns all entries belonging to [groupName].
   List<BenchmarkEntry> getEntriesForGroup(String groupName) =>
-      benchmarks.where((e) => e.group == groupName).toList();
+      benchmarks.where((e) {
+        final g = e.coordinates['group'] ?? e.coordinates['sdk'];
+        return g == groupName;
+      }).toList();
 
   /// Performs a deterministic deep-merge of [other] into this suite result.
   ///
   /// Matching entries (keyed by [BenchmarkEntry.key]: `name:target` or
-  /// `name:target:group`) from [other] replace existing entries. New entries
+  /// `name:target:coordStr`) from [other] replace existing entries. New entries
   /// are appended. The resulting entries are sorted deterministically by
   /// benchmark name and then target name.
   BenchmarkSuiteResult deepMerge(BenchmarkSuiteResult other) {

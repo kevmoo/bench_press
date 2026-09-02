@@ -1,7 +1,7 @@
 ## 0.2.0-wip
 
 - Added multi-tier Cartesian comparison matrix support (Issue #5) via unified `bench_press.yaml` configuration manifest, `--config`, and `--dry-run` inspection flag.
-- Added N-dimensional `coordinates: Map<String, String>` mapping to `BenchmarkEntry` telemetry schema with backward-compatible group mapping.
+- Added N-dimensional `coordinates: Map<String, String>` mapping to `BenchmarkEntry` telemetry schema, replacing the single-axis `group` property.
 - Added `MarkdownReporter.renderMatrixComparisonTable` to render multidimensional matrix reports with grouped left-hand dimension columns and Fieller 95% ratio confidence intervals.
 
 - Extracted mathematical and calibration constants (`Lanczos`, `Acklam`, and `BenchmarkCalibrator` thresholds) with detailed doc comments.

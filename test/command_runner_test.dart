@@ -307,12 +307,12 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         final concat = suite.findEntry('concat', 'jit');
         check(concat).isNotNull();
         check(concat!.isBaseline).isTrue();
-        check(concat.group).equals('String Group');
+        check(concat.coordinates['group']).equals('String Group');
 
         final buffer = suite.findEntry('buffer', 'jit');
         check(buffer).isNotNull();
         check(buffer!.isBaseline).isFalse();
-        check(buffer.group).equals('String Group');
+        check(buffer.coordinates['group']).equals('String Group');
       } finally {
         tempDir.deleteSync(recursive: true);
       }
@@ -605,15 +605,18 @@ void main(List<String> args) => mainBenchmark(SimpleBench(), args);
         metrics: metrics,
       );
 
-      final withGroup = entry.copyWith(group: 'SDK1', isBaseline: true);
+      final withGroup = entry.copyWith(
+        coordinates: {'group': 'SDK1'},
+        isBaseline: true,
+      );
       check(withGroup.name).equals('test_bench');
       check(withGroup.target).equals('jit');
-      check(withGroup.group).equals('SDK1');
+      check(withGroup.coordinates['group']).equals('SDK1');
       check(withGroup.isBaseline).isTrue();
-      check(withGroup.key).equals('test_bench:jit:SDK1');
+      check(withGroup.key).equals('test_bench:jit:group=SDK1');
 
       final unchanged = withGroup.copyWith();
-      check(unchanged.group).equals('SDK1');
+      check(unchanged.coordinates['group']).equals('SDK1');
       check(unchanged.isBaseline).isTrue();
     });
   });
