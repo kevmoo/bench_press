@@ -115,19 +115,34 @@ final class const BenchmarkEntry({
   /// Calibrated batch iterations used in the inner measurement loop.
   final int? calibratedBatchIterations,
 
-  /// Optional group identifier for intra-run variant comparisons.
-  final String? group,
+  /// N-dimensional matrix coordinates.
+  final Map<String, String> coordinates = const {},
 
   /// Whether this entry was designated as the baseline for its group.
   final bool isBaseline = false,
 
+  /// Optional group identifier for intra-run variant comparisons.
+  @Deprecated('Use coordinates instead') final String? group,
+
   /// Declared throughput processed per invocation (bytes or element count).
   final Throughput? throughput,
 }) {
-  /// The unique composite key identifying this benchmark and target pair.
-  String get key => group != null ? '$name:$target:$group' : '$name:$target';
+  /// Unique composite key identifying this workload and its matrix coordinate.
+  String get key {
+    if (coordinates.isEmpty) {
+      return group != null ? '$name:$target:$group' : '$name:$target';
+    }
+    final sortedCoords = coordinates.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final coordStr = sortedCoords.map((e) => '${e.key}=${e.value}').join(',');
+    return '$name:$target:$coordStr';
+  }
 
-  BenchmarkEntry copyWith({String? group, bool? isBaseline}) {
+  BenchmarkEntry copyWith({
+    Map<String, String>? coordinates,
+    bool? isBaseline,
+    @Deprecated('Use coordinates') String? group,
+  }) {
     return BenchmarkEntry(
       name: name,
       target: target,
@@ -137,8 +152,9 @@ final class const BenchmarkEntry({
       rawTrialsNs: rawTrialsNs,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatchIterations,
-      group: group ?? this.group,
+      coordinates: coordinates ?? this.coordinates,
       isBaseline: isBaseline ?? this.isBaseline,
+      group: group ?? this.group,
       throughput: throughput,
     );
   }
@@ -164,8 +180,9 @@ final class const BenchmarkEntry({
         'elapsed_seconds': result.warmupResult.elapsedSeconds,
       },
       calibratedBatchIterations: result.calibratedBatch.iterations,
-      group: result.group,
+      coordinates: const {},
       isBaseline: result.isBaseline,
+      group: result.group,
       throughput: result.throughput,
     );
   }
@@ -177,6 +194,7 @@ final class const BenchmarkEntry({
     'mode': mode,
     'samples': samples,
     'metrics': metrics.toJson(),
+    if (coordinates.isNotEmpty) 'coordinates': coordinates,
     if (group != null) 'group': group,
     if (isBaseline) 'is_baseline': isBaseline,
     if (throughput != null) 'throughput': throughput!.toJson(),
@@ -219,7 +237,19 @@ final class const BenchmarkEntry({
     final warmup = json['warmup'] as Map<String, Object?>?;
     final calibratedBatch = (json['calibrated_batch_iterations'] as num?)
         ?.toInt();
+
+    final rawCoords = json['coordinates'];
+    final coordinates = <String, String>{};
+    if (rawCoords is Map) {
+      for (final key in rawCoords.keys) {
+        coordinates[key.toString()] = rawCoords[key].toString();
+      }
+    }
+
     final group = json['group'] as String?;
+    if (coordinates.isEmpty && group != null && group.isNotEmpty) {
+      coordinates['group'] = group;
+    }
     final isBaseline = (json['is_baseline'] as bool?) ?? false;
 
     final rawThroughput = json['throughput'];
@@ -236,8 +266,9 @@ final class const BenchmarkEntry({
       rawTrialsNs: rawTrials,
       warmup: warmup,
       calibratedBatchIterations: calibratedBatch,
-      group: group,
+      coordinates: Map.unmodifiable(coordinates),
       isBaseline: isBaseline,
+      group: group,
       throughput: throughput,
     );
   }

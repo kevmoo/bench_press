@@ -21,17 +21,187 @@ abstract final class MarkdownReporter() {
     buffer.writeln('**Total Benchmarks**: ${suite.benchmarks.length}');
     buffer.writeln();
 
-    final groupTables = renderAllGroupComparisonTables(suite);
-    if (groupTables.isNotEmpty) {
-      buffer.write(groupTables);
+    final isLegacyGrouped =
+        suite.benchmarks.isNotEmpty &&
+        suite.benchmarks.any((b) => b.group != null) &&
+        suite.benchmarks.every(
+          (b) =>
+              b.coordinates.isEmpty ||
+              (b.coordinates.length == 1 && b.coordinates.containsKey('group')),
+        );
+
+    if (isLegacyGrouped) {
+      final groupTables = renderAllGroupComparisonTables(suite);
+      if (groupTables.isNotEmpty) {
+        buffer.write(groupTables);
+      }
+      final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
+      buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
+      return buffer.toString().trimRight();
     }
 
-    final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
-    buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
+    final workloads = _groupMatrixByWorkload(suite);
+    for (final workload in workloads.entries) {
+      buffer.writeln(
+        renderMatrixComparisonTable(
+          workloadName: workload.key,
+          entries: workload.value,
+        ),
+      );
+      buffer.writeln();
+    }
+
+    buffer.writeln(renderSummaryTable(suite, title: 'All Benchmarks'));
     return buffer.toString().trimRight();
   }
 
-  /// Renders all group comparison tables present in [suite].
+  static Map<String, List<BenchmarkEntry>> _groupMatrixByWorkload(
+    BenchmarkSuiteResult suite,
+  ) {
+    final map = <String, List<BenchmarkEntry>>{};
+    for (final b in suite.benchmarks) {
+      map.putIfAbsent(b.name, () => []).add(b);
+    }
+    return map;
+  }
+
+  static String renderMatrixComparisonTable({
+    required String workloadName,
+    required List<BenchmarkEntry> entries,
+    String? title,
+  }) {
+    if (entries.isEmpty) return '';
+
+    final buffer = StringBuffer();
+    final heading = title ?? 'Benchmark: `$workloadName`';
+    buffer.writeln('### $heading\n');
+    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
+
+    final axes = <String>{};
+    for (final e in entries) {
+      axes.addAll(e.coordinates.keys);
+    }
+    final axesList = axes.toList()..sort();
+
+    final hasThroughput = entries.any((e) => e.throughput != null);
+
+    final headerRow = <String>[];
+    for (final axis in axesList) {
+      final cap = axis.isEmpty
+          ? 'Variant'
+          : axis[0].toUpperCase() + axis.substring(1);
+      headerRow.add(cap);
+    }
+    if (axesList.isEmpty) {
+      headerRow.add('Implementation');
+    }
+
+    headerRow.add('Ops/sec');
+    if (hasThroughput) headerRow.add('Throughput');
+    headerRow.add('Mean Latency');
+
+    final baseEntry = entries.firstWhere(
+      (e) => e.isBaseline,
+      orElse: () => entries.first,
+    );
+    final baselineLabel = _formatBaselineLabel(baseEntry, axesList);
+
+    headerRow.addAll([
+      'vs. Baseline (`$baselineLabel`)',
+      'Speedup Ratio',
+      '95% Confidence Interval',
+      'Status',
+    ]);
+
+    buffer.writeln('| ${headerRow.join(' | ')} |');
+
+    final sepRow = List.generate(
+      axesList.isEmpty ? 1 : axesList.length,
+      (_) => ':---',
+    );
+    if (hasThroughput) {
+      sepRow.addAll([':---:', ':---:', ':---:']);
+    } else {
+      sepRow.addAll([':---:', ':---:']);
+    }
+    sepRow.addAll([':---:', ':---:', ':---:', ':---:']);
+    buffer.writeln('| ${sepRow.join(' | ')} |');
+
+    final curMeanNs = baseEntry.metrics.meanNs;
+    for (final entry in entries) {
+      buffer.writeln(
+        _formatMatrixRow(entry, baseEntry, curMeanNs, hasThroughput, axesList),
+      );
+    }
+    buffer.writeln('<!-- mdformat on -->');
+    return buffer.toString().trimRight();
+  }
+
+  static String _formatBaselineLabel(BenchmarkEntry entry, List<String> axes) {
+    if (axes.isEmpty) return entry.name;
+    final vals = axes.map((a) => entry.coordinates[a] ?? '-').toList();
+    return vals.join(', ');
+  }
+
+  static String _formatMatrixRow(
+    BenchmarkEntry entry,
+    BenchmarkEntry baselineEntry,
+    double baseMeanNs,
+    bool hasThroughput,
+    List<String> axes,
+  ) {
+    final curMeanNs = entry.metrics.meanNs;
+    final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
+        ? (baseMeanNs / curMeanNs)
+        : 1.0;
+
+    final cols = <String>[];
+
+    if (axes.isEmpty) {
+      final val = entry.name;
+      final suffix = identical(entry, baselineEntry) ? ' (Baseline)' : '';
+      cols.add('`$val`$suffix');
+    } else {
+      for (final axis in axes) {
+        final val = entry.coordinates[axis] ?? '-';
+        final suffix = identical(entry, baselineEntry) ? ' (Baseline)' : '';
+        cols.add('`$val`$suffix');
+      }
+    }
+
+    final opsStr = _formatOps(entry.metrics.opsPerSec);
+    cols.add(opsStr);
+
+    if (hasThroughput) {
+      final tpStr = entry.throughput?.formatRate(curMeanNs) ?? '-';
+      cols.add(tpStr);
+    }
+
+    final meanStr = _formatLatency(curMeanNs);
+    cols.add(meanStr);
+
+    if (identical(entry, baselineEntry)) {
+      cols.addAll(['1.00x (ref)', '1.00x', '[1.00x – 1.00x]', 'Ref']);
+    } else {
+      final diffStr = speedup >= 1.0
+          ? '**${speedup.toStringAsFixed(2)}x faster**'
+          : '**${(1.0 / speedup).toStringAsFixed(2)}x slower**';
+      cols.add(diffStr);
+      cols.add('${speedup.toStringAsFixed(2)}x');
+
+      var fiellerStr = _formatFiellerCi(baselineEntry, entry);
+      if (speedup >= 1.05 || speedup <= 0.95) {
+        fiellerStr = '**$fiellerStr**';
+      }
+      cols.add(fiellerStr);
+
+      final statusLabel = _classifyMovement(speedup, isDelta: false).$1;
+      cols.add(statusLabel);
+    }
+
+    return '| ${cols.join(' | ')} |';
+  }
+
   static String renderAllGroupComparisonTables(BenchmarkSuiteResult suite) {
     final buffer = StringBuffer();
     final map = <(String, String), List<BenchmarkEntry>>{};
@@ -71,167 +241,17 @@ abstract final class MarkdownReporter() {
     String? title,
   }) {
     if (entries.isEmpty) return '';
-    final buffer = StringBuffer();
-    final heading = title ?? 'Group: $groupName (`$target`)';
-    buffer.writeln('### $heading');
-    buffer.writeln();
-
-    final baselineEntry = _resolveBaseline(entries);
-    final baselineName = baselineEntry.name;
-    final maxSpeedup = _findMaxSpeedup(entries, baselineEntry);
-    final hasThroughput = entries.any((e) => e.throughput != null);
-
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
-    if (hasThroughput) {
-      buffer.writeln(
-        '| Implementation | Ops/sec | Throughput | Mean Latency | vs. Baseline (`$baselineName`) | '
-        'Speedup Ratio | 95% Confidence Interval | Status |',
-      );
-      buffer.writeln(
-        '| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
-      );
-    } else {
-      buffer.writeln(
-        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`$baselineName`) | '
-        'Speedup Ratio | 95% Confidence Interval | Status |',
-      );
-      buffer.writeln(
-        '| :--- | :---: | :---: | :---: | :---: | :---: | :---: |',
-      );
-    }
-
-    for (final entry in entries) {
-      buffer.writeln(
-        _formatGroupRow(
-          entry: entry,
-          baselineEntry: baselineEntry,
-          maxSpeedup: maxSpeedup,
-          hasThroughput: hasThroughput,
-        ),
-      );
-    }
-
-    buffer.writeln('<!-- mdformat on -->');
-    return buffer.toString().trimRight();
-  }
-
-  static BenchmarkEntry _resolveBaseline(List<BenchmarkEntry> entries) {
-    for (final e in entries) {
-      if (e.isBaseline) return e;
-    }
-    return entries.first;
-  }
-
-  static double _findMaxSpeedup(
-    List<BenchmarkEntry> entries,
-    BenchmarkEntry baseline,
-  ) {
-    var max = 1.0;
-    final baseMean = baseline.metrics.meanNs;
-    if (baseMean <= 0) return max;
-    for (final e in entries) {
-      if (e == baseline) continue;
-      final mean = e.metrics.meanNs;
-      if (mean > 0) {
-        final ratio = baseMean / mean;
-        if (ratio > max) max = ratio;
-      }
-    }
-    return max;
-  }
-
-  static String _formatGroupRow({
-    required BenchmarkEntry entry,
-    required BenchmarkEntry baselineEntry,
-    required double maxSpeedup,
-    required bool hasThroughput,
-  }) {
-    final isBaseline = (entry == baselineEntry);
-    final implCol = isBaseline
-        ? '`${entry.name}` (Baseline)'
-        : '`${entry.name}`';
-    final opsCol = _formatOps(entry.metrics.opsPerSec);
-    final meanCol = _formatLatency(entry.metrics.meanNs);
-    final tpCol = entry.throughput?.formatRate(entry.metrics.meanNs) ?? '-';
-
-    if (isBaseline) {
-      return hasThroughput
-          ? '| $implCol | $opsCol | $tpCol | $meanCol | 1.00x (ref) | 1.00x | '
-                '[1.00x – 1.00x] | Ref |'
-          : '| $implCol | $opsCol | $meanCol | 1.00x (ref) | 1.00x | '
-                '[1.00x – 1.00x] | Ref |';
-    }
-
-    final baseMean = baselineEntry.metrics.meanNs;
-    final curMean = entry.metrics.meanNs;
-    final speedup = (baseMean > 0.0 && curMean > 0.0)
-        ? (baseMean / curMean)
-        : 1.0;
-
-    final vsBaselineCol = _formatVsBaseline(
-      speedup: speedup,
-      baseMean: baseMean,
-      curMean: curMean,
+    final strippedEntries = entries.map((e) {
+      final newCoords = Map<String, String>.from(e.coordinates);
+      newCoords.remove('group');
+      return e.copyWith(coordinates: newCoords);
+    }).toList();
+    final legacyHeading = 'Group: $groupName (`$target`)';
+    return renderMatrixComparisonTable(
+      workloadName: groupName,
+      entries: strippedEntries,
+      title: title ?? legacyHeading,
     );
-    final ratioCol = '${speedup.toStringAsFixed(2)}x';
-    final ciCol = _formatGroupFiellerCi(baselineEntry, entry, speedup >= 1.05);
-    final statusCol = _classifyGroupStatus(speedup, maxSpeedup);
-
-    if (hasThroughput) {
-      return '| $implCol | $opsCol | $tpCol | $meanCol | $vsBaselineCol | '
-          '$ratioCol | $ciCol | $statusCol |';
-    }
-    return '| $implCol | $opsCol | $meanCol | $vsBaselineCol | $ratioCol | '
-        '$ciCol | $statusCol |';
-  }
-
-  static String _formatVsBaseline({
-    required double speedup,
-    required double baseMean,
-    required double curMean,
-  }) {
-    if (speedup >= 1.05) {
-      return '**${speedup.toStringAsFixed(2)}x faster**';
-    } else if (speedup <= 0.95) {
-      final slowdown = (baseMean > 0.0 && curMean > 0.0)
-          ? (curMean / baseMean)
-          : 1.0;
-      return '**${slowdown.toStringAsFixed(2)}x slower**';
-    }
-    return '${speedup.toStringAsFixed(2)}x (neutral)';
-  }
-
-  static String _classifyGroupStatus(double speedup, double maxSpeedup) {
-    if ((speedup - maxSpeedup).abs() < 1e-4 && speedup >= 1.05) {
-      return '🚀 🥇 Peak';
-    } else if (speedup >= 1.05) {
-      return '🚀 🟢 Fast';
-    } else if (speedup <= 0.95) {
-      return '⚠️ 🔴 Slow';
-    }
-    return '➖ ⚪ Similar';
-  }
-
-  static String _formatGroupFiellerCi(
-    BenchmarkEntry base,
-    BenchmarkEntry cur,
-    bool isFast,
-  ) {
-    if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
-      return '[N/A]';
-    }
-    final interval = FiellerInterval.compute(
-      sampleA: base.rawTrialsNs,
-      sampleB: cur.rawTrialsNs,
-    );
-    if (!interval.isValid ||
-        interval.lowerBound.isNaN ||
-        interval.upperBound.isNaN) {
-      return '[N/A]';
-    }
-    final low = interval.lowerBound.toStringAsFixed(2);
-    final high = interval.upperBound.toStringAsFixed(2);
-    return isFast ? '**[$low x – $high x]**' : '[$low x – $high x]';
   }
 
   /// Renders a single-run summary table for all benchmarks in [suite].
@@ -417,7 +437,7 @@ abstract final class MarkdownReporter() {
         ? (baseMean / curMean)
         : 1.0;
 
-    final (statusStr, trend) = _classifyMovement(speedup);
+    final (statusStr, trend) = _classifyMovement(speedup, isDelta: true);
     final baseStr = _formatLatency(baseMean);
     final curStr = _formatLatency(curMean);
     final diffStr = _formatDelta(diffNs);
@@ -471,11 +491,14 @@ abstract final class MarkdownReporter() {
     );
   }
 
-  static (String, int) _classifyMovement(double speedup) => switch (speedup) {
-    >= 1.05 => ('🚀 Faster', 1),
-    <= 0.95 => ('⚠️ Regression', -1),
-    _ => ('➖ Neutral', 0),
-  };
+  static (String, int) _classifyMovement(
+    double speedup, {
+    bool isDelta = false,
+  }) {
+    if (speedup >= 1.05) return (isDelta ? '🚀 Faster' : '🚀 🥇 Peak', 1);
+    if (speedup <= 0.95) return (isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow', -1);
+    return ('➖ ⚪ Neutral', 0);
+  }
 
   static String _formatLatency(double ns) => switch (ns) {
     < 1000.0 => '${ns.toStringAsFixed(1)} ns',

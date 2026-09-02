@@ -34,19 +34,20 @@ void main() {
 
       final table = MarkdownReporter.renderSummaryTable(suite);
 
-      check(table).contains('<!-- mdformat off(prevent table wrapping) -->');
-      check(table).contains('<!-- mdformat on -->');
-      check(table).contains(
+      check<String>(table)
+          .contains('<!-- mdformat off(prevent table wrapping) -->');
+      check<String>(table).contains('<!-- mdformat on -->');
+      check<String>(table).contains(
         '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
         'StdDev | Stability |',
       );
-      check(table).contains('`wasm`');
-      check(table).contains('json_decode/small');
-      check(table).contains('400.0 ns');
-      check(table).contains('✅ Stable');
-      check(table).contains('json_decode/large');
-      check(table).contains('1.50 ms');
-      check(table).contains('⚠️ Unstable');
+      check<String>(table).contains('`wasm`');
+      check<String>(table).contains('json_decode/small');
+      check<String>(table).contains('400.0 ns');
+      check<String>(table).contains('✅ Stable');
+      check<String>(table).contains('json_decode/large');
+      check<String>(table).contains('1.50 ms');
+      check<String>(table).contains('⚠️ Unstable');
     });
 
     test('renderDeltaTable produces delta report with Fieller intervals', () {
@@ -193,24 +194,25 @@ void main() {
         entries: [baseEntry, fastEntry, slowEntry],
       );
 
-      check(table).contains('### Group: String Construction (`jit`)');
-      check(table).contains('<!-- mdformat off(prevent table wrapping) -->');
-      check(table).contains(
+      check<String>(table).contains('### Group: String Construction (`jit`)');
+      check<String>(table)
+          .contains('<!-- mdformat off(prevent table wrapping) -->');
+      check<String>(table).contains(
         '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
       );
-      check(table).contains('`concat` (Baseline)');
-      check(table).contains('1.00x (ref)');
-      check(table).contains('Ref');
+      check<String>(table).contains('`concat` (Baseline)');
+      check<String>(table).contains('1.00x (ref)');
+      check<String>(table).contains('Ref');
 
-      check(table).contains('`string_buffer`');
-      check(table).contains('**5.00x faster**');
-      check(table).contains('🚀 🥇 Peak');
+      check<String>(table).contains('`string_buffer`');
+      check<String>(table).contains('**5.00x faster**');
+      check<String>(table).contains('🚀 🥇 Peak');
 
-      check(table).contains('`naive_builder`');
-      check(table).contains('**2.00x slower**');
-      check(table).contains('⚠️ 🔴 Slow');
-      check(table).contains('<!-- mdformat on -->');
+      check<String>(table).contains('`naive_builder`');
+      check<String>(table).contains('**2.00x slower**');
+      check<String>(table).contains('⚠️ 🔴 Slow');
+      check<String>(table).contains('<!-- mdformat on -->');
     });
 
     test('renderSuite automatically embeds group comparison tables', () {
@@ -350,9 +352,9 @@ void main() {
         entries: [v1, v2],
       );
 
-      check(table).contains('`v1_first` (Baseline)');
-      check(table).contains('`v2_second`');
-      check(table).contains('**2.00x faster**');
+      check<String>(table).contains('`v1_first` (Baseline)');
+      check<String>(table).contains('`v2_second`');
+      check<String>(table).contains('**2.00x faster**');
     });
 
     test('renderDeltaTable geometric mean handles extreme speedups without '
@@ -421,9 +423,9 @@ void main() {
 
         final table = MarkdownReporter.renderSummaryTable(suite);
 
-        check(table).contains('0.42 ops/s');
-        check(table).contains('2.15 ops/s');
-        check(table).contains('1,234,567 ops/s');
+        check<String>(table).contains('0.42 ops/s');
+        check<String>(table).contains('2.15 ops/s');
+        check<String>(table).contains('1,234,567 ops/s');
       },
     );
   });
