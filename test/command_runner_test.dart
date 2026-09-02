@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
+import 'package:io/io.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
 
@@ -400,6 +401,34 @@ void main(List<String> args) => mainBenchmark(DiffTarget(), args);
       check(exitCode).not((it) => it.equals(0));
     });
 
+    test(
+      'run subcommand exits with usage error on non-Dart file target',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('non_dart_run_');
+        try {
+          final txtFile = File(p.join(tempDir.path, 'bench.txt'))
+            ..writeAsStringSync('text');
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run(['run', txtFile.path]);
+          check(exitCode).equals(ExitCode.usage.code);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'run subcommand exits with noInput error on non-existent directory',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'run',
+          '/non_existent_bench_dir_123',
+        ]);
+        check(exitCode).equals(ExitCode.noInput.code);
+      },
+    );
+
     test('diff subcommand exits with error on missing baseline file', () async {
       final runner = BenchPressCommandRunner();
       final exitCode = await runner.run([
@@ -436,6 +465,36 @@ void main(List<String> args) => mainBenchmark(DiffTarget(), args);
       ]);
       check(exitCode).not((it) => it.equals(0));
     });
+
+    test(
+      'validate subcommand exits with usage error on non-Dart file target',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'non_dart_validate_',
+        );
+        try {
+          final txtFile = File(p.join(tempDir.path, 'bench.txt'))
+            ..writeAsStringSync('text');
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run(['validate', txtFile.path]);
+          check(exitCode).equals(ExitCode.usage.code);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'validate subcommand exits with noInput error on non-existent directory',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'validate',
+          '/non_existent_bench_dir_123',
+        ]);
+        check(exitCode).equals(ExitCode.noInput.code);
+      },
+    );
 
     test(
       'run subcommand with single --compare-sdk compares against Default',

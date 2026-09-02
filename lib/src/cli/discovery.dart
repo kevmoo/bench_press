@@ -98,7 +98,7 @@ abstract final class BenchmarkDiscovery() {
     final relPath = p.relative(filePath, from: targetPath);
     for (final s in p.split(p.normalize(relPath))) {
       if (s == '.' || s == '..') continue;
-      if (s.startsWith('.') || s == 'build' || s == '.dart_tool') {
+      if (s.startsWith('.') || s == 'build') {
         return true;
       }
     }

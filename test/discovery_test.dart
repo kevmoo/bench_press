@@ -99,5 +99,24 @@ void main() {
         }
       },
     );
+
+    test('discover with verbose: true logs skipped non-benchmark files', () {
+      final tempDir = Directory.systemTemp.createTempSync('discovery_verbose_');
+      try {
+        File(p.join(tempDir.path, 'helper.dart'))
+            .writeAsStringSync('class Helper {}');
+        File(p.join(tempDir.path, 'valid_benchmark.dart'))
+            .writeAsStringSync('void main() {}');
+
+        final discovered = BenchmarkDiscovery.discover(
+          tempDir.path,
+          verbose: true,
+        );
+        check(discovered.length).equals(1);
+        check(discovered.first.basename).equals('valid_benchmark.dart');
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }

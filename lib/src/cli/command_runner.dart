@@ -323,7 +323,6 @@ final class RunCommand({
       final label = entry.key;
       final result = await _executeSingleTarget(
         discovered: discovered,
-        executionFile: discovered.file,
         runtime: runtime,
         trials: trials,
         forceRun: forceRun,
@@ -345,7 +344,6 @@ final class RunCommand({
 
   Future<BenchmarkSuiteResult?> _executeSingleTarget({
     required DiscoveredBenchmarkFile discovered,
-    required File executionFile,
     required TargetRuntime runtime,
     required int? trials,
     required bool forceRun,
@@ -362,7 +360,7 @@ final class RunCommand({
     }
 
     final compilation = await compiler.compile(
-      sourceFile: executionFile,
+      sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: compilerFlags,
     );
@@ -564,7 +562,6 @@ final class ValidateCommand({
       for (final runtime in targets) {
         final passed = await _validateTarget(
           discovered: discovered,
-          executionFile: discovered.file,
           runtime: runtime,
           compilerFlags: compilerFlags,
         );
@@ -577,7 +574,6 @@ final class ValidateCommand({
 
   Future<bool> _validateTarget({
     required DiscoveredBenchmarkFile discovered,
-    required File executionFile,
     required TargetRuntime runtime,
     required List<String> compilerFlags,
   }) async {
@@ -589,7 +585,7 @@ final class ValidateCommand({
     }
 
     final compilation = await compiler.compile(
-      sourceFile: executionFile,
+      sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: compilerFlags,
     );

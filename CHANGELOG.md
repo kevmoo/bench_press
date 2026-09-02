@@ -1,4 +1,4 @@
-## 0.1.1-wip
+## 0.2.0-wip
 
 - Added `--compare-sdk` multi-option flag to `bench_press run` to isolate and strictly evaluate target performance characteristics against different Dart SDK paths using mathematically sound Fieller 95% ratio confidence interval deltas.
 - Added positional argument support (`<baseline> [current]`) to `bench_press diff` alongside `--baseline` (`-b`) and `--current` (`-c`).
