@@ -9,6 +9,7 @@
 - Fixed unhandled exception propagation in Isolate execution mode (`BenchmarkProcessRunner`).
 - Stripped comments during benchmark discovery and disambiguated generated wrapper filenames.
 - Prevented floating-point overflow in geometric mean speedup reporting via log-sum calculation.
+- Updated FiellerInterval.compute to return isValid: false (with NaN bounds) when sample size is degenerate (N < 2).
 
 ## 0.1.0
 

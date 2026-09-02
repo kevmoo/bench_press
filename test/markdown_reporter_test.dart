@@ -363,24 +363,28 @@ void main() {
         arch: 'x64',
       );
 
-      // Pair 1: speedup = 1e200 (base: 1e200 ns, cur: 1.0 ns)
-      final baseEntry1 = _createEntry('extreme_fast', 'jit', 1e200);
-      final curEntry1 = _createEntry('extreme_fast', 'jit', 1.0);
+      // Three 1e200 speedup entries whose naive product (1e600) would overflow
+      // double to Infinity, verifying that log-sum computes the exact geometric
+      // mean (1e200).
+      final baseEntry1 = _createEntry('extreme_fast_1', 'jit', 1e200);
+      final curEntry1 = _createEntry('extreme_fast_1', 'jit', 1.0);
 
-      // Pair 2: speedup = 1e-200 (base: 1.0 ns, cur: 1e200 ns)
-      final baseEntry2 = _createEntry('extreme_slow', 'jit', 1.0);
-      final curEntry2 = _createEntry('extreme_slow', 'jit', 1e200);
+      final baseEntry2 = _createEntry('extreme_fast_2', 'jit', 1e200);
+      final curEntry2 = _createEntry('extreme_fast_2', 'jit', 1.0);
+
+      final baseEntry3 = _createEntry('extreme_fast_3', 'jit', 1e200);
+      final curEntry3 = _createEntry('extreme_fast_3', 'jit', 1.0);
 
       final baseline = BenchmarkSuiteResult(
         timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
         environment: env,
-        benchmarks: [baseEntry1, baseEntry2],
+        benchmarks: [baseEntry1, baseEntry2, baseEntry3],
       );
 
       final current = BenchmarkSuiteResult(
         timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
         environment: env,
-        benchmarks: [curEntry1, curEntry2],
+        benchmarks: [curEntry1, curEntry2, curEntry3],
       );
 
       final deltaReport = MarkdownReporter.renderDeltaTable(
@@ -388,7 +392,8 @@ void main() {
         current: current,
       );
 
-      check(deltaReport).contains('Geometric Mean Speedup: **1.00x**');
+      check(deltaReport).contains('Geometric Mean Speedup: **1');
+      check(deltaReport).contains('e+200x**');
       check(deltaReport)
           .not((it) => it.contains('Geometric Mean Speedup: **Infinity'));
       check(deltaReport)

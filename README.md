@@ -46,7 +46,7 @@ final class JsonDecodeBenchmark extends Benchmark {
 }
 
 void main(List<String> args) =>
-    mainBenchmark(args, () => JsonDecodeBenchmark('{"key": "value"}'));
+    mainBenchmark(JsonDecodeBenchmark('{"key": "value"}'), args);
 ```
 
 ### 2. Compare Implementations (`BenchmarkGroup`)
@@ -82,17 +82,18 @@ final class StringBufferBenchmark extends Benchmark {
   }
 }
 
-void main(List<String> args) => mainBenchmarkGroup(
-      args,
-      BenchmarkGroup('String Group', [
-        BenchmarkVariant(
-          'concat',
-          () => StringConcatBenchmark(),
-          isBaseline: true,
-        ),
-        BenchmarkVariant('buffer', () => StringBufferBenchmark()),
-      ]),
-    );
+Future<void> main(List<String> args) async {
+  final concatBench = StringConcatBenchmark();
+  final bufferBench = StringBufferBenchmark();
+  final group = BenchmarkGroup(
+    'String Group',
+    [
+      BenchmarkVariant('concat', concatBench.run),
+      BenchmarkVariant('buffer', bufferBench.run),
+    ],
+  );
+  await mainBenchmarkGroup(group, args);
+}
 ```
 
 ### 3. Asynchronous Benchmarks (`AsyncBenchmark`)
@@ -111,8 +112,8 @@ final class AsyncFetchBenchmark extends AsyncBenchmark {
   }
 }
 
-void main(List<String> args) =>
-    mainAsyncBenchmark(args, () => AsyncFetchBenchmark());
+Future<void> main(List<String> args) async =>
+    await mainAsyncBenchmark(AsyncFetchBenchmark(), args);
 ```
 
 ---
