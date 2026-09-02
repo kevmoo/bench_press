@@ -729,20 +729,14 @@ final class DiffCommand() extends Command<int> {
 
   ({String baseline, String current}) _resolveDiffArgs() {
     final hasBaselineFlag = argResults!.wasParsed('baseline');
+    final hasCurrentFlag = argResults!.wasParsed('current');
     final rest = argResults!.rest;
 
-    if (hasBaselineFlag && rest.length > 1) {
-      throw UsageException(
-        'Too many positional arguments when --baseline is specified.',
-        usage,
-      );
-    }
-    if (!hasBaselineFlag && rest.length > 2) {
-      throw UsageException(
-        'Too many positional arguments. Expected <baseline> [current].',
-        usage,
-      );
-    }
+    _validateDiffArgCounts(
+      hasBaselineFlag: hasBaselineFlag,
+      hasCurrentFlag: hasCurrentFlag,
+      restCount: rest.length,
+    );
 
     final baseline = hasBaselineFlag
         ? argResults!.option('baseline')
@@ -768,6 +762,25 @@ final class DiffCommand() extends Command<int> {
     }
 
     return (baseline: baseline, current: current);
+  }
+
+  void _validateDiffArgCounts({
+    required bool hasBaselineFlag,
+    required bool hasCurrentFlag,
+    required int restCount,
+  }) {
+    final maxPositional = switch ((hasBaselineFlag, hasCurrentFlag)) {
+      (true, true) => 0,
+      (true, false) => 1,
+      (false, true) => 1,
+      (false, false) => 2,
+    };
+    if (restCount > maxPositional) {
+      throw UsageException(
+        'Too many positional arguments for the specified options.',
+        usage,
+      );
+    }
   }
 
   @override

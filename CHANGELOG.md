@@ -4,8 +4,8 @@
 - Renamed `KbssdWarmupDetector` to `AdaptiveWarmupDetector` (`src/stats/warmup.dart`) and deprecated the old name.
 - Fixed steady-state warmup convergence math using Standard Error of the Mean (SEM) relative error (`<= 3%`) and stationarity checks.
 - Hardened `Blackhole.drain()` compiler barrier against whole-program Dead-Store Elimination across AOT, Wasm, and JavaScript.
-- Fixed `BenchmarkCalibrator` to support sub-10µs operations without throwing `CalibrationException`, while throwing `CalibrationException` by default when maximum probe batches produce zero elapsed ticks (`elapsedUs == 0`) unless `forceRun: true` (`--force-run`) is specified.
-- Added `mode` (`'sync'` vs `'async'`) property to `BenchmarkResult` and `BenchmarkEntry` telemetry.
+- Fixed `BenchmarkCalibrator` to support sub-10µs operations without throwing `CalibrationException`, while throwing `CalibrationException` by default when maximum probe batches produce zero elapsed ticks (`elapsedUs == 0`) unless `forceRun: true` (`--force-run`) is specified (which warns and continues).
+- Added `mode` (`'sync'` vs `'async'`) property to `BenchmarkResult` (which `BenchmarkEntry.fromResult` now inherits for JSON telemetry).
 - Implemented continuous Student's t-distribution quantile calculation (regularized incomplete beta for `1 < df < 2` and Hill's Algorithm 396 for `df > 2`) for accurate Fieller confidence intervals across all degrees of freedom.
 - Fixed unhandled exception propagation in Isolate execution mode (`BenchmarkProcessRunner`).
 - Stripped comments during benchmark discovery and disambiguated generated wrapper filenames.

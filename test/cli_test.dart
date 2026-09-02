@@ -386,6 +386,14 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
                 metrics: baseMetrics,
                 rawTrialsNs: [98.0, 100.0, 102.0],
               ),
+              BenchmarkEntry(
+                name: 'unique_curr_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: baseMetrics,
+                rawTrialsNs: [98.0, 100.0, 102.0],
+              ),
             ],
           ).saveToFile(baseFile);
 
@@ -396,6 +404,14 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
             benchmarks: const [
               BenchmarkEntry(
                 name: 'pos_test_bench',
+                target: 'jit',
+                mode: 'sync',
+                samples: 3,
+                metrics: currMetrics,
+                rawTrialsNs: [49.0, 50.0, 51.0],
+              ),
+              BenchmarkEntry(
+                name: 'unique_curr_bench',
                 target: 'jit',
                 mode: 'sync',
                 samples: 3,
@@ -432,7 +448,9 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
           ]);
           check(exitCodeFlag).equals(0);
           check(outFlagFile.existsSync()).isTrue();
-          check(outFlagFile.readAsStringSync()).contains('pos_test_bench');
+          final flagReport = outFlagFile.readAsStringSync();
+          check(flagReport).contains('pos_test_bench');
+          check(flagReport).contains('unique_curr_bench');
 
           // Test surplus positional arguments throw UsageException
           await check(
@@ -445,6 +463,25 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
               baseFile.path,
               currFile.path,
               'extra.json',
+            ]),
+          ).throws<UsageException>();
+          await check(
+            runner.run([
+              'diff',
+              baseFile.path,
+              currFile.path,
+              '-c',
+              currFile.path,
+            ]),
+          ).throws<UsageException>();
+          await check(
+            runner.run([
+              'diff',
+              '-b',
+              baseFile.path,
+              '-c',
+              currFile.path,
+              currFile.path,
             ]),
           ).throws<UsageException>();
         } finally {

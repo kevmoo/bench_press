@@ -229,7 +229,6 @@ main(args) async => print(args);
 
     test('discover handles relative paths with parent traversal (..)', () {
       final tempDir = Directory.systemTemp.createTempSync('discovery_rel_');
-      final origCwd = Directory.current;
       try {
         final pkgA = Directory(p.join(tempDir.path, 'pkg_a'))..createSync();
         final pkgB = Directory(p.join(tempDir.path, 'pkg_b', 'benchmark'))
@@ -237,20 +236,17 @@ main(args) async => print(args);
         File(p.join(pkgB.path, 'my_bench.dart'))
             .writeAsStringSync('void main() {}');
 
-        Directory.current = pkgA;
-        final relTarget = p.join('..', 'pkg_b', 'benchmark');
+        final relTarget = p.join(pkgA.path, '..', 'pkg_b', 'benchmark');
         final discovered = BenchmarkDiscovery.discover(relTarget);
         check(discovered.length).equals(1);
         check(discovered.first.kind).equals(BenchmarkFileKind.standaloneMain);
       } finally {
-        Directory.current = origCwd;
         tempDir.deleteSync(recursive: true);
       }
     });
 
     test('generateWrapper produces CWD-invariant wrapper filenames', () {
       final tempDir = Directory.systemTemp.createTempSync('wrapper_cwd_');
-      final origCwd = Directory.current;
       try {
         final subDir = Directory(p.join(tempDir.path, 'sub'))
           ..createSync(recursive: true);
@@ -263,15 +259,16 @@ main(args) async => print(args);
           outputDir: outputDir,
         );
 
-        Directory.current = subDir;
-        final wrapperFromRel = BenchmarkDiscovery.generateWrapper(
-          benchmarkFile: File('my_bench.dart'),
-          outputDir: outputDir,
+        final wrapperFromRel = IOOverrides.runZoned(
+          () => BenchmarkDiscovery.generateWrapper(
+            benchmarkFile: File('my_bench.dart'),
+            outputDir: outputDir,
+          ),
+          getCurrentDirectory: () => subDir,
         );
 
         check(wrapperFromAbs.path).equals(wrapperFromRel.path);
       } finally {
-        Directory.current = origCwd;
         tempDir.deleteSync(recursive: true);
       }
     });
