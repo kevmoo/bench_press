@@ -1,3 +1,12 @@
+## 0.3.0-wip
+
+- **Breaking Change**: Streamlined `Blackhole` API to a single universal `consume(Object? value)` method. Removed redundant specialized methods (`consumeInt`, `consumeDouble`, `consumeBool`, `consumeString`, `consumeObject`).
+- Hardened `Blackhole` compiler barrier against optimizing compiler Dead Code Elimination:
+  - Adopted 3-bit cyclic Gray-code ring buffer indexing (`(index & 7) ^ ((index & 7) >> 1)`) to disrupt compiler loop unrolling and vectorization without consecutive slot collisions.
+  - Coupled slot position with element hashing in `Blackhole.drain()` via `Object.hash(_sink[i], i)` to guarantee position-dependent reduction.
+  - Corrected documentation regarding retention guarantees (retains the last 8 writes across the cyclic Gray-code buffer).
+  - Fixed 5.2x latency cliff on Web/JavaScript previously caused by eager `double.hashCode` computation.
+
 ## 0.2.0
 
 - Added multi-tier Cartesian comparison matrix support (Issue #5) via unified `bench_press.yaml` configuration manifest, `--config`, and `--dry-run` inspection flag.

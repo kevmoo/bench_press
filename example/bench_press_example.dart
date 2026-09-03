@@ -14,7 +14,7 @@ final class FibonacciBenchmark() extends Benchmark {
   @override
   void run() {
     final result = _fib(20);
-    Blackhole.consumeInt(result);
+    Blackhole.consume(result);
   }
 }
 

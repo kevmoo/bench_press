@@ -39,7 +39,7 @@ final class CalcBenchmark extends Benchmark {
     for (var i = 0; i < 10; i++) {
       x += i;
     }
-    Blackhole.consumeInt(x);
+    Blackhole.consume(x);
   }
 }
 

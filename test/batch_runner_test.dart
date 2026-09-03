@@ -8,7 +8,7 @@ final class _CountingBenchmark(super.name) extends Benchmark {
   @override
   void run() {
     count++;
-    Blackhole.consumeInt(count);
+    Blackhole.consume(count);
   }
 }
 
@@ -18,7 +18,7 @@ final class _CountingAsyncBenchmark(super.name) extends AsyncBenchmark {
   @override
   Future<void> run() async {
     count++;
-    Blackhole.consumeInt(count);
+    Blackhole.consume(count);
   }
 }
 
@@ -52,7 +52,7 @@ void main() {
       var count = 0;
       final variant = BenchmarkVariant('var_sync', () {
         count++;
-        Blackhole.consumeInt(count);
+        Blackhole.consume(count);
       });
 
       final measurement = BatchRunner.runVariantSync(variant, 50);
