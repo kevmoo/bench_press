@@ -19,7 +19,7 @@ Add `bench_press` to your `pubspec.yaml`:
 
 ```yaml
 dev_dependencies:
-  bench_press: ^0.1.0
+  bench_press: ^0.2.0
 ```
 
 ### 1. Write a Benchmark
