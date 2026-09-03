@@ -17,7 +17,7 @@ void main() {
           for (var i = 0; i < 500; i++) {
             a += i;
           }
-          Blackhole.consumeInt(a);
+          Blackhole.consume(a);
         }, config);
 
         check(batch.iterations).isGreaterThan(1);

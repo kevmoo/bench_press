@@ -25,7 +25,7 @@ final class _CountingBenchmark(
     for (var i = 0; i < 50; i++) {
       x += i;
     }
-    Blackhole.consumeInt(x);
+    Blackhole.consume(x);
   }
 
   @override

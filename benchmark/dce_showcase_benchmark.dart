@@ -37,7 +37,7 @@ final class ProtectedBlackholeBenchmark() extends Benchmark {
     var acc = 0;
     for (var i = 0; i < _iterations; i++) {
       acc = (acc * 31 + i) ^ (i << 2);
-      Blackhole.consumeInt(acc);
+      Blackhole.consume(acc);
     }
   }
 }

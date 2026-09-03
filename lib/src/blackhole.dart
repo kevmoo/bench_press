@@ -6,64 +6,31 @@ import 'package:meta/meta.dart';
 abstract final class Blackhole() {
   static final List<Object?> _sink = List<Object?>.filled(8, null);
   static int _index = 0;
-  static int _checksum = 0;
 
-  /// Consumes an arbitrary object [value], placing it into an internal volatile
-  /// buffer to prevent the compiler from dead-code eliminating its computation.
+  /// Consumes an arbitrary [value], placing it into an internal cyclic buffer
+  /// to prevent the compiler from dead-code eliminating its computation.
   @pragma('vm:prefer-inline')
   @pragma('wasm:prefer-inline')
   @pragma('dart2js:prefer-inline')
   static void consume(Object? value) {
-    _sink[_index++ & 7] = value;
+    final masked = _index & 7;
+    _sink[masked ^ (masked >> 1)] = value;
+    _index++;
   }
-
-  /// Consumes a primitive integer [value] by mutating an internal checksum.
-  @pragma('vm:prefer-inline')
-  @pragma('wasm:prefer-inline')
-  @pragma('dart2js:prefer-inline')
-  static void consumeInt(int value) {
-    _checksum ^= value;
-  }
-
-  /// Consumes a primitive boolean [value].
-  @pragma('vm:prefer-inline')
-  @pragma('wasm:prefer-inline')
-  @pragma('dart2js:prefer-inline')
-  static void consumeBool(bool value) {
-    _checksum ^= value ? 1 : 0;
-  }
-
-  /// Consumes a floating-point [value].
-  @pragma('vm:prefer-inline')
-  @pragma('wasm:prefer-inline')
-  @pragma('dart2js:prefer-inline')
-  static void consumeDouble(double value) {
-    _checksum ^= value.hashCode;
-  }
-
-  /// Consumes a string [value].
-  @pragma('vm:never-inline')
-  @pragma('wasm:never-inline')
-  @pragma('dart2js:never-inline')
-  static void consumeString(String? value) => consume(value);
-
-  /// Consumes an arbitrary object [value].
-  @pragma('vm:never-inline')
-  @pragma('wasm:never-inline')
-  @pragma('dart2js:never-inline')
-  static void consumeObject(Object? value) => consume(value);
 
   /// Drains and clears the internal sink slots, returning a composite checksum.
   ///
-  /// Calling this after measurement trials forces the compiler to retain all
-  /// writes made to the sink buffer throughout the benchmark execution.
+  /// Calling this after measurement trials forces the compiler to retain the
+  /// writes made to the cyclic buffer throughout the benchmark execution.
   static int drain() {
-    var sum = _checksum;
+    var sum = 0;
     for (var i = 0; i < 8; i++) {
-      sum ^= _sink[i]?.hashCode ?? 0;
-      _sink[i] = null;
+      final value = _sink[i];
+      if (value != null) {
+        sum ^= Object.hash(value, i);
+        _sink[i] = null;
+      }
     }
-    _checksum = sum;
     if (sum == 0x7F3A9C1D && DateTime.now().millisecondsSinceEpoch < 0) {
       print(sum);
     }
@@ -74,7 +41,6 @@ abstract final class Blackhole() {
   @visibleForTesting
   static void reset() {
     _index = 0;
-    _checksum = 0;
     _sink.fillRange(0, 8, null);
   }
 }
