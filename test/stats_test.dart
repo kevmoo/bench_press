@@ -91,10 +91,8 @@ void main() {
 
       final deserialized = BenchmarkMetrics.fromJson(json);
       check(deserialized.madNs).equals(0.0);
-      check(deserialized.mad).equals(0.0);
       check(deserialized.robustCv).equals(0.0);
       check(deserialized.iqrNs).equals(0.0);
-      check(deserialized.iqr).equals(0.0);
       check(deserialized.isRobustStable).isTrue();
       check(deserialized.isStable).isTrue();
     });
@@ -117,10 +115,8 @@ void main() {
         final metrics = BenchmarkMetrics.fromSamples(samples, isStable: true);
 
         check(metrics.madNs).equals(2.0);
-        check(metrics.mad).equals(2.0);
         check((metrics.robustCv - 0.02965).abs()).isLessThan(0.0001);
         check((metrics.iqrNs - 3.5).abs()).isLessThan(0.01);
-        check((metrics.iqr - 3.5).abs()).isLessThan(0.01);
         check(metrics.isRobustStable).isTrue();
         check(metrics.isStable).isTrue();
       },
@@ -139,7 +135,6 @@ void main() {
         // Robust metrics reflect steady-state consistency
         check(metrics.medianNs).equals(100.0);
         check(metrics.madNs).equals(0.0);
-        check(metrics.mad).equals(0.0);
         check(metrics.robustCv).equals(0.0);
         check(metrics.iqrNs).equals(0.0);
         check(metrics.isRobustStable).isTrue();

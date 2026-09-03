@@ -53,12 +53,6 @@ final class const BenchmarkMetrics({
   /// considered stable (default: 5%).
   static const double maxCvThreshold = 0.05;
 
-  /// Alias for [madNs].
-  double get mad => madNs;
-
-  /// Alias for [iqrNs].
-  double get iqr => iqrNs;
-
   /// Computes distribution metrics from a list of per-operation latency samples
   /// measured in nanoseconds.
   factory fromSamples(

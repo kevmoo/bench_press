@@ -1,6 +1,6 @@
 ## 0.3.0-wip
 
-- Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs` / `mad`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs` / `iqr`).
+- Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs`).
 - Added `isRobustStable` to `BenchmarkMetrics` and updated `isStable` to incorporate robust dispersion, preventing transient bimodal GC sweeps from falsely failing steady-state stability for allocation-heavy workloads (Issue #20).
 - Added adaptive trial scaling via `--max-trials` CLI option and `maxTrials` in `BenchmarkConfig` / `DefaultsConfig`, allowing `BenchmarkRunner` to dynamically collect additional measurement trials when initial variance exceeds threshold.
 - Enhanced `AdaptiveWarmupDetector` to distinguish systemic monotonic drift from transient bimodal outliers via `computeRobustSem` and `hasSystemicDrift`.
