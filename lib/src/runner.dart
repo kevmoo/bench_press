@@ -103,6 +103,7 @@ abstract final class BenchmarkRunner() {
       final warmupResult = warmupDetector.finish(
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
+      benchmark.warmupComplete();
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
@@ -111,6 +112,20 @@ abstract final class BenchmarkRunner() {
           calibrated.iterations,
         );
         trials.add(measurement.perOpNanoseconds);
+      }
+
+      if (_shouldScaleTrials(trials, config)) {
+        config.logger?.call(
+          'High variance detected in initial trials. '
+          'Adaptively scaling up to ${config.maxTrials} trials.',
+        );
+        while (_shouldScaleTrials(trials, config)) {
+          final measurement = BatchRunner.runSync(
+            benchmark,
+            calibrated.iterations,
+          );
+          trials.add(measurement.perOpNanoseconds);
+        }
       }
 
       final metrics = BenchmarkMetrics.fromSamples(
@@ -164,6 +179,7 @@ abstract final class BenchmarkRunner() {
       final warmupResult = warmupDetector.finish(
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
+      await benchmark.warmupComplete();
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
@@ -172,6 +188,20 @@ abstract final class BenchmarkRunner() {
           calibrated.iterations,
         );
         trials.add(measurement.perOpNanoseconds);
+      }
+
+      if (_shouldScaleTrials(trials, config)) {
+        config.logger?.call(
+          'High variance detected in initial trials. '
+          'Adaptively scaling up to ${config.maxTrials} trials.',
+        );
+        while (_shouldScaleTrials(trials, config)) {
+          final measurement = await BatchRunner.runAsync(
+            benchmark,
+            calibrated.iterations,
+          );
+          trials.add(measurement.perOpNanoseconds);
+        }
       }
 
       final metrics = BenchmarkMetrics.fromSamples(
@@ -247,6 +277,21 @@ abstract final class BenchmarkRunner() {
         trials.add(perOpNs);
       }
 
+      if (_shouldScaleTrials(trials, config)) {
+        config.logger?.call(
+          'High variance detected in initial trials. '
+          'Adaptively scaling up to ${config.maxTrials} trials.',
+        );
+        while (_shouldScaleTrials(trials, config)) {
+          final perOpNs = await _measureVariantBatch(
+            variant,
+            calibrated.iterations,
+            isAsync: isAsync,
+          );
+          trials.add(perOpNs);
+        }
+      }
+
       final metrics = BenchmarkMetrics.fromSamples(
         trials,
         isStable: warmupResult.isStable,
@@ -286,5 +331,23 @@ abstract final class BenchmarkRunner() {
     Blackhole.drain();
     final elapsedUs = batchStopwatch.elapsedMicroseconds;
     return (elapsedUs * 1000.0) / iterations;
+  }
+
+  static bool _shouldScaleTrials(List<double> trials, BenchmarkConfig config) {
+    final maxTrials = config.maxTrials;
+    if (maxTrials == null || maxTrials <= config.trials) {
+      return false;
+    }
+    if (trials.length >= maxTrials) {
+      return false;
+    }
+    if (trials.length < 2) {
+      return false;
+    }
+    final metrics = BenchmarkMetrics.fromSamples(trials);
+    // Scale if standard CV exceeds the stability threshold (e.g. CV > 5%),
+    // indicating high variance or transient bimodal outliers (such as GC
+    // pauses).
+    return metrics.cv > BenchmarkMetrics.maxCvThreshold;
   }
 }

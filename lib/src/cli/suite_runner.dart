@@ -65,6 +65,10 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
     ..addFlag('json', help: 'Emit streaming JSON markers to stdout')
     ..addOption('target', defaultsTo: 'jit', help: 'Target runtime identifier')
     ..addOption('trials', help: 'Override measurement trials count')
+    ..addOption(
+      'max-trials',
+      help: 'Override maximum measurement trials ceiling for adaptive scaling',
+    )
     ..addOption('min-warmup', help: 'Override minimum warmup iterations')
     ..addOption('max-warmup', help: 'Override maximum warmup iterations')
     ..addOption('target-batch-ms', help: 'Override target batch duration (ms)')
@@ -179,6 +183,7 @@ BenchmarkConfig _buildConfigFromArgs(
   }
 
   final trials = int.tryParse(parsed.option('trials') ?? '');
+  final maxTrials = int.tryParse(parsed.option('max-trials') ?? '');
   final minWarmup = int.tryParse(parsed.option('min-warmup') ?? '');
   final maxWarmup = int.tryParse(parsed.option('max-warmup') ?? '');
   final batchMs = int.tryParse(parsed.option('target-batch-ms') ?? '');
@@ -186,6 +191,7 @@ BenchmarkConfig _buildConfigFromArgs(
 
   return BenchmarkConfig(
     trials: trials ?? 15,
+    maxTrials: maxTrials,
     minWarmupIterations: minWarmup ?? 10,
     maxWarmupIterations: maxWarmup ?? 200,
     targetBatchDuration: batchMs != null

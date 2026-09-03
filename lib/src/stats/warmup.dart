@@ -100,6 +100,34 @@ final class AdaptiveWarmupDetector({
     if (isSemStable && isStationary) {
       _isConverged = true;
       _convergedIteration = n;
+      return;
+    }
+
+    // If standard SEM failed, distinguish between systemic drift (e.g. ongoing
+    // JIT compilation) and transient bimodal outliers (e.g. GC pauses).
+    final medianB = computeMedian(windowB);
+    final robustSemB = computeRobustSem(windowB);
+    final isRobustSemStable =
+        medianB > 0.0 &&
+        (1.96 * robustSemB <= config.maxSemRelativeError * medianB);
+
+    if (isRobustSemStable &&
+        !hasSystemicDrift(
+          windowA,
+          windowB,
+          maxRelativeDrift: config.maxSemRelativeError,
+        )) {
+      final medA = computeMedian(windowA);
+      final madA = computeMad(windowA);
+      final madB = computeMad(windowB);
+      final inliersA = _filterOutliers(windowA, medA, madA);
+      final inliersB = _filterOutliers(windowB, medianB, madB);
+      final cleanMmd = computeMmd(inliersA, inliersB);
+
+      if (cleanMmd <= 0.25) {
+        _isConverged = true;
+        _convergedIteration = n;
+      }
     }
   }
 
@@ -164,6 +192,77 @@ final class AdaptiveWarmupDetector({
     }
     final variance = sumSq / (values.length - 1);
     return math.sqrt(variance / values.length);
+  }
+
+  /// Calculates the robust Standard Error of the Mean (SEM) using the
+  /// normalized Median Absolute Deviation: `1.4826 * MAD / sqrt(N)`.
+  static double computeRobustSem(List<double> values) {
+    if (values.length <= 1) return 0.0;
+    final mad = computeMad(values);
+    return (1.4826 * mad) / math.sqrt(values.length);
+  }
+
+  /// Identifies whether the sequence exhibits systemic drift (e.g. ongoing
+  /// JIT warmup/compilation) versus steady-state execution with transient
+  /// bimodal outliers (e.g. GC pauses).
+  static bool hasSystemicDrift(
+    List<double> windowA,
+    List<double> windowB, {
+    double maxRelativeDrift = 0.03,
+  }) {
+    if (windowA.isEmpty || windowB.isEmpty) return false;
+
+    final medA = computeMedian(windowA);
+    final medB = computeMedian(windowB);
+    final madA = computeMad(windowA);
+    final madB = computeMad(windowB);
+
+    final inliersA = _filterOutliers(windowA, medA, madA);
+    final inliersB = _filterOutliers(windowB, medB, madB);
+
+    final cleanMedA = computeMedian(inliersA.isNotEmpty ? inliersA : windowA);
+    final cleanMedB = computeMedian(inliersB.isNotEmpty ? inliersB : windowB);
+
+    if (cleanMedB <= 0.0) return false;
+
+    // Relative drift between the steady-state medians of the two windows:
+    final interWindowDrift = (cleanMedB - cleanMedA).abs() / cleanMedB;
+    if (interWindowDrift > maxRelativeDrift) {
+      return true;
+    }
+
+    // Intra-window drift within window B:
+    final cleanB = inliersB.isNotEmpty ? inliersB : windowB;
+    if (cleanB.length >= 4) {
+      final mid = cleanB.length ~/ 2;
+      final firstHalfMed = computeMedian(cleanB.sublist(0, mid));
+      final secondHalfMed = computeMedian(cleanB.sublist(mid));
+      if (secondHalfMed > 0.0) {
+        final intraDrift = (secondHalfMed - firstHalfMed).abs() / secondHalfMed;
+        if (intraDrift > maxRelativeDrift * 1.5) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  static List<double> _filterOutliers(
+    List<double> values,
+    double median,
+    double mad,
+  ) {
+    if (values.length <= 2) return values;
+    final nmad = 1.4826 * mad;
+    final threshold = math.max(3.0 * nmad, 0.10 * median.abs());
+    final inliers = values
+        .where((v) => (v - median).abs() <= threshold)
+        .toList();
+    if (inliers.length >= (values.length * 0.6).ceil()) {
+      return inliers;
+    }
+    return values;
   }
 
   /// Calculates the unbiased Maximum Mean Discrepancy (MMD) between two sample

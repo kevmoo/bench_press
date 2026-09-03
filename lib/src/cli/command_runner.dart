@@ -125,6 +125,12 @@ final class RunCommand({
         'trials',
         help: 'Number of measurement trials per benchmark (default: 15).',
       )
+      ..addOption(
+        'max-trials',
+        help:
+            'Maximum measurement trials ceiling for adaptive scaling '
+            '(scales up if variance/outliers detected).',
+      )
       ..addFlag(
         'force-run',
         negatable: false,
@@ -194,6 +200,7 @@ final class RunCommand({
           defaults: DefaultsConfig(
             targets: ['jit'],
             trials: 15,
+            maxTrials: null,
             output: '',
             isolateMode: false,
           ),
@@ -311,6 +318,10 @@ final class RunCommand({
     final trials = trialsStr != null
         ? int.tryParse(trialsStr)
         : config.defaults.trials;
+    final maxTrialsStr = argResults!.option('max-trials');
+    final maxTrials = maxTrialsStr != null
+        ? int.tryParse(maxTrialsStr)
+        : config.defaults.maxTrials;
     final forceRun = argResults!.flag('force-run');
     final isolateMode =
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
@@ -326,6 +337,7 @@ final class RunCommand({
           coord: coord,
           defaultTargets: defaultTargets,
           trials: trials,
+          maxTrials: maxTrials,
           forceRun: forceRun,
           isolateMode: isolateMode,
           compilerFlags: compilerFlags,
@@ -346,6 +358,7 @@ final class RunCommand({
     required MatrixCoordinate coord,
     required List<TargetRuntime> defaultTargets,
     required int? trials,
+    required int? maxTrials,
     required bool forceRun,
     required bool isolateMode,
     required List<String> compilerFlags,
@@ -365,6 +378,7 @@ final class RunCommand({
         coord: coord,
         runtime: runtime,
         trials: trials,
+        maxTrials: maxTrials,
         forceRun: forceRun,
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
@@ -384,6 +398,7 @@ final class RunCommand({
     required MatrixCoordinate coord,
     required TargetRuntime runtime,
     required int? trials,
+    required int? maxTrials,
     required bool forceRun,
     required bool isolateMode,
     required List<String> compilerFlags,
@@ -396,6 +411,7 @@ final class RunCommand({
       discovered: discovered,
       runtime: runtime,
       trials: trials,
+      maxTrials: maxTrials,
       forceRun: forceRun,
       isolateMode: isolateMode,
       compilerFlags: execFlags,
@@ -434,6 +450,7 @@ final class RunCommand({
     required DiscoveredBenchmarkFile discovered,
     required TargetRuntime runtime,
     required int? trials,
+    required int? maxTrials,
     required bool forceRun,
     required bool isolateMode,
     required List<String> compilerFlags,
@@ -465,6 +482,7 @@ final class RunCommand({
       compilationResult: compilation,
       isolateMode: isolateMode,
       trials: trials,
+      maxTrials: maxTrials,
       forceRun: forceRun,
       vmFlags: vmFlags,
     );

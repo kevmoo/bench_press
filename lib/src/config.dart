@@ -3,6 +3,12 @@ final class const BenchmarkConfig({
   /// The number of measurement trials to record after warmup completes.
   final int trials = 15,
 
+  /// The maximum number of measurement trials permitted when adaptive trial
+  /// scaling is active.
+  ///
+  /// If null or <= [trials], exactly [trials] are executed without scaling.
+  final int? maxTrials,
+
   /// The minimum number of warmup iterations to execute before evaluating
   /// convergence.
   final int minWarmupIterations = 10,

@@ -62,6 +62,40 @@ final class _AsyncCountingBenchmark(
   }
 }
 
+final class _PeriodicGcBenchmark(
+  super.name, {
+  super.config,
+  final bool shouldSpike = true,
+}) extends Benchmark {
+  bool inTrials = false;
+  bool spiked = false;
+
+  @override
+  void setup() {
+    inTrials = false;
+    spiked = false;
+  }
+
+  @override
+  void warmupComplete() {
+    inTrials = true;
+  }
+
+  @override
+  void run() {
+    if (inTrials && shouldSpike && !spiked) {
+      spiked = true;
+      final sw = Stopwatch()..start();
+      while (sw.elapsedMilliseconds < 25) {}
+    }
+    var x = 0;
+    for (var i = 0; i < 50; i++) {
+      x += i;
+    }
+    Blackhole.consume(x);
+  }
+}
+
 void main() {
   group('BenchmarkRunner & Lifecycle Orchestrator', () {
     test('executes synchronous benchmark lifecycle completely', () {
@@ -233,6 +267,55 @@ void main() {
 
         check(result.name).equals('variant_report');
         check(result.rawTrialLatenciesNs.length).equals(5);
+      },
+    );
+
+    test('adaptively scales trials up to maxTrials when GC spikes occur', () {
+      final logs = <String>[];
+      final bench = _PeriodicGcBenchmark(
+        'gc_spiking',
+        config: BenchmarkConfig(
+          trials: 5,
+          maxTrials: 10,
+          minWarmupIterations: 5,
+          targetBatchDuration: const Duration(milliseconds: 20),
+          forceRun: true,
+          logger: logs.add,
+        ),
+        shouldSpike: true,
+      );
+
+      final result = BenchmarkRunner.run(bench);
+      check(result.warmupResult.isStable).isTrue();
+      check(result.rawTrialLatenciesNs.length).equals(10);
+      check(result.metrics.isStable).isTrue();
+      check(result.metrics.isRobustStable).isTrue();
+      check(logs.any((l) => l.contains('Adaptively scaling up to 10 trials')))
+          .isTrue();
+    });
+
+    test(
+      'does not scale trials beyond configured trials when variance is low',
+      () {
+        final logs = <String>[];
+        final bench = _PeriodicGcBenchmark(
+          'gc_non_spiking',
+          config: BenchmarkConfig(
+            trials: 5,
+            maxTrials: 10,
+            targetBatchDuration: const Duration(milliseconds: 20),
+            forceRun: true,
+            logger: logs.add,
+          ),
+          shouldSpike: false,
+        );
+
+        final result = BenchmarkRunner.run(bench);
+
+        check(result.warmupResult.isStable).isTrue();
+        check(result.rawTrialLatenciesNs.length).equals(5);
+        check(result.metrics.isStable).isTrue();
+        check(logs.any((l) => l.contains('Adaptively scaling'))).isFalse();
       },
     );
   });
