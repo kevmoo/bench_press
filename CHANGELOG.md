@@ -1,5 +1,6 @@
 ## 0.3.0-wip
 
+- Added top-level `### Suite Summary` roll-up table with geometric mean, minimum, and maximum speedup across comparison groups to `MarkdownReporter.renderSuite` and `MarkdownReporter.renderSuiteSummaryTable` when suites contain 2 or more distinct groups (Issue #22).
 - Added compilation artifact caching to `TargetCompiler.compile` and `--cache` / `--no-cache` CLI flags to `bench_press run`, avoiding redundant AOT/Wasm/JS compilation for unchanged benchmark files and dependencies (Issue #21).
 - Added explicit CLI options `--d8-path` and `--node-path` to `bench_press run` and `bench_press validate`, supporting custom binary overrides, `D8_PATH` and `NODE_PATH` environment variables, and SDK auto-probing for bundled D8 under `bin/resources/dart2wasm/d8` (Issue #19).
 - Fixed silent crashes on Node.js for JS and Wasm targets by replacing `stdout.writeln` with `print`, generating self-invoking `.run.mjs` and `.node.cjs` wrappers with unhandled rejection listeners, and forwarding CLI arguments via `dartMainRunner` (Issue #29).
