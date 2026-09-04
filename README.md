@@ -19,7 +19,7 @@ Add `bench_press` to your `pubspec.yaml`:
 
 ```yaml
 dev_dependencies:
-  bench_press: ^0.2.0
+  bench_press: ^0.3.0
 ```
 
 ### 1. Write a Benchmark
@@ -96,6 +96,37 @@ Future<void> main(List<String> args) async {
 }
 ```
 
+#### Parameterized Matrix Groups (`BenchmarkGroup.matrix`)
+
+Evaluate competing implementations across multiple inputs or datasets without repetitive boilerplate:
+
+```dart
+Future<void> main(List<String> args) async {
+  final matrix = BenchmarkGroup.matrix<int>(
+    cases: [10, 100, 1000],
+    name: (n) => 'string_length_$n',
+    throughput: (n) => Throughput.elements(n),
+    baseline: ('concat', (n) {
+      var str = '';
+      for (var i = 0; i < n; i++) {
+        str += 'x';
+      }
+      Blackhole.consume(str);
+    }),
+    candidates: {
+      'buffer': (n) {
+        final sb = StringBuffer();
+        for (var i = 0; i < n; i++) {
+          sb.write('x');
+        }
+        Blackhole.consume(sb.toString());
+      },
+    },
+  );
+  await mainBenchmarkSuite(matrix, args);
+}
+```
+
 ### 3. Asynchronous Benchmarks (`AsyncBenchmark`)
 
 ```dart
@@ -128,6 +159,15 @@ dart run bench_press run
 
 # Run across multiple runtime targets (JIT, AOT, WasmGC, JS)
 dart run bench_press run -t jit -t aot -t wasm
+
+# Adaptive trial scaling (scale up to 50 trials if initial variance exceeds threshold)
+dart run bench_press run --max-trials 50
+
+# Specify custom D8 or Node.js executables for Web/Wasm runtimes
+dart run bench_press run -t wasm --d8-path /path/to/d8 --node-path /path/to/node
+
+# Bypass compiled artifact caching across runs
+dart run bench_press run --no-cache -t aot
 
 # Run a specific benchmark file or directory
 dart run bench_press run benchmark/json_benchmark.dart

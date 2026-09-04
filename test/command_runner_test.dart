@@ -14,6 +14,16 @@ void main() {
       check(code).equals(0);
     });
 
+    test('benchPressVersion matches version in pubspec.yaml', () {
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      final match = RegExp(
+        r'^version:\s*(\S+)',
+        multiLine: true,
+      ).firstMatch(pubspec);
+      check(match).isNotNull();
+      check(benchPressVersion).equals(match!.group(1)!);
+    });
+
     test('--help prints available commands and usage', () async {
       final runner = BenchPressCommandRunner();
       final code = await runner.run(['--help']);

@@ -1,9 +1,15 @@
-## 0.3.0-wip
+## 0.3.0
 
+- **Breaking Change**: Streamlined `Blackhole` API to a single universal `consume(Object? value)` method. Removed redundant specialized methods (`consumeInt`, `consumeDouble`, `consumeBool`, `consumeString`, `consumeObject`).
+- Hardened `Blackhole` compiler barrier against optimizing compiler Dead Code Elimination:
+  - Adopted 3-bit cyclic Gray-code ring buffer indexing (`(index & 7) ^ ((index & 7) >> 1)`) to disrupt compiler loop unrolling and vectorization without consecutive slot collisions.
+  - Coupled slot position with element hashing in `Blackhole.drain()` via `Object.hash(_sink[i], i)` to guarantee position-dependent reduction.
+  - Corrected documentation regarding retention guarantees (retains the last 8 writes across the cyclic Gray-code buffer).
+  - Fixed 5.2x latency cliff on Web/JavaScript previously caused by eager `double.hashCode` computation.
 - Added top-level `### Suite Summary` roll-up table with geometric mean, minimum, and maximum speedup across comparison groups to `MarkdownReporter.renderSuite` and `MarkdownReporter.renderSuiteSummaryTable` when suites contain 2 or more distinct groups (Issue #22).
 - Added compilation artifact caching to `TargetCompiler.compile` and `--cache` / `--no-cache` CLI flags to `bench_press run`, avoiding redundant AOT/Wasm/JS compilation for unchanged benchmark files and dependencies (Issue #21).
-- Added explicit CLI options `--d8-path` and `--node-path` to `bench_press run` and `bench_press validate`, supporting custom binary overrides, `D8_PATH` and `NODE_PATH` environment variables, and SDK auto-probing for bundled D8 under `bin/resources/dart2wasm/d8` (Issue #19).
-- Fixed silent crashes on Node.js for JS and Wasm targets by replacing `stdout.writeln` with `print`, generating self-invoking `.run.mjs` and `.node.cjs` wrappers with unhandled rejection listeners, and forwarding CLI arguments via `dartMainRunner` (Issue #29).
+- Added explicit CLI options `--d8-path` and `--node-path` to `bench_press run` and `bench_press validate`, supporting custom binary overrides, `D8_PATH` and `NODE_BINARY`/`NODE_EXECUTABLE` environment variables, and SDK auto-probing for bundled D8 under `bin/resources/dart2wasm/d8` (Issue #19).
+- Fixed silent crashes on Node.js for JS and Wasm targets by replacing `stdout.writeln` with `print`, generating self-invoking `.run.mjs` and `.node.cjs` wrappers with unhandled rejection listeners, and forwarding CLI arguments via `dartMainRunner` (Issue #29, #30).
 - Added parameterized matrix group builder `BenchmarkGroup.matrix<T>` (and convenience `Benchmark.matrix<T>`) and `BenchmarkMatrix<T>` to benchmark competing implementations across parameterized inputs or datasets without repetitive boilerplate (Issue #23).
 - Added `mainBenchmarkMatrix` CLI entrypoint and updated `mainBenchmarkSuite` to execute `BenchmarkMatrix` instances seamlessly.
 - Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs`).
@@ -11,12 +17,6 @@
 - Added adaptive trial scaling via `--max-trials` CLI option and `maxTrials` in `BenchmarkConfig` / `DefaultsConfig`, allowing `BenchmarkRunner` to dynamically collect additional measurement trials when initial variance exceeds threshold.
 - Enhanced `AdaptiveWarmupDetector` to distinguish systemic monotonic drift from transient bimodal outliers via `computeRobustSem` and `hasSystemicDrift`.
 - Added non-breaking `warmupComplete()` lifecycle hook to `Benchmark` and `AsyncBenchmark`.
-- **Breaking Change**: Streamlined `Blackhole` API to a single universal `consume(Object? value)` method. Removed redundant specialized methods (`consumeInt`, `consumeDouble`, `consumeBool`, `consumeString`, `consumeObject`).
-- Hardened `Blackhole` compiler barrier against optimizing compiler Dead Code Elimination:
-  - Adopted 3-bit cyclic Gray-code ring buffer indexing (`(index & 7) ^ ((index & 7) >> 1)`) to disrupt compiler loop unrolling and vectorization without consecutive slot collisions.
-  - Coupled slot position with element hashing in `Blackhole.drain()` via `Object.hash(_sink[i], i)` to guarantee position-dependent reduction.
-  - Corrected documentation regarding retention guarantees (retains the last 8 writes across the cyclic Gray-code buffer).
-  - Fixed 5.2x latency cliff on Web/JavaScript previously caused by eager `double.hashCode` computation.
 
 ## 0.2.0
 
