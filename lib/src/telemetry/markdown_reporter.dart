@@ -31,12 +31,7 @@ abstract final class MarkdownReporter() {
         );
 
     if (isLegacyGrouped) {
-      final groupTables = renderAllGroupComparisonTables(suite);
-      if (groupTables.isNotEmpty) {
-        buffer.write(groupTables);
-      }
-      final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
-      buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
+      buffer.write(_renderLegacyGroupedSuite(suite));
       return buffer.toString().trimRight();
     }
 
@@ -53,6 +48,125 @@ abstract final class MarkdownReporter() {
 
     buffer.writeln(renderSummaryTable(suite, title: 'All Benchmarks'));
     return buffer.toString().trimRight();
+  }
+
+  static String _renderLegacyGroupedSuite(BenchmarkSuiteResult suite) {
+    final buffer = StringBuffer();
+    final suiteSummary = renderSuiteSummaryTable(suite);
+    if (suiteSummary.isNotEmpty) {
+      buffer.writeln(suiteSummary);
+      buffer.writeln();
+    }
+    final groupTables = renderAllGroupComparisonTables(suite);
+    if (groupTables.isNotEmpty) {
+      buffer.write(groupTables);
+    }
+    final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
+    buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
+    return buffer.toString();
+  }
+
+  /// Renders a top-level Suite Summary table rolling up candidate performance
+  /// across multiple comparison groups using geometric mean speedup.
+  ///
+  /// Returns an empty string when there are fewer than 2 distinct comparison
+  /// groups with a baseline and at least one candidate.
+  static String renderSuiteSummaryTable(
+    BenchmarkSuiteResult suite, {
+    String? title,
+  }) {
+    final (distinctGroupCount, candidateSpeedups) =
+        _collectCandidateGroupSpeedups(suite);
+    if (distinctGroupCount < 2 || candidateSpeedups.isEmpty) {
+      return '';
+    }
+
+    final buffer = StringBuffer();
+    final heading = title ?? 'Suite Summary';
+    buffer.writeln('### $heading\n');
+    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
+    buffer.writeln(
+      '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
+      'Max Speedup | Groups |',
+    );
+    buffer.writeln('| :--- | :--- | :---: | :---: | :---: | :---: |');
+
+    final targets = <String>{for (final key in candidateSpeedups.keys) key.$2};
+    for (final target in targets) {
+      for (final key in candidateSpeedups.keys) {
+        if (key.$2 == target) {
+          buffer.writeln(
+            _formatSuiteSummaryRow(key.$1, target, candidateSpeedups[key]!),
+          );
+        }
+      }
+    }
+    buffer.writeln('<!-- mdformat on -->');
+    return buffer.toString().trimRight();
+  }
+
+  static (int, Map<(String, String), List<double>>)
+  _collectCandidateGroupSpeedups(BenchmarkSuiteResult suite) {
+    final groups = <(String, String), List<BenchmarkEntry>>{};
+    for (final entry in suite.benchmarks) {
+      final group = entry.coordinates.group;
+      if (group != null && group.isNotEmpty) {
+        groups.putIfAbsent((group, entry.target), () => []).add(entry);
+      }
+    }
+
+    final distinctGroups = <String>{};
+    final candidateSpeedups = <(String, String), List<double>>{};
+    for (final MapEntry(:key, :value) in groups.entries) {
+      _recordGroupSpeedups(key.$1, value, distinctGroups, candidateSpeedups);
+    }
+    return (distinctGroups.length, candidateSpeedups);
+  }
+
+  static void _recordGroupSpeedups(
+    String groupName,
+    List<BenchmarkEntry> entries,
+    Set<String> distinctGroups,
+    Map<(String, String), List<double>> candidateSpeedups,
+  ) {
+    if (entries.length < 2) return;
+    distinctGroups.add(groupName);
+
+    final baseEntry = entries.firstWhere(
+      (e) => e.isBaseline,
+      orElse: () => entries.first,
+    );
+    final baseMeanNs = baseEntry.metrics.meanNs;
+
+    for (final entry in entries) {
+      if (identical(entry, baseEntry)) continue;
+      final curMeanNs = entry.metrics.meanNs;
+      final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
+          ? (baseMeanNs / curMeanNs)
+          : 1.0;
+      candidateSpeedups
+          .putIfAbsent((entry.name, entry.target), () => [])
+          .add(speedup);
+    }
+  }
+
+  static String _formatSuiteSummaryRow(
+    String candidate,
+    String target,
+    List<double> speedups,
+  ) {
+    final count = speedups.length;
+    var logSum = 0.0;
+    for (final s in speedups) {
+      logSum += math.log(s);
+    }
+    final geomean = math.exp(logSum / count);
+    final minSpeedup = speedups.reduce(math.min);
+    final maxSpeedup = speedups.reduce(math.max);
+
+    return '| `$candidate` | `$target` | **${geomean.toStringAsFixed(2)}x** | '
+        '${minSpeedup.toStringAsFixed(2)}x | '
+        '${maxSpeedup.toStringAsFixed(2)}x | $count |';
   }
 
   static Map<String, List<BenchmarkEntry>> _groupMatrixByWorkload(

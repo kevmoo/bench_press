@@ -428,6 +428,118 @@ void main() {
         check<String>(table).contains('1,234,567 ops/s');
       },
     );
+
+    test('single-group suite omits Suite Summary table', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      final baseEntry = _createGroupEntryWithSamples(
+        name: 'baseline_impl',
+        target: 'jit',
+        meanNs: 100.0,
+        samples: [98.0, 100.0, 102.0],
+        group: 'Single Group',
+        isBaseline: true,
+      );
+
+      final candEntry = _createGroupEntryWithSamples(
+        name: 'candidate_impl',
+        target: 'jit',
+        meanNs: 50.0,
+        samples: [49.0, 50.0, 51.0],
+        group: 'Single Group',
+        isBaseline: false,
+      );
+
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [baseEntry, candEntry],
+      );
+
+      final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
+      check<String>(summaryTable).equals('');
+
+      final report = MarkdownReporter.renderSuite(suite);
+      check<String>(report).not((it) => it.contains('### Suite Summary'));
+    });
+
+    test(
+      'multi-group suite renders Suite Summary table at top with geomean, min, '
+      'and max speedups',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+
+        // Group 1: baseline 100ns, candidate 50ns (2.00x speedup)
+        final g1Base = _createGroupEntryWithSamples(
+          name: 'std_json',
+          target: 'jit',
+          meanNs: 100.0,
+          samples: [99.0, 100.0, 101.0],
+          group: 'Decode: small',
+          isBaseline: true,
+        );
+        final g1Cand = _createGroupEntryWithSamples(
+          name: 'fast_json',
+          target: 'jit',
+          meanNs: 50.0,
+          samples: [49.0, 50.0, 51.0],
+          group: 'Decode: small',
+          isBaseline: false,
+        );
+
+        // Group 2: baseline 800ns, candidate 100ns (8.00x speedup)
+        // Geometric mean of 2.00x and 8.00x = sqrt(16.0) = 4.00x
+        final g2Base = _createGroupEntryWithSamples(
+          name: 'std_json',
+          target: 'jit',
+          meanNs: 800.0,
+          samples: [790.0, 800.0, 810.0],
+          group: 'Decode: large',
+          isBaseline: true,
+        );
+        final g2Cand = _createGroupEntryWithSamples(
+          name: 'fast_json',
+          target: 'jit',
+          meanNs: 100.0,
+          samples: [99.0, 100.0, 101.0],
+          group: 'Decode: large',
+          isBaseline: false,
+        );
+
+        final suite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+          environment: env,
+          benchmarks: [g1Base, g1Cand, g2Base, g2Cand],
+        );
+
+        final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
+        check<String>(summaryTable).contains('### Suite Summary');
+        check<String>(summaryTable)
+            .contains('<!-- mdformat off(prevent table wrapping) -->');
+        check<String>(summaryTable).contains('<!-- mdformat on -->');
+        check<String>(summaryTable).contains(
+          '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
+          'Max Speedup | Groups |',
+        );
+        check<String>(
+          summaryTable,
+        ).contains('| `fast_json` | `jit` | **4.00x** | 2.00x | 8.00x | 2 |');
+
+        final fullReport = MarkdownReporter.renderSuite(suite);
+        final summaryIdx = fullReport.indexOf('### Suite Summary');
+        final firstGroupIdx = fullReport.indexOf('### Group:');
+        check<int>(summaryIdx).isGreaterOrEqual(0);
+        check<int>(firstGroupIdx).isGreaterThan(summaryIdx);
+      },
+    );
   });
 }
 
