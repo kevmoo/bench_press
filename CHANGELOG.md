@@ -1,6 +1,7 @@
 ## 0.3.0-wip
 
-- Fixed silent crashes on Node.js for JS and Wasm targets by replacing `stdout.writeln` with `print`, generating self-invoking `.run.mjs` and `.node.js` wrappers with unhandled rejection listeners, and forwarding CLI arguments via `dartMainRunner` (Issue #29).
+- Added explicit CLI options `--d8-path` and `--node-path` to `bench_press run` and `bench_press validate`, supporting custom binary overrides, `D8_PATH` and `NODE_PATH` environment variables, and SDK auto-probing for bundled D8 under `bin/resources/dart2wasm/d8` (Issue #19).
+- Fixed silent crashes on Node.js for JS and Wasm targets by replacing `stdout.writeln` with `print`, generating self-invoking `.run.mjs` and `.node.cjs` wrappers with unhandled rejection listeners, and forwarding CLI arguments via `dartMainRunner` (Issue #29).
 - Added parameterized matrix group builder `BenchmarkGroup.matrix<T>` (and convenience `Benchmark.matrix<T>`) and `BenchmarkMatrix<T>` to benchmark competing implementations across parameterized inputs or datasets without repetitive boilerplate (Issue #23).
 - Added `mainBenchmarkMatrix` CLI entrypoint and updated `mainBenchmarkSuite` to execute `BenchmarkMatrix` instances seamlessly.
 - Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs`).

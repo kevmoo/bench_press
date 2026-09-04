@@ -496,6 +496,58 @@ void main(List<String> args) => mainBenchmark(DiffTarget(), args);
       },
     );
 
+    test(
+      'run subcommand exits with usage error on non-existent --d8-path',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'run',
+          '--d8-path',
+          '/non_existent_d8_123',
+        ]);
+        check(exitCode).equals(ExitCode.usage.code);
+      },
+    );
+
+    test(
+      'run subcommand exits with usage error on non-existent --node-path',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'run',
+          '--node-path',
+          '/non_existent_node_123',
+        ]);
+        check(exitCode).equals(ExitCode.usage.code);
+      },
+    );
+
+    test(
+      'validate subcommand exits with usage error on non-existent --d8-path',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'validate',
+          '--d8-path',
+          '/non_existent_d8_123',
+        ]);
+        check(exitCode).equals(ExitCode.usage.code);
+      },
+    );
+
+    test(
+      'validate subcommand exits with usage error on non-existent --node-path',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'validate',
+          '--node-path',
+          '/non_existent_node_123',
+        ]);
+        check(exitCode).equals(ExitCode.usage.code);
+      },
+    );
+
     test('BenchmarkEntry.copyWith updates group and isBaseline', () {
       const metrics = BenchmarkMetrics(
         meanNs: 100.0,

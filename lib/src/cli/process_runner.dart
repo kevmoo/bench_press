@@ -165,36 +165,70 @@ final class const BenchmarkProcessRunner({
         return (artifactPath, benchArgs);
 
       case TargetRuntime.wasm:
-        if (sdk.nodeExecutable != null) {
-          final script = runnerScriptPath ?? artifactPath;
-          final args = <String>[...vmFlags, script, ...benchArgs];
-          return (sdk.nodeExecutable!, args);
-        } else if (sdk.d8Executable != null) {
-          final d8Script = p.setExtension(artifactPath, '.mjs');
-          final script = File(d8Script).existsSync() ? d8Script : artifactPath;
-          final args = <String>[
-            '--experimental-wasm-gc',
-            ...vmFlags,
-            script,
-            '--',
-            ...benchArgs,
-          ];
-          return (sdk.d8Executable!, args);
-        }
-        throw StateError('No Wasm runner (Node.js or D8) found on PATH.');
+        return _resolveWasmCommand(
+          artifactPath: artifactPath,
+          runnerScriptPath: runnerScriptPath,
+          vmFlags: vmFlags,
+          benchArgs: benchArgs,
+        );
 
       case TargetRuntime.js:
-        if (sdk.nodeExecutable != null) {
-          final script = runnerScriptPath ?? artifactPath;
-          final args = <String>[...vmFlags, script, ...benchArgs];
-          return (sdk.nodeExecutable!, args);
-        } else if (sdk.d8Executable != null) {
-          final args = <String>[...vmFlags, artifactPath, '--', ...benchArgs];
-          return (sdk.d8Executable!, args);
-        }
-        throw StateError('No JavaScript runner (Node.js or D8) found on PATH.');
+        return _resolveJsCommand(
+          artifactPath: artifactPath,
+          runnerScriptPath: runnerScriptPath,
+          vmFlags: vmFlags,
+          benchArgs: benchArgs,
+        );
     }
   }
+
+  (String executable, List<String> processArgs) _resolveWasmCommand({
+    required String artifactPath,
+    required String? runnerScriptPath,
+    required List<String> vmFlags,
+    required List<String> benchArgs,
+  }) {
+    final useD8 =
+        sdk.d8Executable != null && (_preferD8 || sdk.nodeExecutable == null);
+    if (useD8) {
+      final d8Script = p.setExtension(artifactPath, '.mjs');
+      final script = File(d8Script).existsSync() ? d8Script : artifactPath;
+      final args = <String>[
+        '--experimental-wasm-gc',
+        ...vmFlags,
+        script,
+        '--',
+        ...benchArgs,
+      ];
+      return (sdk.d8Executable!, args);
+    } else if (sdk.nodeExecutable != null) {
+      final script = runnerScriptPath ?? artifactPath;
+      final args = <String>[...vmFlags, script, ...benchArgs];
+      return (sdk.nodeExecutable!, args);
+    }
+    throw StateError('No Wasm runner (Node.js or D8) found on PATH.');
+  }
+
+  (String executable, List<String> processArgs) _resolveJsCommand({
+    required String artifactPath,
+    required String? runnerScriptPath,
+    required List<String> vmFlags,
+    required List<String> benchArgs,
+  }) {
+    final useD8 =
+        sdk.d8Executable != null && (_preferD8 || sdk.nodeExecutable == null);
+    if (useD8) {
+      final args = <String>[...vmFlags, artifactPath, '--', ...benchArgs];
+      return (sdk.d8Executable!, args);
+    } else if (sdk.nodeExecutable != null) {
+      final script = runnerScriptPath ?? artifactPath;
+      final args = <String>[...vmFlags, script, ...benchArgs];
+      return (sdk.nodeExecutable!, args);
+    }
+    throw StateError('No JavaScript runner (Node.js or D8) found on PATH.');
+  }
+
+  bool get _preferD8 => sdk.customD8Path != null && sdk.customNodePath == null;
 
   Future<ProcessExecutionResult> _executeIsolate({
     required String scriptPath,
