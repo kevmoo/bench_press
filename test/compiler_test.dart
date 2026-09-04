@@ -371,5 +371,83 @@ void main(List<String> args) => mainBenchmark(FlagBench(), args);
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test('compilation caching caches artifact, hits cache on repeat, '
+        'invalidates on source edit, and respects useCache: false', () async {
+      final tempDir = Directory.systemTemp.createTempSync('cache_test_');
+      try {
+        final source = File(p.join(tempDir.path, 'cache_bench.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class CacheBench extends Benchmark {
+  CacheBench() : super('cache_bench');
+  @override
+  void run() => Blackhole.consume(1);
+}
+
+void main(List<String> args) => mainBenchmark(CacheBench(), args);
+''');
+
+        const compiler = TargetCompiler();
+        final outDir1 = Directory(p.join(tempDir.path, 'out1'));
+
+        // 1. First compilation -> cache miss (cacheHit: false)
+        final result1 = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+          outputDir: outDir1,
+        );
+        check(result1.success).isTrue();
+        check(result1.cacheHit).isFalse();
+        check(result1.artifactPath).isNotNull();
+        check(File(result1.artifactPath!).existsSync()).isTrue();
+
+        // 2. Second compilation with identical source -> cache hit
+        final outDir2 = Directory(p.join(tempDir.path, 'out2'));
+        final result2 = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+          outputDir: outDir2,
+        );
+        check(result2.success).isTrue();
+        check(result2.cacheHit).isTrue();
+        check(result2.compilationDuration).equals(Duration.zero);
+        check(result2.artifactPath).isNotNull();
+        check(File(result2.artifactPath!).existsSync()).isTrue();
+
+        // 3. Passing useCache: false bypasses cache (cacheHit: false)
+        final result3 = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+          outputDir: outDir2,
+          useCache: false,
+        );
+        check(result3.success).isTrue();
+        check(result3.cacheHit).isFalse();
+
+        // 4. Modifying source file invalidates cache (cacheHit: false)
+        source.writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class CacheBench extends Benchmark {
+  CacheBench() : super('cache_bench_modified');
+  @override
+  void run() => Blackhole.consume(2);
+}
+
+void main(List<String> args) => mainBenchmark(CacheBench(), args);
+''');
+        final result4 = await compiler.compile(
+          sourceFile: source,
+          runtime: TargetRuntime.aot,
+          outputDir: outDir2,
+        );
+        check(result4.success).isTrue();
+        check(result4.cacheHit).isFalse();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }
