@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'blackhole.dart';
 import 'config.dart';
@@ -47,6 +48,27 @@ abstract class Benchmark(
     setup: setup,
     teardown: teardown,
     throughput: throughput,
+    config: config,
+  );
+
+  /// Convenience factory forwarding to [BenchmarkGroup.matrix].
+  static BenchmarkMatrix<T> matrix<T>({
+    required Iterable<T> cases,
+    required String Function(T caseItem) name,
+    required (String, dynamic Function(T caseItem)) baseline,
+    required Map<String, dynamic Function(T caseItem)> candidates,
+    Throughput? Function(T caseItem)? throughput,
+    void Function(T caseItem)? setup,
+    void Function(T caseItem)? teardown,
+    BenchmarkConfig config = const BenchmarkConfig(),
+  }) => BenchmarkGroup.matrix<T>(
+    cases: cases,
+    name: name,
+    baseline: baseline,
+    candidates: candidates,
+    throughput: throughput,
+    setup: setup,
+    teardown: teardown,
     config: config,
   );
 }
@@ -166,6 +188,37 @@ final class BenchmarkGroup(
     return BenchmarkGroup(name, list, config: config);
   }
 
+  /// Parameterized matrix group builder to benchmark competing implementations
+  /// across multiple cases or datasets without repetitive boilerplate.
+  static BenchmarkMatrix<T> matrix<T>({
+    required Iterable<T> cases,
+    required String Function(T caseItem) name,
+    required (String, dynamic Function(T caseItem)) baseline,
+    required Map<String, dynamic Function(T caseItem)> candidates,
+    Throughput? Function(T caseItem)? throughput,
+    void Function(T caseItem)? setup,
+    void Function(T caseItem)? teardown,
+    BenchmarkConfig config = const BenchmarkConfig(),
+  }) {
+    final caseList = List<T>.unmodifiable(cases);
+    final groups = <BenchmarkGroup>[
+      for (final caseItem in caseList)
+        BenchmarkGroup.compare(
+          name: name(caseItem),
+          baseline: (baseline.$1, () => baseline.$2(caseItem)),
+          candidates: {
+            for (final entry in candidates.entries)
+              entry.key: () => entry.value(caseItem),
+          },
+          setup: setup != null ? () => setup(caseItem) : null,
+          teardown: teardown != null ? () => teardown(caseItem) : null,
+          throughput: throughput?.call(caseItem),
+          config: config,
+        ),
+    ];
+    return BenchmarkMatrix<T>(groups, cases: caseList, config: config);
+  }
+
   /// Executes all variants in this group sequentially.
   Future<List<BenchmarkResult>> report({BenchmarkConfig? config}) async {
     final effectiveConfig = config ?? this.config;
@@ -177,4 +230,35 @@ final class BenchmarkGroup(
     }
     return results;
   }
+}
+
+/// A parameterized matrix of benchmark groups across datasets or input cases.
+final class BenchmarkMatrix<T>(
+  List<BenchmarkGroup> rawGroups, {
+  required Iterable<T> cases,
+
+  /// Default configuration applied across groups in this matrix.
+  final BenchmarkConfig config = const BenchmarkConfig(),
+}) extends UnmodifiableListView<BenchmarkGroup> {
+  /// The input cases evaluated in this matrix.
+  final List<T> cases = List.unmodifiable(cases);
+
+  this : super(List.unmodifiable(rawGroups));
+
+  /// The generated benchmark groups in this matrix.
+  List<BenchmarkGroup> get groups => this;
+
+  /// Executes all benchmark groups in this matrix sequentially.
+  Future<List<BenchmarkResult>> report({BenchmarkConfig? config}) async {
+    final effectiveConfig = config ?? this.config;
+    final results = <BenchmarkResult>[];
+    for (final group in this) {
+      results.addAll(await group.report(config: effectiveConfig));
+    }
+    return results;
+  }
+
+  @override
+  String toString() =>
+      'BenchmarkMatrix<$T>(cases: ${cases.length}, groups: $length)';
 }

@@ -55,9 +55,17 @@ Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
   await mainBenchmarkSuite([group], args);
 }
 
+/// Standalone CLI entrypoint for a [BenchmarkMatrix].
+Future<void> mainBenchmarkMatrix(
+  BenchmarkMatrix<dynamic> matrix,
+  List<String> args,
+) async {
+  await mainBenchmarkSuite(matrix, args);
+}
+
 /// Standalone CLI entrypoint for an arbitrary collection or single instance of
-/// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or
-/// [BenchmarkGroup]).
+/// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant],
+/// [BenchmarkGroup], or [BenchmarkMatrix]).
 Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   validateBenchmarks(benchmarks);
   final parser = ArgParser()
@@ -123,11 +131,17 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
         for (final v in g.variants) {
           results.add(await BenchmarkRunner.runVariant(v, config: config));
         }
+      case BenchmarkMatrix<dynamic> m:
+        for (final g in m) {
+          for (final v in g.variants) {
+            results.add(await BenchmarkRunner.runVariant(v, config: config));
+          }
+        }
       default:
         throw ArgumentError(
           'Unsupported benchmark type: ${item.runtimeType}. '
-          'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, or '
-          'BenchmarkGroup.',
+          'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, '
+          'BenchmarkGroup, or BenchmarkMatrix.',
         );
     }
   }
