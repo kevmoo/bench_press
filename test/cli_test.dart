@@ -489,5 +489,124 @@ void main(List<String> args) => mainBenchmark(DiffCliBenchmark(), args);
         }
       },
     );
+
+    test(
+      'run and validate reject non-existent --d8-path with exit code 64',
+      () async {
+        final runResult = await Process.run('dart', [
+          'run',
+          'bin/bench_press.dart',
+          'run',
+          '--d8-path',
+          '/non_existent_d8_path_xyz',
+        ]);
+        check(runResult.exitCode).equals(64);
+        check(runResult.stderr.toString()).contains(
+          'Custom D8 executable "/non_existent_d8_path_xyz" does not exist.',
+        );
+
+        final validateResult = await Process.run('dart', [
+          'run',
+          'bin/bench_press.dart',
+          'validate',
+          '--d8-path',
+          '/non_existent_d8_path_xyz',
+        ]);
+        check(validateResult.exitCode).equals(64);
+        check(validateResult.stderr.toString()).contains(
+          'Custom D8 executable "/non_existent_d8_path_xyz" does not exist.',
+        );
+      },
+    );
+
+    test(
+      'run and validate reject non-existent --node-path with exit code 64',
+      () async {
+        final runResult = await Process.run('dart', [
+          'run',
+          'bin/bench_press.dart',
+          'run',
+          '--node-path',
+          '/non_existent_node_path_xyz',
+        ]);
+        check(runResult.exitCode).equals(64);
+        check(runResult.stderr.toString()).contains(
+          'Custom Node.js executable "/non_existent_node_path_xyz" does not exist.',
+        );
+
+        final validateResult = await Process.run('dart', [
+          'run',
+          'bin/bench_press.dart',
+          'validate',
+          '--node-path',
+          '/non_existent_node_path_xyz',
+        ]);
+        check(validateResult.exitCode).equals(64);
+        check(validateResult.stderr.toString()).contains(
+          'Custom Node.js executable "/non_existent_node_path_xyz" does not exist.',
+        );
+      },
+    );
+
+    test(
+      'run and validate accept valid --d8-path and --node-path flags',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'runner_flags_e2e_',
+        );
+        try {
+          final dummyD8 = File(p.join(tempDir.path, 'dummy_d8'))
+            ..writeAsStringSync('');
+          final dummyNode = File(p.join(tempDir.path, 'dummy_node'))
+            ..writeAsStringSync('');
+          final benchFile = File(p.join(tempDir.path, 'runner_bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class FlagBench extends Benchmark {
+  FlagBench() : super('flag_bench');
+  @override
+  void run() => Blackhole.consume(1);
+}
+
+void main(List<String> args) => mainBenchmark(FlagBench(), args);
+''');
+
+          final valResult = await Process.run('dart', [
+            'run',
+            'bin/bench_press.dart',
+            'validate',
+            '-t',
+            'jit',
+            '--d8-path',
+            dummyD8.path,
+            '--node-path',
+            dummyNode.path,
+            benchFile.path,
+          ]);
+          check(valResult.exitCode).equals(0);
+
+          final runResult = await Process.run('dart', [
+            'run',
+            'bin/bench_press.dart',
+            'run',
+            '-t',
+            'jit',
+            '--trials',
+            '1',
+            '--force-run',
+            '--no-save',
+            '--d8-path',
+            dummyD8.path,
+            '--node-path',
+            dummyNode.path,
+            benchFile.path,
+          ]);
+          check(runResult.exitCode).equals(0);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }

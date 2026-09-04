@@ -68,6 +68,12 @@ final class const DartSdk({
   /// Custom override path to the Dart SDK root directory.
   final String? customSdkPath,
 
+  /// Custom override path to the D8 executable.
+  final String? customD8Path,
+
+  /// Custom override path to the Node.js executable.
+  final String? customNodePath,
+
   /// Custom environment variable map override.
   final Map<String, String>? environment,
 }) {
@@ -144,8 +150,25 @@ final class const DartSdk({
     return findExecutable('dart');
   }
 
-  /// Returns the path to the `node` (or `nodejs`) executable on PATH.
+  /// Returns the path to the `node` (or `nodejs`) executable, resolving via
+  /// custom path, `NODE_PATH` environment variable, system PATH, or standard
+  /// local installation directories.
   String? get nodeExecutable {
+    if (customNodePath != null) {
+      if (File(customNodePath!).existsSync()) {
+        return p.normalize(p.absolute(customNodePath!));
+      }
+      return null;
+    }
+
+    final nodeEnv = _env['NODE_PATH'];
+    if (nodeEnv != null && nodeEnv.isNotEmpty) {
+      final file = File(nodeEnv);
+      if (file.existsSync()) {
+        return p.normalize(p.absolute(nodeEnv));
+      }
+    }
+
     final exe = findExecutable('node') ?? findExecutable('nodejs');
     if (exe != null) return exe;
     final home = _env['HOME'] ?? _env['USERPROFILE'];
@@ -167,15 +190,55 @@ final class const DartSdk({
       ];
       for (final candidate in candidates) {
         if (File(candidate).existsSync()) {
-          return candidate;
+          return p.normalize(p.absolute(candidate));
         }
       }
     }
     return null;
   }
 
-  /// Returns the path to the `d8` executable on the system PATH.
-  String? get d8Executable => findExecutable('d8');
+  /// Returns the path to the `d8` executable, resolving via custom path,
+  /// `D8_PATH` environment variable, Dart SDK auto-probing, or system PATH.
+  String? get d8Executable {
+    if (customD8Path != null) {
+      if (File(customD8Path!).existsSync()) {
+        return p.normalize(p.absolute(customD8Path!));
+      }
+      return null;
+    }
+
+    final d8Env = _env['D8_PATH'];
+    if (d8Env != null && d8Env.isNotEmpty) {
+      final file = File(d8Env);
+      if (file.existsSync()) {
+        return p.normalize(p.absolute(d8Env));
+      }
+    }
+
+    final sdk = sdkPath;
+    if (sdk != null) {
+      final probed = _probeD8UnderSdk(sdk);
+      if (probed != null) return probed;
+    }
+
+    return findExecutable('d8');
+  }
+
+  String? _probeD8UnderSdk(String sdk) {
+    final exeName = Platform.isWindows ? 'd8.exe' : 'd8';
+    final candidates = [
+      p.join(sdk, 'bin', 'resources', 'dart2wasm', exeName),
+      p.join(sdk, 'out', 'ReleaseX64', exeName),
+      p.join(p.dirname(sdk), exeName),
+      p.join(p.dirname(sdk), 'ReleaseX64', exeName),
+    ];
+    for (final candidate in candidates) {
+      if (File(candidate).existsSync()) {
+        return p.normalize(p.absolute(candidate));
+      }
+    }
+    return null;
+  }
 
   /// Whether a suitable WebAssembly runner (Node.js or D8) is available.
   bool get hasWasmRunner => nodeExecutable != null || d8Executable != null;

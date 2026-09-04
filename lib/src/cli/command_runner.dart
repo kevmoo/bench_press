@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:io/io.dart';
+import 'package:path/path.dart' as p;
 
 import '../config/bench_press_config.dart';
 import '../config/validator.dart';
@@ -168,11 +169,36 @@ final class RunCommand({
         allowed: ['markdown', 'table', 'json'],
         help: 'Output formatting for stdout.',
       )
-      ..addOption('title', help: 'Custom heading title for the report.');
+      ..addOption('title', help: 'Custom heading title for the report.')
+      ..addOption('d8-path', help: 'Custom path to the D8 executable.')
+      ..addOption('node-path', help: 'Custom path to the Node.js executable.');
   }
 
   @override
   Future<int> run() async {
+    final d8Path = argResults!.option('d8-path');
+    if (d8Path != null && !File(d8Path).existsSync()) {
+      stderr.writeln('Custom D8 executable "$d8Path" does not exist.');
+      return ExitCode.usage.code;
+    }
+
+    final nodePath = argResults!.option('node-path');
+    if (nodePath != null && !File(nodePath).existsSync()) {
+      stderr.writeln('Custom Node.js executable "$nodePath" does not exist.');
+      return ExitCode.usage.code;
+    }
+
+    final effectiveSdk = DartSdk(
+      customSdkPath: sdk.customSdkPath,
+      customD8Path: d8Path != null
+          ? p.normalize(p.absolute(d8Path))
+          : sdk.customD8Path,
+      customNodePath: nodePath != null
+          ? p.normalize(p.absolute(nodePath))
+          : sdk.customNodePath,
+      environment: sdk.environment,
+    );
+
     final config = _resolveRunConfig();
 
     final targets = _resolveRunTargets(config);
@@ -190,6 +216,7 @@ final class RunCommand({
       files: files!,
       config: config,
       targets: targets,
+      effectiveSdk: effectiveSdk,
     );
   }
 
@@ -266,6 +293,7 @@ final class RunCommand({
     required List<DiscoveredBenchmarkFile> files,
     required BenchPressConfig config,
     required List<TargetRuntime> targets,
+    required DartSdk effectiveSdk,
   }) async {
     try {
       ConfigValidator.validateConfig(config);
@@ -275,7 +303,13 @@ final class RunCommand({
     }
 
     final coords = config.generateCoordinates();
-    final accumulated = await _executeMatrix(files, coords, config, targets);
+    final accumulated = await _executeMatrix(
+      files,
+      coords,
+      config,
+      targets,
+      effectiveSdk,
+    );
     if (accumulated == null || accumulated.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
       return ExitCode.software.code;
@@ -313,6 +347,7 @@ final class RunCommand({
     List<MatrixCoordinate> coords,
     BenchPressConfig config,
     List<TargetRuntime> defaultTargets,
+    DartSdk effectiveSdk,
   ) async {
     final trialsStr = argResults!.option('trials');
     final trials = trialsStr != null
@@ -342,6 +377,7 @@ final class RunCommand({
           isolateMode: isolateMode,
           compilerFlags: compilerFlags,
           vmFlags: vmFlags,
+          effectiveSdk: effectiveSdk,
         );
         if (result != null) {
           accumulated = accumulated == null
@@ -363,6 +399,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required DartSdk effectiveSdk,
   }) async {
     final coordRuntime =
         coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
@@ -383,6 +420,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        effectiveSdk: effectiveSdk,
       );
       if (result != null) {
         coordAccumulated = coordAccumulated == null
@@ -403,8 +441,9 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required DartSdk effectiveSdk,
   }) async {
-    final currentSdk = _resolveSdkFromCoordinate(coord);
+    final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
     final execFlags = _resolveFlagsFromCoordinate(coord, compilerFlags);
 
     return await _executeMatrixSingleTarget(
@@ -422,7 +461,7 @@ final class RunCommand({
     );
   }
 
-  DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord) {
+  DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
     final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
     var cleanedPath = sdkPath ?? '';
     if (cleanedPath == 'stock') cleanedPath = '';
@@ -431,7 +470,14 @@ final class RunCommand({
           Platform.environment['HOME'] ?? Platform.environment['USERPROFILE']!;
       cleanedPath = cleanedPath.replaceFirst('~', home);
     }
-    return cleanedPath.isNotEmpty ? DartSdk(customSdkPath: cleanedPath) : sdk;
+    return cleanedPath.isNotEmpty
+        ? DartSdk(
+            customSdkPath: cleanedPath,
+            customD8Path: baseSdk.customD8Path,
+            customNodePath: baseSdk.customNodePath,
+            environment: baseSdk.environment,
+          )
+        : baseSdk;
   }
 
   List<String> _resolveFlagsFromCoordinate(
@@ -596,11 +642,36 @@ final class ValidateCommand({
       ..addMultiOption(
         'compiler-flag',
         help: 'Extra flags forwarded directly to dart compile.',
-      );
+      )
+      ..addOption('d8-path', help: 'Custom path to the D8 executable.')
+      ..addOption('node-path', help: 'Custom path to the Node.js executable.');
   }
 
   @override
   Future<int> run() async {
+    final d8Path = argResults!.option('d8-path');
+    if (d8Path != null && !File(d8Path).existsSync()) {
+      stderr.writeln('Custom D8 executable "$d8Path" does not exist.');
+      return ExitCode.usage.code;
+    }
+
+    final nodePath = argResults!.option('node-path');
+    if (nodePath != null && !File(nodePath).existsSync()) {
+      stderr.writeln('Custom Node.js executable "$nodePath" does not exist.');
+      return ExitCode.usage.code;
+    }
+
+    final effectiveSdk = DartSdk(
+      customSdkPath: sdk.customSdkPath,
+      customD8Path: d8Path != null
+          ? p.normalize(p.absolute(d8Path))
+          : sdk.customD8Path,
+      customNodePath: nodePath != null
+          ? p.normalize(p.absolute(nodePath))
+          : sdk.customNodePath,
+      environment: sdk.environment,
+    );
+
     final configPath = argResults!.option('config') ?? 'bench_press.yaml';
     final config = BenchPressConfig.loadFrom(configPath);
 
@@ -618,6 +689,7 @@ final class ValidateCommand({
       files: files!,
       targets: targets,
       compilerFlags: compilerFlags,
+      effectiveSdk: effectiveSdk,
     );
 
     return allPassed ? ExitCode.success.code : ExitCode.software.code;
@@ -660,18 +732,33 @@ final class ValidateCommand({
     required List<DiscoveredBenchmarkFile> files,
     required List<TargetRuntime> targets,
     required List<String> compilerFlags,
+    required DartSdk effectiveSdk,
   }) {
     if (config == null) {
-      return _validateSimpleTargets(files, targets, compilerFlags);
+      return _validateSimpleTargets(
+        files,
+        targets,
+        compilerFlags,
+        effectiveSdk,
+      );
     }
-    return _validateMatrixTargets(files, config, targets, compilerFlags);
+    return _validateMatrixTargets(
+      files,
+      config,
+      targets,
+      compilerFlags,
+      effectiveSdk,
+    );
   }
 
   Future<bool> _validateSimpleTargets(
     List<DiscoveredBenchmarkFile> files,
     List<TargetRuntime> targets,
     List<String> compilerFlags,
+    DartSdk effectiveSdk,
   ) async {
+    final effectiveCompiler = TargetCompiler(sdk: effectiveSdk);
+    final effectiveProcessRunner = BenchmarkProcessRunner(sdk: effectiveSdk);
     var allPassed = true;
     for (final discovered in files) {
       for (final runtime in targets) {
@@ -679,6 +766,9 @@ final class ValidateCommand({
           discovered: discovered,
           runtime: runtime,
           compilerFlags: compilerFlags,
+          currentSdk: effectiveSdk,
+          currentCompiler: effectiveCompiler,
+          currentProcessRunner: effectiveProcessRunner,
         );
         if (!passed) allPassed = false;
       }
@@ -691,11 +781,15 @@ final class ValidateCommand({
     BenchPressConfig config,
     List<TargetRuntime> targets,
     List<String> compilerFlags,
+    DartSdk effectiveSdk,
   ) async {
     var allPassed = true;
     final coords = config.generateCoordinates();
     for (final discovered in files) {
       for (final coord in coords) {
+        final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
+        final currentCompiler = TargetCompiler(sdk: currentSdk);
+        final currentProcessRunner = BenchmarkProcessRunner(sdk: currentSdk);
         final runtimeTarget = coord.resolvedValues['runtime'];
         final runtime = (runtimeTarget != null && runtimeTarget.isNotEmpty)
             ? TargetRuntime.parseTargets([runtimeTarget]).first
@@ -704,6 +798,9 @@ final class ValidateCommand({
           discovered: discovered,
           runtime: runtime,
           compilerFlags: compilerFlags,
+          currentSdk: currentSdk,
+          currentCompiler: currentCompiler,
+          currentProcessRunner: currentProcessRunner,
         );
         if (!passed) allPassed = false;
       }
@@ -711,19 +808,45 @@ final class ValidateCommand({
     return allPassed;
   }
 
+  DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
+    final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
+    var cleanedPath = sdkPath ?? '';
+    if (cleanedPath == 'stock') cleanedPath = '';
+    if (cleanedPath.startsWith('~')) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE']!;
+      cleanedPath = cleanedPath.replaceFirst('~', home);
+    }
+    return cleanedPath.isNotEmpty
+        ? DartSdk(
+            customSdkPath: cleanedPath,
+            customD8Path: baseSdk.customD8Path,
+            customNodePath: baseSdk.customNodePath,
+            environment: baseSdk.environment,
+          )
+        : baseSdk;
+  }
+
   Future<bool> _validateTarget({
     required DiscoveredBenchmarkFile discovered,
     required TargetRuntime runtime,
     required List<String> compilerFlags,
+    DartSdk? currentSdk,
+    TargetCompiler? currentCompiler,
+    BenchmarkProcessRunner? currentProcessRunner,
   }) async {
-    if (!sdk.isRuntimeAvailable(runtime)) {
+    final activeSdk = currentSdk ?? sdk;
+    final activeCompiler = currentCompiler ?? compiler;
+    final activeProcessRunner = currentProcessRunner ?? processRunner;
+
+    if (!activeSdk.isRuntimeAvailable(runtime)) {
       stdout.writeln(
         '⏭️  [$runtime] ${discovered.basename} (skipped: unavailable)',
       );
       return true;
     }
 
-    final compilation = await compiler.compile(
+    final compilation = await activeCompiler.compile(
       sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: compilerFlags,
@@ -735,7 +858,7 @@ final class ValidateCommand({
       return false;
     }
 
-    final execResult = await processRunner.execute(
+    final execResult = await activeProcessRunner.execute(
       compilationResult: compilation,
       validate: true,
       forceRun: true,
