@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -164,6 +165,8 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     final wasmFileName = '$baseName.wasm';
     final loaderFileName = p.basename(loaderPath);
     final runnerPath = p.normalize(p.join(outputDir, '$baseName.run.mjs'));
+    final encodedLoaderFile = jsonEncode(loaderFileName);
+    final encodedWasmFile = jsonEncode(wasmFileName);
     File(runnerPath).writeAsStringSync('''
 import { readFile } from 'node:fs/promises';
 
@@ -173,8 +176,8 @@ process.on('unhandledRejection', (err) => {
 });
 
 try {
-  const init = await import(new URL('$loaderFileName', import.meta.url).href);
-  const bytes = await readFile(new URL('$wasmFileName', import.meta.url));
+  const init = await import(new URL($encodedLoaderFile, import.meta.url).href);
+  const bytes = await readFile(new URL($encodedWasmFile, import.meta.url));
   const compiledApp = await init.compile(bytes);
   const instantiatedApp = await compiledApp.instantiate({});
   await instantiatedApp.invokeMain(...process.argv.slice(2));
@@ -202,17 +205,20 @@ try {
   /// script runs, dart2js calls it instead of invoking `main` directly,
   /// letting us supply the real args ourselves.
   ///
-  /// This writes a `.node.js` wrapper next to the compiled output that
+  /// This writes a `.node.cjs` wrapper next to the compiled output that
   /// polyfills `self`, defines `dartMainRunner` to forward `process.argv`,
   /// and requires the compiled artifact — and returns its path for use as
-  /// the actual runner script.
+  /// the actual runner script. `.node.cjs` is used instead of `.node.js` so
+  /// Node.js treats the script unconditionally as CommonJS, even inside
+  /// packages configured with `"type": "module"`.
   String _writeJsRunner({
     required String outputDir,
     required String baseName,
     required String compiledPath,
   }) {
     final compiledFileName = p.basename(compiledPath);
-    final runnerPath = p.normalize(p.join(outputDir, '$baseName.node.js'));
+    final runnerPath = p.normalize(p.join(outputDir, '$baseName.node.cjs'));
+    final encodedCompiledFile = jsonEncode('./$compiledFileName');
     File(runnerPath).writeAsStringSync('''
 process.on('unhandledRejection', (err) => {
   console.error(err);
@@ -230,7 +236,7 @@ globalThis.dartMainRunner = (main, _ignoredArgs) => {
     process.exit(1);
   }
 };
-require('./$compiledFileName');
+require($encodedCompiledFile);
 ''');
     return runnerPath;
   }

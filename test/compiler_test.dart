@@ -99,13 +99,14 @@ void main(List<String> args) => mainBenchmark(JsBenchmark(), args);
         check(result.success).isTrue();
         check(result.artifactPath).isNotNull();
         check(File(result.artifactPath!).existsSync()).isTrue();
-        // The runner is a `.node.js` wrapper, not the compiled artifact
+        // The runner is a `.node.cjs` wrapper, not the compiled artifact
         // itself — `dart compile js` output assumes a browser/worker `self`
         // global for microtask/timer scheduling, absent under Node, so the
         // wrapper polyfills it before requiring the real artifact.
         check(result.runnerScriptPath).isNotNull();
         check(result.runnerScriptPath)
             .not((it) => it.equals(result.artifactPath));
+        check(result.runnerScriptPath!).endsWith('.node.cjs');
         check(File(result.runnerScriptPath!).existsSync()).isTrue();
         check(File(result.runnerScriptPath!).readAsStringSync())
             .contains('globalThis.self');
@@ -149,6 +150,7 @@ void main(List<String> args) => mainBenchmark(WasmBenchmark(), args);
           check(result.runnerScriptPath).isNotNull();
           check(result.runnerScriptPath)
               .not((it) => it.equals(result.artifactPath));
+          check(result.runnerScriptPath!).endsWith('.run.mjs');
           check(File(result.runnerScriptPath!).existsSync()).isTrue();
           check(File(result.runnerScriptPath!).readAsStringSync())
               .contains('instantiatedApp.invokeMain');
@@ -157,6 +159,106 @@ void main(List<String> args) => mainBenchmark(WasmBenchmark(), args);
         }
       },
     );
+
+    test('compiled JS benchmark executes cleanly under Node.js with '
+        'package.json type: module', () async {
+      final sdk = const DartSdk();
+      if (sdk.nodeExecutable == null) return;
+
+      final tempDir = Directory.systemTemp.createTempSync('compiler_js_exec_');
+      try {
+        // Verify that .node.cjs works even when a parent directory has
+        // "type": "module".
+        File(p.join(tempDir.path, 'package.json'))
+            .writeAsStringSync('{"type": "module"}');
+
+        final sourceFile = File(p.join(tempDir.path, 'exec_js.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class SimpleJsBenchmark extends Benchmark {
+  SimpleJsBenchmark() : super('simple_js');
+  @override
+  void run() => Blackhole.consume(42);
+}
+
+void main(List<String> args) => mainBenchmark(SimpleJsBenchmark(), args);
+''');
+
+        const compiler = TargetCompiler();
+        final outDir = Directory(p.join(tempDir.path, 'js_out'));
+
+        final compileResult = await compiler.compile(
+          sourceFile: sourceFile,
+          runtime: TargetRuntime.js,
+          outputDir: outDir,
+        );
+
+        check(compileResult.success).isTrue();
+        check(compileResult.runnerScriptPath).isNotNull();
+
+        final runner = BenchmarkProcessRunner(sdk: sdk);
+        final runResult = await runner.execute(
+          compilationResult: compileResult,
+          validate: true,
+        );
+
+        check(runResult.success).isTrue();
+        check(runResult.exitCode).equals(0);
+        check(runResult.suiteResult).isNotNull();
+        check(runResult.suiteResult!.benchmarks).isNotEmpty();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('compiled WASM benchmark executes cleanly under Node.js', () async {
+      final sdk = const DartSdk();
+      if (sdk.nodeExecutable == null) return;
+
+      final tempDir = Directory.systemTemp.createTempSync(
+        'compiler_wasm_exec_',
+      );
+      try {
+        final sourceFile = File(p.join(tempDir.path, 'exec_wasm.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class SimpleWasmBenchmark extends Benchmark {
+  SimpleWasmBenchmark() : super('simple_wasm');
+  @override
+  void run() => Blackhole.consume(100);
+}
+
+void main(List<String> args) => mainBenchmark(SimpleWasmBenchmark(), args);
+''');
+
+        const compiler = TargetCompiler();
+        final outDir = Directory(p.join(tempDir.path, 'wasm_out'));
+
+        final compileResult = await compiler.compile(
+          sourceFile: sourceFile,
+          runtime: TargetRuntime.wasm,
+          outputDir: outDir,
+        );
+
+        check(compileResult.success).isTrue();
+        check(compileResult.runnerScriptPath).isNotNull();
+
+        final runner = BenchmarkProcessRunner(sdk: sdk);
+        final runResult = await runner.execute(
+          compilationResult: compileResult,
+          validate: true,
+        );
+
+        check(runResult.success).isTrue();
+        check(runResult.exitCode).equals(0);
+        check(runResult.suiteResult).isNotNull();
+        check(runResult.suiteResult!.benchmarks).isNotEmpty();
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
 
     test('returns failure when SDK is not found', () async {
       final tempDir = Directory.systemTemp.createTempSync('no_sdk_');
