@@ -115,8 +115,7 @@ final class const BenchmarkMetrics({
 
     final opsPerSec = mean > 0.0 ? (1e9 / mean) : 0.0;
 
-    final robustStable =
-        isStable && (robustCv <= maxCvThreshold || cv <= maxCvThreshold);
+    final robustStable = isStable && (robustCv <= maxCvThreshold);
     final effectiveStable = isStable && (cv <= maxCvThreshold || robustStable);
 
     return BenchmarkMetrics(

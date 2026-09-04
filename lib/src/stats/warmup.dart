@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../config.dart';
+import 'metrics.dart';
 
 /// Result metadata produced by the warmup detector.
 final class const WarmupResult({
@@ -111,22 +112,22 @@ final class AdaptiveWarmupDetector({
         medianB > 0.0 &&
         (1.96 * robustSemB <= config.maxSemRelativeError * medianB);
 
-    if (isRobustSemStable &&
-        !hasSystemicDrift(
-          windowA,
-          windowB,
-          maxRelativeDrift: config.maxSemRelativeError,
-        )) {
-      final medA = computeMedian(windowA);
-      final madA = computeMad(windowA);
-      final madB = computeMad(windowB);
-      final inliersA = _filterOutliers(windowA, medA, madA);
-      final inliersB = _filterOutliers(windowB, medianB, madB);
-      final cleanMmd = computeMmd(inliersA, inliersB);
+    if (isRobustSemStable) {
+      final inliersA = filterInliers(windowA);
+      final inliersB = filterInliers(windowB);
 
-      if (cleanMmd <= 0.25) {
-        _isConverged = true;
-        _convergedIteration = n;
+      if (!hasInlierDrift(
+        inliersA,
+        inliersB,
+        windowA: windowA,
+        windowB: windowB,
+        maxRelativeDrift: config.maxSemRelativeError,
+      )) {
+        final cleanMmd = computeMmd(inliersA, inliersB);
+        if (cleanMmd <= 0.25) {
+          _isConverged = true;
+          _convergedIteration = n;
+        }
       }
     }
   }
@@ -163,23 +164,12 @@ final class AdaptiveWarmupDetector({
   }
 
   /// Calculates the median of a sequence.
-  static double computeMedian(List<double> values) {
-    if (values.isEmpty) return 0.0;
-    final sorted = List<double>.of(values)..sort();
-    final mid = sorted.length ~/ 2;
-    if (sorted.length.isOdd) {
-      return sorted[mid];
-    }
-    return (sorted[mid - 1] + sorted[mid]) / 2.0;
-  }
+  static double computeMedian(List<double> values) =>
+      BenchmarkMetrics.computeMedian(values);
 
   /// Calculates the Median Absolute Deviation (MAD) of a sequence.
-  static double computeMad(List<double> values) {
-    if (values.isEmpty) return 0.0;
-    final med = computeMedian(values);
-    final deviations = values.map((v) => (v - med).abs()).toList();
-    return computeMedian(deviations);
-  }
+  static double computeMad(List<double> values) =>
+      BenchmarkMetrics.computeMad(values);
 
   /// Calculates the Standard Error of the Mean (SEM) of a sequence.
   static double computeSem(List<double> values) {
@@ -202,24 +192,24 @@ final class AdaptiveWarmupDetector({
     return (1.4826 * mad) / math.sqrt(values.length);
   }
 
-  /// Identifies whether the sequence exhibits systemic drift (e.g. ongoing
-  /// JIT warmup/compilation) versus steady-state execution with transient
-  /// bimodal outliers (e.g. GC pauses).
-  static bool hasSystemicDrift(
-    List<double> windowA,
-    List<double> windowB, {
+  /// Filters outliers from a sequence using Hampel/MAD bounds:
+  /// `median ± 3 * 1.4826 * MAD`.
+  static List<double> filterInliers(List<double> values) {
+    if (values.length <= 2) return values;
+    final med = computeMedian(values);
+    final mad = computeMad(values);
+    return _filterOutliers(values, med, mad);
+  }
+
+  /// Evaluates whether the sequence exhibits systemic drift between two inlier
+  /// windows.
+  static bool hasInlierDrift(
+    List<double> inliersA,
+    List<double> inliersB, {
+    required List<double> windowA,
+    required List<double> windowB,
     double maxRelativeDrift = 0.03,
   }) {
-    if (windowA.isEmpty || windowB.isEmpty) return false;
-
-    final medA = computeMedian(windowA);
-    final medB = computeMedian(windowB);
-    final madA = computeMad(windowA);
-    final madB = computeMad(windowB);
-
-    final inliersA = _filterOutliers(windowA, medA, madA);
-    final inliersB = _filterOutliers(windowB, medB, madB);
-
     final cleanMedA = computeMedian(inliersA.isNotEmpty ? inliersA : windowA);
     final cleanMedB = computeMedian(inliersB.isNotEmpty ? inliersB : windowB);
 
@@ -246,6 +236,28 @@ final class AdaptiveWarmupDetector({
     }
 
     return false;
+  }
+
+  /// Identifies whether the sequence exhibits systemic drift (e.g. ongoing
+  /// JIT warmup/compilation) versus steady-state execution with transient
+  /// bimodal outliers (e.g. GC pauses).
+  static bool hasSystemicDrift(
+    List<double> windowA,
+    List<double> windowB, {
+    double maxRelativeDrift = 0.03,
+  }) {
+    if (windowA.isEmpty || windowB.isEmpty) return false;
+
+    final inliersA = filterInliers(windowA);
+    final inliersB = filterInliers(windowB);
+
+    return hasInlierDrift(
+      inliersA,
+      inliersB,
+      windowA: windowA,
+      windowB: windowB,
+      maxRelativeDrift: maxRelativeDrift,
+    );
   }
 
   static List<double> _filterOutliers(
