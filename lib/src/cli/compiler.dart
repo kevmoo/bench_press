@@ -135,6 +135,8 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       final cachedResult = _tryRestoreFromCache(
         cacheDir: cacheDir,
         targetDir: targetDir,
+        cacheKey: cacheKey,
+        baseName: baseName,
         runtime: runtime,
         sourcePath: normalizedSource,
         artifactPath: artifactPath,
@@ -173,6 +175,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
           targetDir: targetDir,
           cacheDir: cacheDir,
           baseName: baseName,
+          cacheKey: cacheKey,
         );
       }
 
@@ -236,6 +239,8 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
   CompilationResult? _tryRestoreFromCache({
     required Directory cacheDir,
     required Directory targetDir,
+    required String cacheKey,
+    required String baseName,
     required TargetRuntime runtime,
     required String sourcePath,
     required String artifactPath,
@@ -252,8 +257,15 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       if (!cachedLoader.existsSync()) return null;
     }
 
-    for (final entity in cacheDir.listSync().whereType<File>()) {
-      entity.copySync(p.join(targetDir.path, p.basename(entity.path)));
+    final markerFile = File(p.join(targetDir.path, '$baseName.cache_key'));
+    final targetArtifact = File(artifactPath);
+    if (!markerFile.existsSync() ||
+        !targetArtifact.existsSync() ||
+        markerFile.readAsStringSync() != cacheKey) {
+      for (final entity in cacheDir.listSync().whereType<File>()) {
+        entity.copySync(p.join(targetDir.path, p.basename(entity.path)));
+      }
+      markerFile.writeAsStringSync(cacheKey);
     }
 
     return CompilationResult(
@@ -274,6 +286,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     required Directory targetDir,
     required Directory cacheDir,
     required String baseName,
+    required String cacheKey,
   }) {
     if (cacheDir.existsSync()) {
       cacheDir.deleteSync(recursive: true);
@@ -285,6 +298,8 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         entity.copySync(p.join(cacheDir.path, fileName));
       }
     }
+    File(p.join(targetDir.path, '$baseName.cache_key'))
+        .writeAsStringSync(cacheKey);
   }
 
   String _computeCacheKey({
@@ -322,18 +337,25 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       builder.add(pkgConfigFile.readAsBytesSync());
     }
 
-    final dartFiles = <String, File>{
-      p.normalize(sourceFile.absolute.path): sourceFile,
-    };
+    final normalizedSourcePath = p.normalize(sourceFile.absolute.path);
+    if (sourceFile.existsSync()) {
+      addString(normalizedSourcePath);
+      builder.add(sourceFile.readAsBytesSync());
+    }
+
+    final dartFiles = <String, File>{};
     _collectDartFiles(Directory(p.join(baseDir, 'lib')), dartFiles);
     _collectDartFiles(sourceFile.parent, dartFiles);
 
     final sortedPaths = dartFiles.keys.toList()..sort();
     for (final path in sortedPaths) {
-      addString(path);
+      if (path == normalizedSourcePath) continue;
       final file = dartFiles[path]!;
-      if (file.existsSync()) {
-        builder.add(file.readAsBytesSync());
+      try {
+        final stat = file.statSync();
+        addString('$path:${stat.modified.microsecondsSinceEpoch}:${stat.size}');
+      } on FileSystemException {
+        // Ignore inaccessible files.
       }
     }
 
