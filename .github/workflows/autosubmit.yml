@@ -13,6 +13,9 @@ jobs:
   autosubmit:
     if: contains(github.event.pull_request.labels.*.name, 'autosubmit')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Auto-merge PR
         run: gh pr merge --auto --squash "$PR_URL"
