@@ -632,7 +632,13 @@ final class ValidateCommand({
         help: 'Extra flags forwarded directly to dart compile.',
       )
       ..addOption('d8-path', help: 'Custom path to the D8 executable.')
-      ..addOption('node-path', help: 'Custom path to the Node.js executable.');
+      ..addOption('node-path', help: 'Custom path to the Node.js executable.')
+      ..addFlag(
+        'cache',
+        negatable: true,
+        defaultsTo: true,
+        help: 'Cache compiled benchmark artifacts across runs.',
+      );
   }
 
   @override
@@ -819,6 +825,7 @@ final class ValidateCommand({
       sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: compilerFlags,
+      useCache: argResults!['cache'] as bool,
     );
 
     if (!compilation.success) {

@@ -119,6 +119,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       runtime: runtime,
       compilerFlags: compilerFlags,
       dartExe: dartExe,
+      workingDirectory: workingDirectory,
     );
     final cacheDir = Directory(
       p.join(
@@ -137,9 +138,18 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         runtime: runtime,
         sourcePath: normalizedSource,
         artifactPath: artifactPath,
+        runnerPath: runnerPath,
         runnerScriptPath: expectedRunnerPath,
       );
-      if (cachedResult != null) return cachedResult;
+      if (cachedResult != null) {
+        _writeRunnerIfNeeded(
+          runtime: runtime,
+          outputDir: targetDir.path,
+          baseName: baseName,
+          runnerPath: runnerPath,
+        );
+        return cachedResult;
+      }
     }
 
     final stopwatch = Stopwatch()..start();
@@ -229,6 +239,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     required TargetRuntime runtime,
     required String sourcePath,
     required String artifactPath,
+    required String? runnerPath,
     required String? runnerScriptPath,
   }) {
     if (!cacheDir.existsSync()) return null;
@@ -236,11 +247,9 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       p.join(cacheDir.path, p.basename(artifactPath)),
     );
     if (!cachedArtifact.existsSync()) return null;
-    if (runnerScriptPath != null) {
-      final cachedRunner = File(
-        p.join(cacheDir.path, p.basename(runnerScriptPath)),
-      );
-      if (!cachedRunner.existsSync()) return null;
+    if (runnerPath != null) {
+      final cachedLoader = File(p.join(cacheDir.path, p.basename(runnerPath)));
+      if (!cachedLoader.existsSync()) return null;
     }
 
     for (final entity in cacheDir.listSync().whereType<File>()) {
@@ -266,6 +275,9 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     required Directory cacheDir,
     required String baseName,
   }) {
+    if (cacheDir.existsSync()) {
+      cacheDir.deleteSync(recursive: true);
+    }
     cacheDir.createSync(recursive: true);
     for (final entity in targetDir.listSync().whereType<File>()) {
       final fileName = p.basename(entity.path);
@@ -280,6 +292,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     required TargetRuntime runtime,
     required List<String> compilerFlags,
     required String dartExe,
+    String? workingDirectory,
   }) {
     final builder = BytesBuilder(copy: false);
     void addString(String value) {
@@ -290,12 +303,20 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
 
     addString(runtime.name);
     addString(dartExe);
+    try {
+      final stat = File(dartExe).statSync();
+      addString('${stat.modified.millisecondsSinceEpoch}:${stat.size}');
+    } on FileSystemException {
+      // Ignore stat errors for mock or non-existent binaries.
+    }
     for (final flag in compilerFlags) {
       addString(flag);
     }
 
+    final baseDir = workingDirectory ?? Directory.current.path;
     final pkgConfigPath =
-        sdk.packageConfigPath ?? p.join('.dart_tool', 'package_config.json');
+        sdk.packageConfigPath ??
+        p.join(baseDir, '.dart_tool', 'package_config.json');
     final pkgConfigFile = File(pkgConfigPath);
     if (pkgConfigFile.existsSync()) {
       builder.add(pkgConfigFile.readAsBytesSync());
@@ -304,7 +325,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     final dartFiles = <String, File>{
       p.normalize(sourceFile.absolute.path): sourceFile,
     };
-    _collectDartFiles(Directory('lib'), dartFiles);
+    _collectDartFiles(Directory(p.join(baseDir, 'lib')), dartFiles);
     _collectDartFiles(sourceFile.parent, dartFiles);
 
     final sortedPaths = dartFiles.keys.toList()..sort();

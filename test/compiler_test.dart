@@ -416,6 +416,14 @@ void main(List<String> args) => mainBenchmark(CacheBench(), args);
         check(result2.artifactPath).isNotNull();
         check(File(result2.artifactPath!).existsSync()).isTrue();
 
+        // Empirically verify that the restored binary executes cleanly
+        const runner = BenchmarkProcessRunner();
+        final execResult = await runner.execute(
+          compilationResult: result2,
+          validate: true,
+        );
+        check(execResult.success).isTrue();
+
         // 3. Passing useCache: false bypasses cache (cacheHit: false)
         final result3 = await compiler.compile(
           sourceFile: source,
