@@ -99,10 +99,16 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   try {
     parsed = parser.parse(cleanArgs);
   } on FormatException catch (e) {
-    stderr.writeln('Argument error: ${e.message}');
-    stderr.writeln();
-    stderr.writeln(parser.usage);
-    exitCode = ExitCode.usage.code;
+    print('Argument error: ${e.message}');
+    print('');
+    print(parser.usage);
+    try {
+      exitCode = ExitCode.usage.code;
+    } on Object {
+      // `dart:io` process exit codes are unsupported on web (js/wasm)
+      // compile targets — the printed error above is all those targets
+      // can surface anyway.
+    }
     return;
   }
 
@@ -147,7 +153,9 @@ void _writeJsonOutput(String? jsonOutputPath, String jsonText) {
     file.parent.createSync(recursive: true);
     file.writeAsStringSync('$jsonText\n');
   } on Object catch (e) {
-    stderr.writeln('Warning: Failed to write JSON output: $e');
+    if (e is! UnsupportedError) {
+      print('Warning: Failed to write JSON output: $e');
+    }
   }
 }
 
@@ -213,8 +221,11 @@ void _finishSuite(
 
   _writeJsonOutput(jsonOutputPath, jsonText);
 
-  // Always emit stream markers for subprocess communication
-  stdout.writeln(wrapJsonInMarkers(jsonText));
+  // Always emit stream markers for subprocess communication. `print`, not
+  // `stdout.writeln` — the latter throws `Unsupported operation:
+  // StdIOUtils._getStdioOutputStream` on js/wasm compile targets, silently
+  // dropping the telemetry the CLI's subprocess reader depends on.
+  print(wrapJsonInMarkers(jsonText));
 }
 
 Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(

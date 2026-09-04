@@ -145,8 +145,34 @@ final class const DartSdk({
   }
 
   /// Returns the path to the `node` (or `nodejs`) executable on PATH.
-  String? get nodeExecutable =>
-      findExecutable('node') ?? findExecutable('nodejs');
+  String? get nodeExecutable {
+    final exe = findExecutable('node') ?? findExecutable('nodejs');
+    if (exe != null) return exe;
+    final home = _env['HOME'] ?? _env['USERPROFILE'];
+    if (home != null) {
+      final candidates = [
+        p.join(home, '.local', 'share', 'mise', 'shims', 'node'),
+        p.join(
+          home,
+          '.local',
+          'share',
+          'mise',
+          'installs',
+          'node',
+          '24',
+          'bin',
+          'node',
+        ),
+        p.join(home, '.nvm', 'current', 'bin', 'node'),
+      ];
+      for (final candidate in candidates) {
+        if (File(candidate).existsSync()) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
 
   /// Returns the path to the `d8` executable on the system PATH.
   String? get d8Executable => findExecutable('d8');

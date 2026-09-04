@@ -165,11 +165,13 @@ final class const BenchmarkProcessRunner({
         return (artifactPath, benchArgs);
 
       case TargetRuntime.wasm:
-        final script = runnerScriptPath ?? artifactPath;
         if (sdk.nodeExecutable != null) {
+          final script = runnerScriptPath ?? artifactPath;
           final args = <String>[...vmFlags, script, ...benchArgs];
           return (sdk.nodeExecutable!, args);
         } else if (sdk.d8Executable != null) {
+          final d8Script = p.setExtension(artifactPath, '.mjs');
+          final script = File(d8Script).existsSync() ? d8Script : artifactPath;
           final args = <String>[
             '--experimental-wasm-gc',
             ...vmFlags,
@@ -182,12 +184,12 @@ final class const BenchmarkProcessRunner({
         throw StateError('No Wasm runner (Node.js or D8) found on PATH.');
 
       case TargetRuntime.js:
-        final script = runnerScriptPath ?? artifactPath;
         if (sdk.nodeExecutable != null) {
+          final script = runnerScriptPath ?? artifactPath;
           final args = <String>[...vmFlags, script, ...benchArgs];
           return (sdk.nodeExecutable!, args);
         } else if (sdk.d8Executable != null) {
-          final args = <String>[...vmFlags, script, '--', ...benchArgs];
+          final args = <String>[...vmFlags, artifactPath, '--', ...benchArgs];
           return (sdk.d8Executable!, args);
         }
         throw StateError('No JavaScript runner (Node.js or D8) found on PATH.');
