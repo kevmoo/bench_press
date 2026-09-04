@@ -39,13 +39,13 @@ for (var i = 0; i < count; i++) {
 
 `Blackhole` implements an opaque, non-allocating static sink:
 
-1. **8-Slot Static Ring Buffer**: Values are written to an internal static array (`_sink[_index++ & 7] = value`). Because the sink index mutates across loop iterations, optimizing compilers cannot prove the sink writes are redundant or invariant.
-2. **Cross-Backend Inlining Pragmas**: Specialized pragmas ensure the wrapper method is inlined without call overhead:
+1. **8-Slot Cyclic Gray-Code Ring Buffer**: Values are written to an internal static array indexed via a 3-bit cyclic Gray code (`_sink[(index & 7) ^ ((index & 7) >> 1)] = value`). Because the non-linear index mutates across loop iterations without consecutive slot collisions, optimizing compilers cannot vectorize, unroll, or prove the sink writes redundant.
+2. **Cross-Backend Inlining Pragmas**: Specialized pragmas ensure `Blackhole.consume(Object? value)` is inlined without call overhead:
    * `@pragma('vm:prefer-inline')` (VM JIT & AOT)
    * `@pragma('wasm:prefer-inline')` (WasmGC)
    * `@pragma('dart2js:prefer-inline')` (JavaScript)
-3. **Primitive Overloads**: Dedicated methods (`consumeInt`, `consumeDouble`, `consumeBool`, `consumeString`, `consumeObject`) avoid boxed wrapper allocations for primitive data types.
-4. **Terminal Drain**: `Blackhole.drain()` computes a bitwise checksum across all sink slots and resets the state between trials to guarantee clean memory isolation.
+3. **Universal Polymorphic Sink**: A single universal `consume(Object? value)` signature accepts any value across VM, AOT, and Web targets without requiring specialized primitive overloads or eager hash computations inside the hot loop.
+4. **Terminal Drain**: `Blackhole.drain()` computes a position-coupled hash (`Object.hash(_sink[i], i)`) across all sink slots and resets the state between trials to guarantee clean memory isolation.
 
 ---
 
