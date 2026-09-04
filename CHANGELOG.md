@@ -1,5 +1,6 @@
 ## 0.3.0-wip
 
+- Fixed silent crashes on Node.js for JS and Wasm targets by replacing `stdout.writeln` with `print`, generating self-invoking `.run.mjs` and `.node.js` wrappers with unhandled rejection listeners, and forwarding CLI arguments via `dartMainRunner` (Issue #29).
 - Added parameterized matrix group builder `BenchmarkGroup.matrix<T>` (and convenience `Benchmark.matrix<T>`) and `BenchmarkMatrix<T>` to benchmark competing implementations across parameterized inputs or datasets without repetitive boilerplate (Issue #23).
 - Added `mainBenchmarkMatrix` CLI entrypoint and updated `mainBenchmarkSuite` to execute `BenchmarkMatrix` instances seamlessly.
 - Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs`).

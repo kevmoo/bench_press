@@ -109,12 +109,27 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       stopwatch.stop();
 
       final success = processResult.exitCode == 0;
+      final resolvedRunnerPath = !success
+          ? runnerPath
+          : switch (runtime) {
+              TargetRuntime.wasm => _writeWasmRunner(
+                outputDir: targetDir.path,
+                baseName: baseName,
+                loaderPath: runnerPath!,
+              ),
+              TargetRuntime.js => _writeJsRunner(
+                outputDir: targetDir.path,
+                baseName: baseName,
+                compiledPath: runnerPath!,
+              ),
+              _ => runnerPath,
+            };
       return CompilationResult(
         success: success,
         runtime: runtime,
         sourcePath: normalizedSource,
         artifactPath: success ? artifactPath : null,
-        runnerScriptPath: success ? runnerPath : null,
+        runnerScriptPath: success ? resolvedRunnerPath : null,
         compilationDuration: stopwatch.elapsed,
         stdout: processResult.stdout.toString(),
         stderr: processResult.stderr.toString(),
@@ -132,6 +147,92 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         exitCode: 1,
       );
     }
+  }
+
+  /// `dart compile wasm` emits a bare loader module (`compile`/
+  /// `compileStreaming` exports) — running it directly with Node does
+  /// nothing, since nothing in it calls `instantiate`/`invokeMain`. Node.js
+  /// benchmarks need that boilerplate wired up explicitly, so this writes a
+  /// small `.run.mjs` next to the loader that does the compile → instantiate
+  /// → invokeMain dance and forwards CLI args, and returns its path for use
+  /// as the actual runner script.
+  String _writeWasmRunner({
+    required String outputDir,
+    required String baseName,
+    required String loaderPath,
+  }) {
+    final wasmFileName = '$baseName.wasm';
+    final loaderFileName = p.basename(loaderPath);
+    final runnerPath = p.normalize(p.join(outputDir, '$baseName.run.mjs'));
+    File(runnerPath).writeAsStringSync('''
+import { readFile } from 'node:fs/promises';
+
+process.on('unhandledRejection', (err) => {
+  console.error(err);
+  process.exit(1);
+});
+
+try {
+  const init = await import(new URL('$loaderFileName', import.meta.url).href);
+  const bytes = await readFile(new URL('$wasmFileName', import.meta.url));
+  const compiledApp = await init.compile(bytes);
+  const instantiatedApp = await compiledApp.instantiate({});
+  await instantiatedApp.invokeMain(...process.argv.slice(2));
+} catch (err) {
+  console.error(err);
+  process.exit(1);
+}
+''');
+    return runnerPath;
+  }
+
+  /// `dart compile js` output assumes a browser (or worker) global scope and
+  /// feature-detects microtask/timer scheduling off the bare `self` global —
+  /// present in browsers/workers, absent in Node.js. Any benchmark that
+  /// genuinely suspends on `await` (not just trampolines through synchronous
+  /// work) hits that scheduler, throws `ReferenceError: self is not
+  /// defined,` and the resulting rejected Future is dropped silently (no
+  /// crash, no telemetry).
+  ///
+  /// Separately, the compiled output invokes `main` with a *hardcoded empty
+  /// arguments array* (`dartMainRunner(s,[])`) — CLI args like `--target js`
+  /// or `--trials N` never reach Dart's `main(args)` no matter what's passed
+  /// on the command line. `dartMainRunner` is dart2js's documented embedder
+  /// hook for exactly this: if defined as a global before the compiled
+  /// script runs, dart2js calls it instead of invoking `main` directly,
+  /// letting us supply the real args ourselves.
+  ///
+  /// This writes a `.node.js` wrapper next to the compiled output that
+  /// polyfills `self`, defines `dartMainRunner` to forward `process.argv`,
+  /// and requires the compiled artifact — and returns its path for use as
+  /// the actual runner script.
+  String _writeJsRunner({
+    required String outputDir,
+    required String baseName,
+    required String compiledPath,
+  }) {
+    final compiledFileName = p.basename(compiledPath);
+    final runnerPath = p.normalize(p.join(outputDir, '$baseName.node.js'));
+    File(runnerPath).writeAsStringSync('''
+process.on('unhandledRejection', (err) => {
+  console.error(err);
+  process.exit(1);
+});
+
+if (typeof self === 'undefined') {
+  globalThis.self = globalThis;
+}
+globalThis.dartMainRunner = (main, _ignoredArgs) => {
+  try {
+    main(process.argv.slice(2));
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+};
+require('./$compiledFileName');
+''');
+    return runnerPath;
   }
 
   (List<String> args, String artifactPath, String? runnerPath)
