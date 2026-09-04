@@ -608,5 +608,39 @@ void main(List<String> args) => mainBenchmark(FlagBench(), args);
         }
       },
     );
+
+    test('run accepts --no-cache flag and executes cleanly', () async {
+      final tempDir = Directory.systemTemp.createTempSync('no_cache_e2e_');
+      try {
+        final benchFile = File(p.join(tempDir.path, 'no_cache_bench.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class NoCacheBench extends Benchmark {
+  NoCacheBench() : super('no_cache_bench');
+  @override
+  void run() => Blackhole.consume(42);
+}
+
+void main(List<String> args) => mainBenchmark(NoCacheBench(), args);
+''');
+
+        final runner = BenchPressCommandRunner();
+        final code = await runner.run([
+          'run',
+          '-t',
+          'jit',
+          '--trials',
+          '1',
+          '--force-run',
+          '--no-save',
+          '--no-cache',
+          benchFile.path,
+        ]);
+        check(code).equals(0);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
   });
 }

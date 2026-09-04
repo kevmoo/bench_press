@@ -35,11 +35,15 @@ final class const CompilationResult({
 
   /// Subprocess exit code.
   required final int exitCode,
+
+  /// Whether this result was served from the compilation cache.
+  final bool cacheHit = false,
 }) {
   @override
   String toString() =>
       'CompilationResult($runtime, success: $success, '
       'artifact: $artifactPath, '
+      'cacheHit: $cacheHit, '
       'duration: ${compilationDuration.inMilliseconds}ms)';
 }
 
@@ -56,6 +60,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     Directory? outputDir,
     List<String> compilerFlags = const [],
     String? workingDirectory,
+    bool useCache = true,
   }) async {
     final normalizedSource = p.normalize(sourceFile.absolute.path);
 
@@ -100,6 +105,42 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       extraFlags: compilerFlags,
     );
 
+    final expectedRunnerPath = _expectedRunnerPath(
+      runtime: runtime,
+      outputDir: targetDir.path,
+      baseName: baseName,
+      runnerPath: runnerPath,
+    );
+
+    final currentManifest = _computeCacheManifest(
+      sourceFile: sourceFile,
+      runtime: runtime,
+      compilerFlags: compilerFlags,
+      dartExe: dartExe,
+      workingDirectory: workingDirectory,
+    );
+    final cacheKeyFile = File('$artifactPath.cache_key');
+
+    if (useCache &&
+        File(artifactPath).existsSync() &&
+        (expectedRunnerPath == null || File(expectedRunnerPath).existsSync()) &&
+        (runnerPath == null || File(runnerPath).existsSync()) &&
+        cacheKeyFile.existsSync() &&
+        cacheKeyFile.readAsStringSync() == currentManifest) {
+      return CompilationResult(
+        success: true,
+        runtime: runtime,
+        sourcePath: normalizedSource,
+        artifactPath: artifactPath,
+        runnerScriptPath: expectedRunnerPath,
+        compilationDuration: Duration.zero,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        cacheHit: true,
+      );
+    }
+
     final stopwatch = Stopwatch()..start();
     try {
       final processResult = await Process.run(
@@ -110,27 +151,22 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       stopwatch.stop();
 
       final success = processResult.exitCode == 0;
-      final resolvedRunnerPath = !success
-          ? runnerPath
-          : switch (runtime) {
-              TargetRuntime.wasm => _writeWasmRunner(
-                outputDir: targetDir.path,
-                baseName: baseName,
-                loaderPath: runnerPath!,
-              ),
-              TargetRuntime.js => _writeJsRunner(
-                outputDir: targetDir.path,
-                baseName: baseName,
-                compiledPath: runnerPath!,
-              ),
-              _ => runnerPath,
-            };
+      if (success) {
+        _writeRunnerIfNeeded(
+          runtime: runtime,
+          outputDir: targetDir.path,
+          baseName: baseName,
+          runnerPath: runnerPath,
+        );
+        cacheKeyFile.writeAsStringSync(currentManifest);
+      }
+
       return CompilationResult(
         success: success,
         runtime: runtime,
         sourcePath: normalizedSource,
         artifactPath: success ? artifactPath : null,
-        runnerScriptPath: success ? resolvedRunnerPath : null,
+        runnerScriptPath: success ? expectedRunnerPath : null,
         compilationDuration: stopwatch.elapsed,
         stdout: processResult.stdout.toString(),
         stderr: processResult.stderr.toString(),
@@ -147,6 +183,99 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         stderr: 'Compiler execution failed: $e',
         exitCode: 1,
       );
+    }
+  }
+
+  String? _expectedRunnerPath({
+    required TargetRuntime runtime,
+    required String outputDir,
+    required String baseName,
+    required String? runnerPath,
+  }) => switch (runtime) {
+    TargetRuntime.wasm => p.normalize(p.join(outputDir, '$baseName.run.mjs')),
+    TargetRuntime.js => p.normalize(p.join(outputDir, '$baseName.node.cjs')),
+    _ => runnerPath,
+  };
+
+  void _writeRunnerIfNeeded({
+    required TargetRuntime runtime,
+    required String outputDir,
+    required String baseName,
+    required String? runnerPath,
+  }) {
+    if (runtime == TargetRuntime.wasm) {
+      _writeWasmRunner(
+        outputDir: outputDir,
+        baseName: baseName,
+        loaderPath: runnerPath!,
+      );
+    } else if (runtime == TargetRuntime.js) {
+      _writeJsRunner(
+        outputDir: outputDir,
+        baseName: baseName,
+        compiledPath: runnerPath!,
+      );
+    }
+  }
+
+  String _computeCacheManifest({
+    required File sourceFile,
+    required TargetRuntime runtime,
+    required List<String> compilerFlags,
+    required String dartExe,
+    String? workingDirectory,
+  }) {
+    final buffer = StringBuffer()
+      ..writeln('runtime:${runtime.name}')
+      ..writeln('dartExe:$dartExe');
+
+    void addFileStat(String label, File file) {
+      if (!file.existsSync()) return;
+      try {
+        final stat = file.statSync();
+        buffer.writeln(
+          '$label:${stat.modified.microsecondsSinceEpoch}:${stat.size}',
+        );
+      } on FileSystemException {
+        // Ignore inaccessible files.
+      }
+    }
+
+    addFileStat('dartExeStat', File(dartExe));
+    for (final flag in compilerFlags) {
+      buffer.writeln('flag:$flag');
+    }
+
+    final baseDir = workingDirectory ?? Directory.current.path;
+    final pkgConfigPath =
+        sdk.packageConfigPath ??
+        p.join(baseDir, '.dart_tool', 'package_config.json');
+    addFileStat('pkgConfig', File(pkgConfigPath));
+
+    final dartFiles = <String, File>{
+      p.normalize(sourceFile.absolute.path): sourceFile,
+    };
+    _collectDartFiles(Directory(p.join(baseDir, 'lib')), dartFiles);
+    _collectDartFiles(sourceFile.parent, dartFiles);
+
+    final sortedPaths = dartFiles.keys.toList()..sort();
+    for (final path in sortedPaths) {
+      addFileStat(path, dartFiles[path]!);
+    }
+
+    return buffer.toString();
+  }
+
+  void _collectDartFiles(Directory dir, Map<String, File> out) {
+    if (!dir.existsSync()) return;
+    try {
+      for (final entity in dir.listSync(recursive: true, followLinks: false)) {
+        if (entity is File && entity.path.endsWith('.dart')) {
+          out[p.normalize(entity.absolute.path)] = entity;
+        }
+      }
+    } on FileSystemException {
+      // Ignore inaccessible directories.
     }
   }
 
