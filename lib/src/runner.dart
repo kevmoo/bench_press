@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import 'batch_runner.dart';
 import 'blackhole.dart';
 import 'calibration.dart';
@@ -74,7 +76,11 @@ final class const BenchmarkResult({
 /// warmup -> measurement trials -> summary metrics calculation -> teardown.
 abstract final class BenchmarkRunner() {
   /// Runs a synchronous [Benchmark] through its full lifecycle.
-  static BenchmarkResult run(Benchmark benchmark) {
+  static BenchmarkResult run(
+    Benchmark benchmark, {
+    @visibleForTesting
+    BatchMeasurement Function(Benchmark benchmark, int iterations)? runBatch,
+  }) {
     benchmark.setup();
     try {
       final config = benchmark.config;
@@ -87,7 +93,7 @@ abstract final class BenchmarkRunner() {
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
-        final measurement = BatchRunner.runSync(
+        final measurement = (runBatch ?? BatchRunner.runSync)(
           benchmark,
           calibrated.iterations,
         );
@@ -107,7 +113,7 @@ abstract final class BenchmarkRunner() {
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
-        final measurement = BatchRunner.runSync(
+        final measurement = (runBatch ?? BatchRunner.runSync)(
           benchmark,
           calibrated.iterations,
         );
@@ -120,7 +126,7 @@ abstract final class BenchmarkRunner() {
           'Adaptively scaling up to ${config.maxTrials} trials.',
         );
         while (_shouldScaleTrials(trials, config)) {
-          final measurement = BatchRunner.runSync(
+          final measurement = (runBatch ?? BatchRunner.runSync)(
             benchmark,
             calibrated.iterations,
           );
@@ -150,7 +156,12 @@ abstract final class BenchmarkRunner() {
   }
 
   /// Runs an asynchronous [AsyncBenchmark] through its full lifecycle.
-  static Future<BenchmarkResult> runAsync(AsyncBenchmark benchmark) async {
+  static Future<BenchmarkResult> runAsync(
+    AsyncBenchmark benchmark, {
+    @visibleForTesting
+    Future<BatchMeasurement> Function(AsyncBenchmark benchmark, int iterations)?
+    runBatch,
+  }) async {
     await benchmark.setup();
     try {
       final config = benchmark.config;
@@ -163,7 +174,7 @@ abstract final class BenchmarkRunner() {
       final warmupStopwatch = Stopwatch()..start();
 
       while (true) {
-        final measurement = await BatchRunner.runAsync(
+        final measurement = await (runBatch ?? BatchRunner.runAsync)(
           benchmark,
           calibrated.iterations,
         );
@@ -183,7 +194,7 @@ abstract final class BenchmarkRunner() {
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
-        final measurement = await BatchRunner.runAsync(
+        final measurement = await (runBatch ?? BatchRunner.runAsync)(
           benchmark,
           calibrated.iterations,
         );
@@ -196,7 +207,7 @@ abstract final class BenchmarkRunner() {
           'Adaptively scaling up to ${config.maxTrials} trials.',
         );
         while (_shouldScaleTrials(trials, config)) {
-          final measurement = await BatchRunner.runAsync(
+          final measurement = await (runBatch ?? BatchRunner.runAsync)(
             benchmark,
             calibrated.iterations,
           );
@@ -332,6 +343,12 @@ abstract final class BenchmarkRunner() {
     final elapsedUs = batchStopwatch.elapsedMicroseconds;
     return (elapsedUs * 1000.0) / iterations;
   }
+
+  /// Whether trial collection should continue scaling up to
+  /// [BenchmarkConfig.maxTrials].
+  @visibleForTesting
+  static bool shouldScaleTrials(List<double> trials, BenchmarkConfig config) =>
+      _shouldScaleTrials(trials, config);
 
   static bool _shouldScaleTrials(List<double> trials, BenchmarkConfig config) {
     final maxTrials = config.maxTrials;
