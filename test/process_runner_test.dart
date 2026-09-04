@@ -316,6 +316,121 @@ exit 0
     });
 
     test(
+      'prioritizes customD8Path over ambient Node on PATH for Wasm and JS',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'mock_precedence_test_',
+        );
+        try {
+          final mockNode = File(p.join(tempDir.path, 'node'))
+            ..writeAsStringSync(r'''#!/bin/sh
+cat << 'END_OF_JSON'
+<<<BENCH_PRESS_JSON_START>>>
+{
+  "version": 1,
+  "timestamp": "2026-08-30T00:00:00.000Z",
+  "environment": {"dart_version": "3.14.0", "os": "linux", "arch": "x64"},
+  "benchmarks": [
+    {
+      "name": "ran_with_node",
+      "target": "wasm",
+      "mode": "sync",
+      "samples": 2,
+      "metrics": {
+        "mean_ns": 50.0,
+        "median_ns": 50.0,
+        "min_ns": 45.0,
+        "max_ns": 55.0,
+        "stddev_ns": 2.0,
+        "cv": 0.04,
+        "p95_ns": 54.0,
+        "p99_ns": 55.0,
+        "ops_per_sec": 20000000.0,
+        "is_stable": true
+      }
+    }
+  ]
+}
+<<<BENCH_PRESS_JSON_END>>>
+END_OF_JSON
+exit 0
+''');
+          final mockD8 = File(p.join(tempDir.path, 'my_d8'))
+            ..writeAsStringSync(r'''#!/bin/sh
+cat << 'END_OF_JSON'
+<<<BENCH_PRESS_JSON_START>>>
+{
+  "version": 1,
+  "timestamp": "2026-08-30T00:00:00.000Z",
+  "environment": {"dart_version": "3.14.0", "os": "linux", "arch": "x64"},
+  "benchmarks": [
+    {
+      "name": "ran_with_d8",
+      "target": "wasm",
+      "mode": "sync",
+      "samples": 2,
+      "metrics": {
+        "mean_ns": 25.0,
+        "median_ns": 25.0,
+        "min_ns": 20.0,
+        "max_ns": 30.0,
+        "stddev_ns": 1.0,
+        "cv": 0.04,
+        "p95_ns": 29.0,
+        "p99_ns": 30.0,
+        "ops_per_sec": 40000000.0,
+        "is_stable": true
+      }
+    }
+  ]
+}
+<<<BENCH_PRESS_JSON_END>>>
+END_OF_JSON
+exit 0
+''');
+          if (!Platform.isWindows) {
+            Process.runSync('chmod', ['+x', mockNode.path]);
+            Process.runSync('chmod', ['+x', mockD8.path]);
+          }
+
+          const compilation = CompilationResult(
+            success: true,
+            runtime: TargetRuntime.wasm,
+            sourcePath: '/path/to/bench.dart',
+            artifactPath: '/path/to/bench.wasm',
+            runnerScriptPath: '/path/to/bench.mjs',
+            compilationDuration: Duration.zero,
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+          );
+
+          final runnerWithD8Override = BenchmarkProcessRunner(
+            sdk: DartSdk(
+              customD8Path: mockD8.path,
+              environment: {'PATH': tempDir.path},
+            ),
+          );
+
+          if (!Platform.isWindows) {
+            final result = await runnerWithD8Override.execute(
+              compilationResult: compilation,
+              trials: 2,
+              forceRun: true,
+            );
+
+            check(result.success).isTrue();
+            check(result.suiteResult).isNotNull();
+            check(result.suiteResult!.benchmarks.first.name)
+                .equals('ran_with_d8');
+          }
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
       'throws StateError or failure when runner is missing for Wasm',
       () async {
         const compilation = CompilationResult(

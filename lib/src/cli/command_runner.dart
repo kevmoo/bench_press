@@ -461,25 +461,6 @@ final class RunCommand({
     );
   }
 
-  DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
-    final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
-    var cleanedPath = sdkPath ?? '';
-    if (cleanedPath == 'stock') cleanedPath = '';
-    if (cleanedPath.startsWith('~')) {
-      final home =
-          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE']!;
-      cleanedPath = cleanedPath.replaceFirst('~', home);
-    }
-    return cleanedPath.isNotEmpty
-        ? DartSdk(
-            customSdkPath: cleanedPath,
-            customD8Path: baseSdk.customD8Path,
-            customNodePath: baseSdk.customNodePath,
-            environment: baseSdk.environment,
-          )
-        : baseSdk;
-  }
-
   List<String> _resolveFlagsFromCoordinate(
     MatrixCoordinate coord,
     List<String> compilerFlags,
@@ -808,25 +789,6 @@ final class ValidateCommand({
     return allPassed;
   }
 
-  DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
-    final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
-    var cleanedPath = sdkPath ?? '';
-    if (cleanedPath == 'stock') cleanedPath = '';
-    if (cleanedPath.startsWith('~')) {
-      final home =
-          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE']!;
-      cleanedPath = cleanedPath.replaceFirst('~', home);
-    }
-    return cleanedPath.isNotEmpty
-        ? DartSdk(
-            customSdkPath: cleanedPath,
-            customD8Path: baseSdk.customD8Path,
-            customNodePath: baseSdk.customNodePath,
-            environment: baseSdk.environment,
-          )
-        : baseSdk;
-  }
-
   Future<bool> _validateTarget({
     required DiscoveredBenchmarkFile discovered,
     required TargetRuntime runtime,
@@ -1079,4 +1041,20 @@ String _resolveTargetPath(List<String> rest) {
     if (Directory(dir).existsSync()) return dir;
   }
   return 'benchmark';
+}
+
+DartSdk _resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
+  final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
+  var cleanedPath = sdkPath ?? '';
+  if (cleanedPath == 'stock') cleanedPath = '';
+  if (cleanedPath.startsWith('~')) {
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    if (home != null) {
+      cleanedPath = cleanedPath.replaceFirst('~', home);
+    }
+  }
+  return cleanedPath.isNotEmpty
+      ? baseSdk.copyWith(customSdkPath: cleanedPath)
+      : baseSdk;
 }

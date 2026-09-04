@@ -77,6 +77,19 @@ final class const DartSdk({
   /// Custom environment variable map override.
   final Map<String, String>? environment,
 }) {
+  /// Returns a copy of this [DartSdk] with the specified fields updated.
+  DartSdk copyWith({
+    String? customSdkPath,
+    String? customD8Path,
+    String? customNodePath,
+    Map<String, String>? environment,
+  }) => DartSdk(
+    customSdkPath: customSdkPath ?? this.customSdkPath,
+    customD8Path: customD8Path ?? this.customD8Path,
+    customNodePath: customNodePath ?? this.customNodePath,
+    environment: environment ?? this.environment,
+  );
+
   Map<String, String> get _env => environment ?? Platform.environment;
 
   /// Returns the resolved absolute path to the active Dart SDK root directory,
@@ -161,7 +174,8 @@ final class const DartSdk({
       return null;
     }
 
-    final nodeEnv = _env['NODE_PATH'];
+    final nodeEnv =
+        _env['NODE_EXECUTABLE'] ?? _env['NODE_BINARY'] ?? _env['NODE_PATH'];
     if (nodeEnv != null && nodeEnv.isNotEmpty) {
       final file = File(nodeEnv);
       if (file.existsSync()) {
@@ -229,8 +243,10 @@ final class const DartSdk({
     final candidates = [
       p.join(sdk, 'bin', 'resources', 'dart2wasm', exeName),
       p.join(sdk, 'out', 'ReleaseX64', exeName),
+      p.join(sdk, 'out', 'ReleaseARM64', exeName),
       p.join(p.dirname(sdk), exeName),
       p.join(p.dirname(sdk), 'ReleaseX64', exeName),
+      p.join(p.dirname(sdk), 'ReleaseARM64', exeName),
     ];
     for (final candidate in candidates) {
       if (File(candidate).existsSync()) {
