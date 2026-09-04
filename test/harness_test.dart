@@ -129,6 +129,20 @@ void main() {
       check(group.variants.first.isBaseline).isTrue();
     });
 
+    test('Benchmark.matrix forwards to BenchmarkGroup.matrix', () {
+      final matrix = Benchmark.matrix<int>(
+        cases: [1, 2],
+        name: (c) => 'Case $c',
+        baseline: ('base', (c) => c),
+        candidates: {'cand': (c) => c * 2},
+      );
+
+      check(matrix.length).equals(2);
+      check(matrix.cases).deepEquals([1, 2]);
+      check(matrix.first.name).equals('Case 1');
+      check(matrix.last.name).equals('Case 2');
+    });
+
     test('BenchmarkGroup.report executes all variants', () async {
       var countA = 0;
       var countB = 0;

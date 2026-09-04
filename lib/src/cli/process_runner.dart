@@ -52,6 +52,7 @@ final class const BenchmarkProcessRunner({
     required CompilationResult compilationResult,
     bool isolateMode = false,
     int? trials,
+    int? maxTrials,
     bool forceRun = false,
     bool validate = false,
     List<String> vmFlags = const [],
@@ -82,6 +83,7 @@ final class const BenchmarkProcessRunner({
       '--target',
       runtime.name,
       if (trials != null) ...['--trials', '$trials'],
+      if (maxTrials != null) ...['--max-trials', '$maxTrials'],
       if (forceRun) '--force-run',
       if (validate) '--validate',
     ];

@@ -15,7 +15,7 @@ final class _SampleBench() extends Benchmark {
     for (var i = 0; i < 20; i++) {
       sum += i;
     }
-    Blackhole.consumeInt(sum);
+    Blackhole.consume(sum);
   }
 }
 

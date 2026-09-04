@@ -10,9 +10,16 @@ final class _CountingBenchmark(
   int setupCalls = 0;
   int runCalls = 0;
   int teardownCalls = 0;
+  int warmupCompleteCalls = 0;
+
   @override
   void setup() {
     setupCalls++;
+  }
+
+  @override
+  void warmupComplete() {
+    warmupCompleteCalls++;
   }
 
   @override
@@ -25,7 +32,7 @@ final class _CountingBenchmark(
     for (var i = 0; i < 50; i++) {
       x += i;
     }
-    Blackhole.consumeInt(x);
+    Blackhole.consume(x);
   }
 
   @override
@@ -235,5 +242,156 @@ void main() {
         check(result.rawTrialLatenciesNs.length).equals(5);
       },
     );
+
+    test('adaptively scales trials up to maxTrials when variance is high', () {
+      final logs = <String>[];
+      final bench = _CountingBenchmark(
+        'mock_spiking',
+        config: BenchmarkConfig(
+          trials: 5,
+          maxTrials: 10,
+          minWarmupIterations: 20,
+          maxWarmupIterations: 20,
+          targetBatchDuration: const Duration(milliseconds: 1),
+          forceRun: true,
+          logger: logs.add,
+        ),
+      );
+
+      var trialCount = 0;
+      final result = BenchmarkRunner.run(
+        bench,
+        runBatch: (b, iters) {
+          if (bench.warmupCompleteCalls == 0) {
+            return BatchMeasurement(
+              iterations: iters,
+              totalElapsedMicroseconds: (100.0 * iters / 1000.0).round(),
+              perOpNanoseconds: 100.0,
+            );
+          }
+          trialCount++;
+          // First trial spikes to 200.0 ns to induce high initial variance.
+          final perOpNs = (trialCount == 1) ? 200.0 : 100.0;
+          return BatchMeasurement(
+            iterations: iters,
+            totalElapsedMicroseconds: (perOpNs * iters / 1000.0).round(),
+            perOpNanoseconds: perOpNs,
+          );
+        },
+      );
+
+      check(result.warmupResult.isStable).isTrue();
+      check(result.rawTrialLatenciesNs.length).equals(10);
+      check(result.metrics.isStable).isTrue();
+      check(result.metrics.isRobustStable).isTrue();
+      check(logs.any((l) => l.contains('Adaptively scaling up to 10 trials')))
+          .isTrue();
+    });
+
+    test(
+      'does not scale trials beyond configured trials when variance is low',
+      () {
+        final logs = <String>[];
+        final bench = _CountingBenchmark(
+          'mock_non_spiking',
+          config: BenchmarkConfig(
+            trials: 5,
+            maxTrials: 10,
+            minWarmupIterations: 20,
+            maxWarmupIterations: 20,
+            targetBatchDuration: const Duration(milliseconds: 1),
+            forceRun: true,
+            logger: logs.add,
+          ),
+        );
+
+        final result = BenchmarkRunner.run(
+          bench,
+          runBatch: (b, iters) => BatchMeasurement(
+            iterations: iters,
+            totalElapsedMicroseconds: (100.0 * iters / 1000.0).round(),
+            perOpNanoseconds: 100.0,
+          ),
+        );
+
+        check(result.warmupResult.isStable).isTrue();
+        check(result.rawTrialLatenciesNs.length).equals(5);
+        check(result.metrics.isStable).isTrue();
+        check(logs.any((l) => l.contains('Adaptively scaling'))).isFalse();
+      },
+    );
+  });
+
+  group('BenchmarkRunner.shouldScaleTrials', () {
+    test('returns false when maxTrials is null', () {
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+          200.0,
+          100.0,
+        ], const BenchmarkConfig(trials: 3)),
+      ).isFalse();
+    });
+
+    test('returns false when maxTrials <= trials', () {
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+          200.0,
+          100.0,
+        ], const BenchmarkConfig(trials: 5, maxTrials: 5)),
+      ).isFalse();
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+          200.0,
+          100.0,
+        ], const BenchmarkConfig(trials: 5, maxTrials: 3)),
+      ).isFalse();
+    });
+
+    test('returns false when trials.length >= maxTrials', () {
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+          200.0,
+          100.0,
+          200.0,
+          100.0,
+        ], const BenchmarkConfig(trials: 3, maxTrials: 5)),
+      ).isFalse();
+    });
+
+    test('returns false when trials has fewer than 2 samples', () {
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+        ], const BenchmarkConfig(trials: 1, maxTrials: 5)),
+      ).isFalse();
+    });
+
+    test('returns false when variance is within stability threshold', () {
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+          101.0,
+          99.0,
+          100.5,
+          99.5,
+        ], const BenchmarkConfig(trials: 5, maxTrials: 10)),
+      ).isFalse();
+    });
+
+    test('returns true when variance exceeds stability threshold', () {
+      check(
+        BenchmarkRunner.shouldScaleTrials([
+          100.0,
+          100.0,
+          100.0,
+          100.0,
+          200.0,
+        ], const BenchmarkConfig(trials: 5, maxTrials: 10)),
+      ).isTrue();
+    });
   });
 }

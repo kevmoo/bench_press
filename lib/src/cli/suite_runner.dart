@@ -55,9 +55,17 @@ Future<void> mainBenchmarkGroup(BenchmarkGroup group, List<String> args) async {
   await mainBenchmarkSuite([group], args);
 }
 
+/// Standalone CLI entrypoint for a [BenchmarkMatrix].
+Future<void> mainBenchmarkMatrix(
+  BenchmarkMatrix<dynamic> matrix,
+  List<String> args,
+) async {
+  await mainBenchmarkSuite(matrix, args);
+}
+
 /// Standalone CLI entrypoint for an arbitrary collection or single instance of
-/// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant], or
-/// [BenchmarkGroup]).
+/// benchmarks ([Benchmark], [AsyncBenchmark], [BenchmarkVariant],
+/// [BenchmarkGroup], or [BenchmarkMatrix]).
 Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   validateBenchmarks(benchmarks);
   final parser = ArgParser()
@@ -65,6 +73,10 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
     ..addFlag('json', help: 'Emit streaming JSON markers to stdout')
     ..addOption('target', defaultsTo: 'jit', help: 'Target runtime identifier')
     ..addOption('trials', help: 'Override measurement trials count')
+    ..addOption(
+      'max-trials',
+      help: 'Override maximum measurement trials ceiling for adaptive scaling',
+    )
     ..addOption('min-warmup', help: 'Override minimum warmup iterations')
     ..addOption('max-warmup', help: 'Override maximum warmup iterations')
     ..addOption('target-batch-ms', help: 'Override target batch duration (ms)')
@@ -110,46 +122,18 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
 
   final results = <BenchmarkResult>[];
   for (final item in benchmarkList) {
-    switch (item) {
-      case Benchmark b:
-        results.add(BenchmarkRunner.run(_applyConfigToBenchmark(b, config)));
-      case AsyncBenchmark b:
-        results.add(
-          await BenchmarkRunner.runAsync(
-            _applyConfigToAsyncBenchmark(b, config),
-          ),
-        );
-      case BenchmarkVariant b:
-        results.add(await BenchmarkRunner.runVariant(b, config: config));
-      case BenchmarkGroup g:
-        for (final v in g.variants) {
-          results.add(await BenchmarkRunner.runVariant(v, config: config));
-        }
-      default:
-        throw ArgumentError(
-          'Unsupported benchmark type: ${item.runtimeType}. '
-          'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, or '
-          'BenchmarkGroup.',
-        );
+    if (item is Benchmark) {
+      results.add(BenchmarkRunner.run(_applyConfigToBenchmark(item, config)));
+    } else {
+      results.addAll(await _executeAsyncBenchmarkItem(item, config));
     }
   }
 
-  final suiteResult = BenchmarkSuiteResult.fromResults(
+  _finishSuite(
     results,
     target: target,
-    environment: EnvironmentInfo.current(),
+    jsonOutputPath: parsed.option('json-output'),
   );
-
-  final jsonText = const JsonEncoder.withIndent('  ')
-      .convert(suiteResult.toJson());
-
-  _writeJsonOutput(parsed.option('json-output'), jsonText);
-
-  // Always emit stream markers for subprocess communication. `print`, not
-  // `stdout.writeln` — the latter throws `Unsupported operation:
-  // StdIOUtils._getStdioOutputStream` on js/wasm compile targets, silently
-  // dropping the telemetry the CLI's subprocess reader depends on.
-  print(wrapJsonInMarkers(jsonText));
 }
 
 @visibleForTesting
@@ -169,7 +153,9 @@ void _writeJsonOutput(String? jsonOutputPath, String jsonText) {
     file.parent.createSync(recursive: true);
     file.writeAsStringSync('$jsonText\n');
   } on Object catch (e) {
-    print('Warning: Failed to write JSON output: $e');
+    if (e is! UnsupportedError) {
+      print('Warning: Failed to write JSON output: $e');
+    }
   }
 }
 
@@ -188,6 +174,7 @@ BenchmarkConfig _buildConfigFromArgs(
   }
 
   final trials = int.tryParse(parsed.option('trials') ?? '');
+  final maxTrials = int.tryParse(parsed.option('max-trials') ?? '');
   final minWarmup = int.tryParse(parsed.option('min-warmup') ?? '');
   final maxWarmup = int.tryParse(parsed.option('max-warmup') ?? '');
   final batchMs = int.tryParse(parsed.option('target-batch-ms') ?? '');
@@ -195,6 +182,7 @@ BenchmarkConfig _buildConfigFromArgs(
 
   return BenchmarkConfig(
     trials: trials ?? 15,
+    maxTrials: maxTrials,
     minWarmupIterations: minWarmup ?? 10,
     maxWarmupIterations: maxWarmup ?? 200,
     targetBatchDuration: batchMs != null
@@ -216,6 +204,70 @@ AsyncBenchmark _applyConfigToAsyncBenchmark(
   if (benchmark.config == config) return benchmark;
   return _ConfiguredAsyncBenchmark(benchmark, config);
 }
+
+void _finishSuite(
+  List<BenchmarkResult> results, {
+  required String target,
+  required String? jsonOutputPath,
+}) {
+  final suiteResult = BenchmarkSuiteResult.fromResults(
+    results,
+    target: target,
+    environment: EnvironmentInfo.current(),
+  );
+
+  final jsonText = const JsonEncoder.withIndent('  ')
+      .convert(suiteResult.toJson());
+
+  _writeJsonOutput(jsonOutputPath, jsonText);
+
+  // Always emit stream markers for subprocess communication. `print`, not
+  // `stdout.writeln` — the latter throws `Unsupported operation:
+  // StdIOUtils._getStdioOutputStream` on js/wasm compile targets, silently
+  // dropping the telemetry the CLI's subprocess reader depends on.
+  print(wrapJsonInMarkers(jsonText));
+}
+
+Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(
+  Object item,
+  BenchmarkConfig config,
+) async {
+  switch (item) {
+    case AsyncBenchmark b:
+      return [
+        await BenchmarkRunner.runAsync(_applyConfigToAsyncBenchmark(b, config)),
+      ];
+    case BenchmarkVariant b:
+      return [await BenchmarkRunner.runVariant(b, config: config)];
+    case BenchmarkGroup g:
+      return await _runGroupVariants(g, config);
+    case BenchmarkMatrix<dynamic> m:
+      return await _runMatrixVariants(m, config);
+    default:
+      throw ArgumentError(
+        'Unsupported benchmark type: ${item.runtimeType}. '
+        'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, '
+        'BenchmarkGroup, or BenchmarkMatrix.',
+      );
+  }
+}
+
+Future<List<BenchmarkResult>> _runGroupVariants(
+  BenchmarkGroup g,
+  BenchmarkConfig config,
+) async => [
+  for (final v in g.variants)
+    await BenchmarkRunner.runVariant(v, config: config),
+];
+
+Future<List<BenchmarkResult>> _runMatrixVariants(
+  BenchmarkMatrix<dynamic> m,
+  BenchmarkConfig config,
+) async => [
+  for (final g in m)
+    for (final v in g.variants)
+      await BenchmarkRunner.runVariant(v, config: config),
+];
 
 final class _ConfiguredBenchmark(
   final Benchmark _delegate,

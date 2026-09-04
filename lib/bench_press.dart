@@ -24,12 +24,18 @@ export 'src/cli/suite_runner.dart'
         mainAsyncBenchmark,
         mainBenchmark,
         mainBenchmarkGroup,
+        mainBenchmarkMatrix,
         mainBenchmarkSuite,
         wrapJsonInMarkers;
 export 'src/cli/terminal.dart' show useAnsi;
 export 'src/config.dart' show BenchmarkConfig;
 export 'src/harness.dart'
-    show AsyncBenchmark, Benchmark, BenchmarkGroup, BenchmarkVariant;
+    show
+        AsyncBenchmark,
+        Benchmark,
+        BenchmarkGroup,
+        BenchmarkMatrix,
+        BenchmarkVariant;
 export 'src/runner.dart' show BenchmarkResult, BenchmarkRunner;
 export 'src/stats/fieller.dart'
     show FiellerInterval, normalQuantile, studentTQuantile;
