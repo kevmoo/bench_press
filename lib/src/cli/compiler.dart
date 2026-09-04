@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'sdk.dart';
@@ -114,44 +112,33 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       runnerPath: runnerPath,
     );
 
-    final cacheKey = _computeCacheKey(
+    final currentManifest = _computeCacheManifest(
       sourceFile: sourceFile,
       runtime: runtime,
       compilerFlags: compilerFlags,
       dartExe: dartExe,
       workingDirectory: workingDirectory,
     );
-    final cacheDir = Directory(
-      p.join(
-        '.dart_tool',
-        'bench_press',
-        'cache',
-        runtime.name,
-        '${baseName}_$cacheKey',
-      ),
-    );
+    final cacheKeyFile = File('$artifactPath.cache_key');
 
-    if (useCache) {
-      final cachedResult = _tryRestoreFromCache(
-        cacheDir: cacheDir,
-        targetDir: targetDir,
-        cacheKey: cacheKey,
-        baseName: baseName,
+    if (useCache &&
+        File(artifactPath).existsSync() &&
+        (expectedRunnerPath == null || File(expectedRunnerPath).existsSync()) &&
+        (runnerPath == null || File(runnerPath).existsSync()) &&
+        cacheKeyFile.existsSync() &&
+        cacheKeyFile.readAsStringSync() == currentManifest) {
+      return CompilationResult(
+        success: true,
         runtime: runtime,
         sourcePath: normalizedSource,
         artifactPath: artifactPath,
-        runnerPath: runnerPath,
         runnerScriptPath: expectedRunnerPath,
+        compilationDuration: Duration.zero,
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        cacheHit: true,
       );
-      if (cachedResult != null) {
-        _writeRunnerIfNeeded(
-          runtime: runtime,
-          outputDir: targetDir.path,
-          baseName: baseName,
-          runnerPath: runnerPath,
-        );
-        return cachedResult;
-      }
     }
 
     final stopwatch = Stopwatch()..start();
@@ -171,12 +158,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
           baseName: baseName,
           runnerPath: runnerPath,
         );
-        _saveToCache(
-          targetDir: targetDir,
-          cacheDir: cacheDir,
-          baseName: baseName,
-          cacheKey: cacheKey,
-        );
+        cacheKeyFile.writeAsStringSync(currentManifest);
       }
 
       return CompilationResult(
@@ -236,130 +218,52 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     }
   }
 
-  CompilationResult? _tryRestoreFromCache({
-    required Directory cacheDir,
-    required Directory targetDir,
-    required String cacheKey,
-    required String baseName,
-    required TargetRuntime runtime,
-    required String sourcePath,
-    required String artifactPath,
-    required String? runnerPath,
-    required String? runnerScriptPath,
-  }) {
-    if (!cacheDir.existsSync()) return null;
-    final cachedArtifact = File(
-      p.join(cacheDir.path, p.basename(artifactPath)),
-    );
-    if (!cachedArtifact.existsSync()) return null;
-    if (runnerPath != null) {
-      final cachedLoader = File(p.join(cacheDir.path, p.basename(runnerPath)));
-      if (!cachedLoader.existsSync()) return null;
-    }
-
-    final markerFile = File(p.join(targetDir.path, '$baseName.cache_key'));
-    final targetArtifact = File(artifactPath);
-    if (!markerFile.existsSync() ||
-        !targetArtifact.existsSync() ||
-        markerFile.readAsStringSync() != cacheKey) {
-      for (final entity in cacheDir.listSync().whereType<File>()) {
-        entity.copySync(p.join(targetDir.path, p.basename(entity.path)));
-      }
-      markerFile.writeAsStringSync(cacheKey);
-    }
-
-    return CompilationResult(
-      success: true,
-      runtime: runtime,
-      sourcePath: sourcePath,
-      artifactPath: artifactPath,
-      runnerScriptPath: runnerScriptPath,
-      compilationDuration: Duration.zero,
-      stdout: '',
-      stderr: '',
-      exitCode: 0,
-      cacheHit: true,
-    );
-  }
-
-  void _saveToCache({
-    required Directory targetDir,
-    required Directory cacheDir,
-    required String baseName,
-    required String cacheKey,
-  }) {
-    if (cacheDir.existsSync()) {
-      cacheDir.deleteSync(recursive: true);
-    }
-    cacheDir.createSync(recursive: true);
-    for (final entity in targetDir.listSync().whereType<File>()) {
-      final fileName = p.basename(entity.path);
-      if (fileName == baseName || fileName.startsWith('$baseName.')) {
-        entity.copySync(p.join(cacheDir.path, fileName));
-      }
-    }
-    File(p.join(targetDir.path, '$baseName.cache_key'))
-        .writeAsStringSync(cacheKey);
-  }
-
-  String _computeCacheKey({
+  String _computeCacheManifest({
     required File sourceFile,
     required TargetRuntime runtime,
     required List<String> compilerFlags,
     required String dartExe,
     String? workingDirectory,
   }) {
-    final builder = BytesBuilder(copy: false);
-    void addString(String value) {
-      builder
-        ..add(utf8.encode(value))
-        ..addByte(0);
+    final buffer = StringBuffer()
+      ..writeln('runtime:${runtime.name}')
+      ..writeln('dartExe:$dartExe');
+
+    void addFileStat(String label, File file) {
+      if (!file.existsSync()) return;
+      try {
+        final stat = file.statSync();
+        buffer.writeln(
+          '$label:${stat.modified.microsecondsSinceEpoch}:${stat.size}',
+        );
+      } on FileSystemException {
+        // Ignore inaccessible files.
+      }
     }
 
-    addString(runtime.name);
-    addString(dartExe);
-    try {
-      final stat = File(dartExe).statSync();
-      addString('${stat.modified.millisecondsSinceEpoch}:${stat.size}');
-    } on FileSystemException {
-      // Ignore stat errors for mock or non-existent binaries.
-    }
+    addFileStat('dartExeStat', File(dartExe));
     for (final flag in compilerFlags) {
-      addString(flag);
+      buffer.writeln('flag:$flag');
     }
 
     final baseDir = workingDirectory ?? Directory.current.path;
     final pkgConfigPath =
         sdk.packageConfigPath ??
         p.join(baseDir, '.dart_tool', 'package_config.json');
-    final pkgConfigFile = File(pkgConfigPath);
-    if (pkgConfigFile.existsSync()) {
-      builder.add(pkgConfigFile.readAsBytesSync());
-    }
+    addFileStat('pkgConfig', File(pkgConfigPath));
 
-    final normalizedSourcePath = p.normalize(sourceFile.absolute.path);
-    if (sourceFile.existsSync()) {
-      addString(normalizedSourcePath);
-      builder.add(sourceFile.readAsBytesSync());
-    }
-
-    final dartFiles = <String, File>{};
+    final dartFiles = <String, File>{
+      p.normalize(sourceFile.absolute.path): sourceFile,
+    };
     _collectDartFiles(Directory(p.join(baseDir, 'lib')), dartFiles);
     _collectDartFiles(sourceFile.parent, dartFiles);
 
     final sortedPaths = dartFiles.keys.toList()..sort();
     for (final path in sortedPaths) {
-      if (path == normalizedSourcePath) continue;
-      final file = dartFiles[path]!;
-      try {
-        final stat = file.statSync();
-        addString('$path:${stat.modified.microsecondsSinceEpoch}:${stat.size}');
-      } on FileSystemException {
-        // Ignore inaccessible files.
-      }
+      addFileStat(path, dartFiles[path]!);
     }
 
-    return sha256.convert(builder.takeBytes()).toString();
+    return buffer.toString();
   }
 
   void _collectDartFiles(Directory dir, Map<String, File> out) {

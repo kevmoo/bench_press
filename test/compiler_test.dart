@@ -390,13 +390,13 @@ void main(List<String> args) => mainBenchmark(CacheBench(), args);
 ''');
 
         const compiler = TargetCompiler();
-        final outDir1 = Directory(p.join(tempDir.path, 'out1'));
+        final outDir = Directory(p.join(tempDir.path, 'out'));
 
         // 1. First compilation -> cache miss (cacheHit: false)
         final result1 = await compiler.compile(
           sourceFile: source,
           runtime: TargetRuntime.aot,
-          outputDir: outDir1,
+          outputDir: outDir,
         );
         check(result1.success).isTrue();
         check(result1.cacheHit).isFalse();
@@ -404,11 +404,10 @@ void main(List<String> args) => mainBenchmark(CacheBench(), args);
         check(File(result1.artifactPath!).existsSync()).isTrue();
 
         // 2. Second compilation with identical source -> cache hit
-        final outDir2 = Directory(p.join(tempDir.path, 'out2'));
         final result2 = await compiler.compile(
           sourceFile: source,
           runtime: TargetRuntime.aot,
-          outputDir: outDir2,
+          outputDir: outDir,
         );
         check(result2.success).isTrue();
         check(result2.cacheHit).isTrue();
@@ -428,7 +427,7 @@ void main(List<String> args) => mainBenchmark(CacheBench(), args);
         final result3 = await compiler.compile(
           sourceFile: source,
           runtime: TargetRuntime.aot,
-          outputDir: outDir2,
+          outputDir: outDir,
           useCache: false,
         );
         check(result3.success).isTrue();
@@ -449,7 +448,7 @@ void main(List<String> args) => mainBenchmark(CacheBench(), args);
         final result4 = await compiler.compile(
           sourceFile: source,
           runtime: TargetRuntime.aot,
-          outputDir: outDir2,
+          outputDir: outDir,
         );
         check(result4.success).isTrue();
         check(result4.cacheHit).isFalse();
