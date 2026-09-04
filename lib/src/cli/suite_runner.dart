@@ -114,21 +114,20 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
       ? List<Object>.from(benchmarks)
       : <Object>[benchmarks];
 
-  final results = await _executeBenchmarkSuite(benchmarkList, config);
+  final results = <BenchmarkResult>[];
+  for (final item in benchmarkList) {
+    if (item is Benchmark) {
+      results.add(BenchmarkRunner.run(_applyConfigToBenchmark(item, config)));
+    } else {
+      results.addAll(await _executeAsyncBenchmarkItem(item, config));
+    }
+  }
 
-  final suiteResult = BenchmarkSuiteResult.fromResults(
+  _finishSuite(
     results,
     target: target,
-    environment: EnvironmentInfo.current(),
+    jsonOutputPath: parsed.option('json-output'),
   );
-
-  final jsonText = const JsonEncoder.withIndent('  ')
-      .convert(suiteResult.toJson());
-
-  _writeJsonOutput(parsed.option('json-output'), jsonText);
-
-  // Always emit stream markers for subprocess communication
-  stdout.writeln(wrapJsonInMarkers(jsonText));
 }
 
 @visibleForTesting
@@ -198,24 +197,31 @@ AsyncBenchmark _applyConfigToAsyncBenchmark(
   return _ConfiguredAsyncBenchmark(benchmark, config);
 }
 
-Future<List<BenchmarkResult>> _executeBenchmarkSuite(
-  List<Object> benchmarkList,
-  BenchmarkConfig config,
-) async {
-  final results = <BenchmarkResult>[];
-  for (final item in benchmarkList) {
-    results.addAll(await _executeBenchmarkItem(item, config));
-  }
-  return results;
+void _finishSuite(
+  List<BenchmarkResult> results, {
+  required String target,
+  required String? jsonOutputPath,
+}) {
+  final suiteResult = BenchmarkSuiteResult.fromResults(
+    results,
+    target: target,
+    environment: EnvironmentInfo.current(),
+  );
+
+  final jsonText = const JsonEncoder.withIndent('  ')
+      .convert(suiteResult.toJson());
+
+  _writeJsonOutput(jsonOutputPath, jsonText);
+
+  // Always emit stream markers for subprocess communication
+  stdout.writeln(wrapJsonInMarkers(jsonText));
 }
 
-Future<List<BenchmarkResult>> _executeBenchmarkItem(
+Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(
   Object item,
   BenchmarkConfig config,
 ) async {
   switch (item) {
-    case Benchmark b:
-      return [BenchmarkRunner.run(_applyConfigToBenchmark(b, config))];
     case AsyncBenchmark b:
       return [
         await BenchmarkRunner.runAsync(_applyConfigToAsyncBenchmark(b, config)),
@@ -223,16 +229,9 @@ Future<List<BenchmarkResult>> _executeBenchmarkItem(
     case BenchmarkVariant b:
       return [await BenchmarkRunner.runVariant(b, config: config)];
     case BenchmarkGroup g:
-      return [
-        for (final v in g.variants)
-          await BenchmarkRunner.runVariant(v, config: config),
-      ];
+      return await _runGroupVariants(g, config);
     case BenchmarkMatrix<dynamic> m:
-      return [
-        for (final g in m)
-          for (final v in g.variants)
-            await BenchmarkRunner.runVariant(v, config: config),
-      ];
+      return await _runMatrixVariants(m, config);
     default:
       throw ArgumentError(
         'Unsupported benchmark type: ${item.runtimeType}. '
@@ -241,6 +240,23 @@ Future<List<BenchmarkResult>> _executeBenchmarkItem(
       );
   }
 }
+
+Future<List<BenchmarkResult>> _runGroupVariants(
+  BenchmarkGroup g,
+  BenchmarkConfig config,
+) async => [
+  for (final v in g.variants)
+    await BenchmarkRunner.runVariant(v, config: config),
+];
+
+Future<List<BenchmarkResult>> _runMatrixVariants(
+  BenchmarkMatrix<dynamic> m,
+  BenchmarkConfig config,
+) async => [
+  for (final g in m)
+    for (final v in g.variants)
+      await BenchmarkRunner.runVariant(v, config: config),
+];
 
 final class _ConfiguredBenchmark(
   final Benchmark _delegate,
