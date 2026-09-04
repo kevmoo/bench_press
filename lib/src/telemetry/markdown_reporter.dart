@@ -67,10 +67,12 @@ abstract final class MarkdownReporter() {
   }
 
   /// Renders a top-level Suite Summary table rolling up candidate performance
-  /// across multiple comparison groups using geometric mean speedup.
+  /// across multiple `coordinates.group` comparison groups using geometric mean
+  /// speedup.
   ///
   /// Returns an empty string when there are fewer than 2 distinct comparison
-  /// groups with a baseline and at least one candidate.
+  /// groups with a baseline and at least one candidate participating across
+  /// multiple groups.
   static String renderSuiteSummaryTable(
     BenchmarkSuiteResult suite, {
     String? title,
@@ -120,6 +122,7 @@ abstract final class MarkdownReporter() {
     for (final MapEntry(:key, :value) in groups.entries) {
       _recordGroupSpeedups(key.$1, value, distinctGroups, candidateSpeedups);
     }
+    candidateSpeedups.removeWhere((_, speedups) => speedups.length < 2);
     return (distinctGroups.length, candidateSpeedups);
   }
 
@@ -141,9 +144,14 @@ abstract final class MarkdownReporter() {
     for (final entry in entries) {
       if (identical(entry, baseEntry)) continue;
       final curMeanNs = entry.metrics.meanNs;
-      final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
+      final ratio =
+          (curMeanNs.isFinite &&
+              baseMeanNs.isFinite &&
+              curMeanNs > 0.0 &&
+              baseMeanNs > 0.0)
           ? (baseMeanNs / curMeanNs)
           : 1.0;
+      final speedup = (ratio.isFinite && ratio > 0.0) ? ratio : 1.0;
       candidateSpeedups
           .putIfAbsent((entry.name, entry.target), () => [])
           .add(speedup);
