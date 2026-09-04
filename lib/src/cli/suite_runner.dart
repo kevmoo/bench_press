@@ -114,37 +114,7 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
       ? List<Object>.from(benchmarks)
       : <Object>[benchmarks];
 
-  final results = <BenchmarkResult>[];
-  for (final item in benchmarkList) {
-    switch (item) {
-      case Benchmark b:
-        results.add(BenchmarkRunner.run(_applyConfigToBenchmark(b, config)));
-      case AsyncBenchmark b:
-        results.add(
-          await BenchmarkRunner.runAsync(
-            _applyConfigToAsyncBenchmark(b, config),
-          ),
-        );
-      case BenchmarkVariant b:
-        results.add(await BenchmarkRunner.runVariant(b, config: config));
-      case BenchmarkGroup g:
-        for (final v in g.variants) {
-          results.add(await BenchmarkRunner.runVariant(v, config: config));
-        }
-      case BenchmarkMatrix<dynamic> m:
-        for (final g in m) {
-          for (final v in g.variants) {
-            results.add(await BenchmarkRunner.runVariant(v, config: config));
-          }
-        }
-      default:
-        throw ArgumentError(
-          'Unsupported benchmark type: ${item.runtimeType}. '
-          'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, '
-          'BenchmarkGroup, or BenchmarkMatrix.',
-        );
-    }
-  }
+  final results = await _executeBenchmarkSuite(benchmarkList, config);
 
   final suiteResult = BenchmarkSuiteResult.fromResults(
     results,
@@ -226,6 +196,50 @@ AsyncBenchmark _applyConfigToAsyncBenchmark(
 ) {
   if (benchmark.config == config) return benchmark;
   return _ConfiguredAsyncBenchmark(benchmark, config);
+}
+
+Future<List<BenchmarkResult>> _executeBenchmarkSuite(
+  List<Object> benchmarkList,
+  BenchmarkConfig config,
+) async {
+  final results = <BenchmarkResult>[];
+  for (final item in benchmarkList) {
+    results.addAll(await _executeBenchmarkItem(item, config));
+  }
+  return results;
+}
+
+Future<List<BenchmarkResult>> _executeBenchmarkItem(
+  Object item,
+  BenchmarkConfig config,
+) async {
+  switch (item) {
+    case Benchmark b:
+      return [BenchmarkRunner.run(_applyConfigToBenchmark(b, config))];
+    case AsyncBenchmark b:
+      return [
+        await BenchmarkRunner.runAsync(_applyConfigToAsyncBenchmark(b, config)),
+      ];
+    case BenchmarkVariant b:
+      return [await BenchmarkRunner.runVariant(b, config: config)];
+    case BenchmarkGroup g:
+      return [
+        for (final v in g.variants)
+          await BenchmarkRunner.runVariant(v, config: config),
+      ];
+    case BenchmarkMatrix<dynamic> m:
+      return [
+        for (final g in m)
+          for (final v in g.variants)
+            await BenchmarkRunner.runVariant(v, config: config),
+      ];
+    default:
+      throw ArgumentError(
+        'Unsupported benchmark type: ${item.runtimeType}. '
+        'Expected Benchmark, AsyncBenchmark, BenchmarkVariant, '
+        'BenchmarkGroup, or BenchmarkMatrix.',
+      );
+  }
 }
 
 final class _ConfiguredBenchmark(
