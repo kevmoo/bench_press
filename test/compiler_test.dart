@@ -104,15 +104,59 @@ void main(List<String> args) => mainBenchmark(JsBenchmark(), args);
         // global for microtask/timer scheduling, absent under Node, so the
         // wrapper polyfills it before requiring the real artifact.
         check(result.runnerScriptPath).isNotNull();
-        check(result.runnerScriptPath).not((it) => it.equals(result.artifactPath));
+        check(result.runnerScriptPath)
+            .not((it) => it.equals(result.artifactPath));
         check(File(result.runnerScriptPath!).existsSync()).isTrue();
-        check(
-          File(result.runnerScriptPath!).readAsStringSync(),
-        ).contains('globalThis.self');
+        check(File(result.runnerScriptPath!).readAsStringSync())
+            .contains('globalThis.self');
       } finally {
         tempDir.deleteSync(recursive: true);
       }
     });
+
+    test(
+      'WASM compilation builds wasm artifact and .run.mjs wrapper',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('compiler_wasm_');
+        try {
+          final sourceFile = File(p.join(tempDir.path, 'simple_wasm.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class WasmBenchmark extends Benchmark {
+  WasmBenchmark() : super('wasm_bench');
+  @override
+  void run() {
+    Blackhole.consume(3);
+  }
+}
+
+void main(List<String> args) => mainBenchmark(WasmBenchmark(), args);
+''');
+
+          const compiler = TargetCompiler();
+          final outDir = Directory(p.join(tempDir.path, 'wasm_out'));
+
+          final result = await compiler.compile(
+            sourceFile: sourceFile,
+            runtime: TargetRuntime.wasm,
+            outputDir: outDir,
+          );
+
+          check(result.success).isTrue();
+          check(result.artifactPath).isNotNull();
+          check(File(result.artifactPath!).existsSync()).isTrue();
+          check(result.runnerScriptPath).isNotNull();
+          check(result.runnerScriptPath)
+              .not((it) => it.equals(result.artifactPath));
+          check(File(result.runnerScriptPath!).existsSync()).isTrue();
+          check(File(result.runnerScriptPath!).readAsStringSync())
+              .contains('instantiatedApp.invokeMain');
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
 
     test('returns failure when SDK is not found', () async {
       final tempDir = Directory.systemTemp.createTempSync('no_sdk_');

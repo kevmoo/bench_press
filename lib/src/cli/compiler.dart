@@ -167,11 +167,21 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     File(runnerPath).writeAsStringSync('''
 import { readFile } from 'node:fs/promises';
 
-const init = await import(new URL('$loaderFileName', import.meta.url).href);
-const bytes = await readFile(new URL('$wasmFileName', import.meta.url));
-const compiledApp = await init.compile(bytes);
-const instantiatedApp = await compiledApp.instantiate({});
-instantiatedApp.invokeMain(...process.argv.slice(2));
+process.on('unhandledRejection', (err) => {
+  console.error(err);
+  process.exit(1);
+});
+
+try {
+  const init = await import(new URL('$loaderFileName', import.meta.url).href);
+  const bytes = await readFile(new URL('$wasmFileName', import.meta.url));
+  const compiledApp = await init.compile(bytes);
+  const instantiatedApp = await compiledApp.instantiate({});
+  await instantiatedApp.invokeMain(...process.argv.slice(2));
+} catch (err) {
+  console.error(err);
+  process.exit(1);
+}
 ''');
     return runnerPath;
   }
@@ -204,11 +214,21 @@ instantiatedApp.invokeMain(...process.argv.slice(2));
     final compiledFileName = p.basename(compiledPath);
     final runnerPath = p.normalize(p.join(outputDir, '$baseName.node.js'));
     File(runnerPath).writeAsStringSync('''
+process.on('unhandledRejection', (err) => {
+  console.error(err);
+  process.exit(1);
+});
+
 if (typeof self === 'undefined') {
   globalThis.self = globalThis;
 }
 globalThis.dartMainRunner = (main, _ignoredArgs) => {
-  main(process.argv.slice(2));
+  try {
+    main(process.argv.slice(2));
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
 };
 require('./$compiledFileName');
 ''');
