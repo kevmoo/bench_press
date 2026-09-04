@@ -42,6 +42,30 @@ void _testSummaryMath() {
     final sem = AdaptiveWarmupDetector.computeSem(values);
     check((sem - 0.7559).abs()).isLessThan(0.001);
   });
+
+  test('computeRobustSem calculates MAD-based SEM', () {
+    check(AdaptiveWarmupDetector.computeRobustSem([])).equals(0.0);
+    check(AdaptiveWarmupDetector.computeRobustSem([42.0])).equals(0.0);
+    check(AdaptiveWarmupDetector.computeRobustSem([10.0, 10.0, 10.0, 10.0]))
+        .equals(0.0);
+
+    // Bimodal spike has 0 MAD around median 100.0, giving 0 robust SEM
+    final bimodal = [100.0, 100.0, 100.0, 100.0, 500.0];
+    check(AdaptiveWarmupDetector.computeRobustSem(bimodal)).equals(0.0);
+  });
+
+  test('hasSystemicDrift distinguishes JIT drift from transient GC spikes', () {
+    // Monotonic downward JIT drift between windows
+    final driftA = [200.0, 190.0, 180.0, 170.0, 160.0];
+    final driftB = [150.0, 140.0, 130.0, 120.0, 110.0];
+    check(AdaptiveWarmupDetector.hasSystemicDrift(driftA, driftB)).isTrue();
+
+    // Steady state with a single transient GC spike in window B
+    final steadyA = [100.0, 100.0, 100.0, 100.0, 100.0];
+    final steadyBWithGc = [100.0, 100.0, 100.0, 100.0, 500.0];
+    check(AdaptiveWarmupDetector.hasSystemicDrift(steadyA, steadyBWithGc))
+        .isFalse();
+  });
 }
 
 void _testMmdCalculations() {
@@ -101,6 +125,43 @@ void _testDetectorConvergence() {
     final result = detector.finish();
     check(result.isStable).isTrue();
     check(result.convergedAtIteration).isLessOrEqual(15);
+  });
+
+  test('AdaptiveWarmupDetector converges despite transient GC pause in steady '
+      'state', () {
+    const config = BenchmarkConfig(
+      minWarmupIterations: 10,
+      maxWarmupIterations: 50,
+    );
+
+    final detector = AdaptiveWarmupDetector(config: config, windowSize: 5);
+
+    for (var i = 0; i < 15; i++) {
+      if (i == 8) {
+        detector.addSample(500.0);
+      } else {
+        detector.addSample(100.0);
+      }
+      if (detector.isDone()) break;
+    }
+
+    final result = detector.finish();
+    check(result.isStable).isTrue();
+    check(result.convergedAtIteration).isLessOrEqual(15);
+  });
+
+  test('AdaptiveWarmupDetector does not converge during continuous drift', () {
+    const config = BenchmarkConfig(
+      minWarmupIterations: 10,
+      maxWarmupIterations: 30,
+    );
+
+    final detector = AdaptiveWarmupDetector(config: config, windowSize: 5);
+
+    for (var i = 0; i < 15; i++) {
+      detector.addSample(500.0 - i * 15.0);
+      check(detector.isDone()).isFalse();
+    }
   });
 }
 

@@ -1,5 +1,10 @@
 ## 0.3.0-wip
 
+- Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs`).
+- Added `isRobustStable` to `BenchmarkMetrics` and updated `isStable` to incorporate robust dispersion, preventing transient bimodal GC sweeps from falsely failing steady-state stability for allocation-heavy workloads (Issue #20).
+- Added adaptive trial scaling via `--max-trials` CLI option and `maxTrials` in `BenchmarkConfig` / `DefaultsConfig`, allowing `BenchmarkRunner` to dynamically collect additional measurement trials when initial variance exceeds threshold.
+- Enhanced `AdaptiveWarmupDetector` to distinguish systemic monotonic drift from transient bimodal outliers via `computeRobustSem` and `hasSystemicDrift`.
+- Added non-breaking `warmupComplete()` lifecycle hook to `Benchmark` and `AsyncBenchmark`.
 - **Breaking Change**: Streamlined `Blackhole` API to a single universal `consume(Object? value)` method. Removed redundant specialized methods (`consumeInt`, `consumeDouble`, `consumeBool`, `consumeString`, `consumeObject`).
 - Hardened `Blackhole` compiler barrier against optimizing compiler Dead Code Elimination:
   - Adopted 3-bit cyclic Gray-code ring buffer indexing (`(index & 7) ^ ((index & 7) >> 1)`) to disrupt compiler loop unrolling and vectorization without consecutive slot collisions.

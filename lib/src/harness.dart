@@ -22,6 +22,9 @@ abstract class Benchmark(
   /// The unit of work to be benchmarked.
   void run();
 
+  /// Executed once when warmup has concluded and measurement trials begin.
+  void warmupComplete() {}
+
   /// Executed once after all measurement trials complete.
   void teardown() {}
 
@@ -64,6 +67,9 @@ abstract class AsyncBenchmark(
 
   /// The asynchronous unit of work to be benchmarked.
   Future<void> run();
+
+  /// Executed once when warmup has concluded and measurement trials begin.
+  Future<void> warmupComplete() async {}
 
   /// Executed once after all measurement trials complete.
   Future<void> teardown() async {}

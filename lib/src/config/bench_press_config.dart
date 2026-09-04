@@ -43,6 +43,7 @@ class BenchPressConfig({
 class DefaultsConfig({
   required final List<String> targets,
   required final int trials,
+  final int? maxTrials,
   required final String output,
   required final bool isolateMode,
 }) {
@@ -51,6 +52,7 @@ class DefaultsConfig({
       return DefaultsConfig(
         targets: ['jit', 'aot'],
         trials: 15,
+        maxTrials: null,
         output: 'benchmark_results.json',
         isolateMode: false,
       );
@@ -76,6 +78,18 @@ class DefaultsConfig({
       trials = trialsNode.value as int;
     }
 
+    final maxTrialsNode = map.nodes['max_trials'] ?? map.nodes['max-trials'];
+    int? maxTrials;
+    if (maxTrialsNode != null) {
+      if (maxTrialsNode.value is! int) {
+        throw SourceSpanException(
+          'max_trials must be an integer.',
+          maxTrialsNode.span,
+        );
+      }
+      maxTrials = maxTrialsNode.value as int;
+    }
+
     final outputNode = map.nodes['output'];
     var output = 'benchmark_results.json';
     if (outputNode != null) {
@@ -91,6 +105,7 @@ class DefaultsConfig({
     return DefaultsConfig(
       targets: targets,
       trials: trials,
+      maxTrials: maxTrials,
       output: output,
       isolateMode: isolateMode,
     );
