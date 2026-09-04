@@ -1,5 +1,7 @@
 ## 0.3.0-wip
 
+- Added parameterized matrix group builder `BenchmarkGroup.matrix<T>` (and convenience `Benchmark.matrix<T>`) and `BenchmarkMatrix<T>` to benchmark competing implementations across parameterized inputs or datasets without repetitive boilerplate (Issue #23).
+- Added `mainBenchmarkMatrix` CLI entrypoint and updated `mainBenchmarkSuite` to execute `BenchmarkMatrix` instances seamlessly.
 - Added robust dispersion metrics to `BenchmarkMetrics`: Median Absolute Deviation (`madNs`), normal-consistent robust CV (`robustCv = (1.4826 * madNs) / medianNs`), and Interquartile Range (`iqrNs`).
 - Added `isRobustStable` to `BenchmarkMetrics` and updated `isStable` to incorporate robust dispersion, preventing transient bimodal GC sweeps from falsely failing steady-state stability for allocation-heavy workloads (Issue #20).
 - Added adaptive trial scaling via `--max-trials` CLI option and `maxTrials` in `BenchmarkConfig` / `DefaultsConfig`, allowing `BenchmarkRunner` to dynamically collect additional measurement trials when initial variance exceeds threshold.
