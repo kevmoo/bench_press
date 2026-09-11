@@ -510,10 +510,10 @@ final class RunCommand({
     final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
     final execFlags = _resolveFlagsFromCoordinate(coord, compilerFlags);
 
-    final currentCompiler = currentSdk == effectiveSdk
+    final currentCompiler = currentSdk == sdk
         ? compiler
         : TargetCompiler(sdk: currentSdk);
-    final currentProcessRunner = currentSdk == effectiveSdk
+    final currentProcessRunner = currentSdk == sdk
         ? processRunner
         : BenchmarkProcessRunner(sdk: currentSdk);
 
@@ -881,33 +881,28 @@ final class ValidateCommand({
     required DartSdk effectiveSdk,
   }) async {
     final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
-    final (compiler, runner) = _resolveCompilerAndRunner(
-      currentSdk,
-      effectiveSdk,
-    );
-    final runtime = _resolveTargetFromCoordinate(coord, targets.first);
-    return await _validateTarget(
-      discovered: discovered,
-      runtime: runtime,
-      compilerFlags: compilerFlags,
-      currentSdk: currentSdk,
-      currentCompiler: compiler,
-      currentProcessRunner: runner,
-    );
+    final (compiler, runner) = _resolveCompilerAndRunner(currentSdk);
+    final runtimes = _resolveTargetsFromCoordinate(coord, targets);
+    var allPassed = true;
+    for (final runtime in runtimes) {
+      final passed = await _validateTarget(
+        discovered: discovered,
+        runtime: runtime,
+        compilerFlags: compilerFlags,
+        currentSdk: currentSdk,
+        currentCompiler: compiler,
+        currentProcessRunner: runner,
+      );
+      if (!passed) allPassed = false;
+    }
+    return allPassed;
   }
 
   (TargetCompiler, BenchmarkProcessRunner) _resolveCompilerAndRunner(
     DartSdk currentSdk,
-    DartSdk effectiveSdk,
   ) {
-    if (currentSdk == effectiveSdk) {
-      final comp = effectiveSdk == sdk
-          ? compiler
-          : TargetCompiler(sdk: effectiveSdk);
-      final run = effectiveSdk == sdk
-          ? processRunner
-          : BenchmarkProcessRunner(sdk: effectiveSdk);
-      return (comp, run);
+    if (currentSdk == sdk) {
+      return (compiler, processRunner);
     }
     return (
       TargetCompiler(sdk: currentSdk),
@@ -915,17 +910,17 @@ final class ValidateCommand({
     );
   }
 
-  TargetRuntime _resolveTargetFromCoordinate(
+  List<TargetRuntime> _resolveTargetsFromCoordinate(
     MatrixCoordinate coord,
-    TargetRuntime defaultTarget,
+    List<TargetRuntime> defaultTargets,
   ) {
     final target =
         coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
         coord.resolvedValues[BenchmarkCoordinates.targetKey];
     if (target != null && target.isNotEmpty) {
-      return TargetRuntime.parseTargets([target]).first;
+      return TargetRuntime.parseTargets([target]);
     }
-    return defaultTarget;
+    return defaultTargets;
   }
 
   Future<bool> _validateTarget({
