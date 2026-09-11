@@ -348,4 +348,43 @@ void main() {
       }
     });
   });
+
+  group('DartSdk Equality & HashCode', () {
+    test(
+      'instances with identical configuration are equal and share hashCode',
+      () {
+        const sdk1 = DartSdk();
+        const sdk2 = DartSdk();
+        check(sdk1 == sdk2).isTrue();
+        check(sdk1.hashCode).equals(sdk2.hashCode);
+
+        const custom1 = DartSdk(
+          customSdkPath: '/sdk',
+          customD8Path: '/d8',
+          customNodePath: '/node',
+          environment: {'KEY': 'val'},
+        );
+        const custom2 = DartSdk(
+          customSdkPath: '/sdk',
+          customD8Path: '/d8',
+          customNodePath: '/node',
+          environment: {'KEY': 'val'},
+        );
+        check(custom1 == custom2).isTrue();
+        check(custom1.hashCode).equals(custom2.hashCode);
+      },
+    );
+
+    test('instances with different properties are not equal', () {
+      const base = DartSdk();
+      check(base == base.copyWith(customSdkPath: '/other')).isFalse();
+      check(base == base.copyWith(customD8Path: '/other_d8')).isFalse();
+      check(base == base.copyWith(customNodePath: '/other_node')).isFalse();
+      check(base == base.copyWith(environment: {'A': '1'})).isFalse();
+
+      const env1 = DartSdk(environment: {'A': '1', 'B': '2'});
+      const env2 = DartSdk(environment: {'A': '1', 'B': '3'});
+      check(env1 == env2).isFalse();
+    });
+  });
 }

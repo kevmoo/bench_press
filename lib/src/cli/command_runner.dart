@@ -16,7 +16,7 @@ import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
 
-const String benchPressVersion = '0.3.0';
+const String benchPressVersion = '0.3.1-wip';
 
 /// The top-level command runner for `bench_press`.
 final class BenchPressCommandRunner({
@@ -309,22 +309,25 @@ final class RunCommand({
     }
 
     final coords = config.generateCoordinates();
-    final accumulated = await _executeMatrix(
+    final (:suite, :hasFailures) = await _executeMatrix(
       files,
       coords,
       config,
       targets,
       effectiveSdk,
     );
-    if (accumulated == null || accumulated.benchmarks.isEmpty) {
+    if (suite == null || suite.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
       return ExitCode.software.code;
     }
 
-    return _finishSuiteExecution(accumulated);
+    return _finishSuiteExecution(suite, hasFailures: hasFailures);
   }
 
-  int _finishSuiteExecution(BenchmarkSuiteResult suite) {
+  int _finishSuiteExecution(
+    BenchmarkSuiteResult suite, {
+    required bool hasFailures,
+  }) {
     final noSave = argResults!.flag('no-save');
     final outputPath =
         argResults!.option('save') ?? argResults!.option('output')!;
@@ -338,6 +341,13 @@ final class RunCommand({
       outputPath: outputPath,
     );
 
+    if (hasFailures) {
+      stderr.writeln(
+        'Failure: One or more benchmark targets failed to build or execute.',
+      );
+      return ExitCode.software.code;
+    }
+
     if (argResults!.flag('fail-on-unstable') &&
         _hasUnstableBenchmark(finalSuite)) {
       stderr.writeln(
@@ -348,7 +358,7 @@ final class RunCommand({
     return ExitCode.success.code;
   }
 
-  Future<BenchmarkSuiteResult?> _executeMatrix(
+  Future<({BenchmarkSuiteResult? suite, bool hasFailures})> _executeMatrix(
     List<DiscoveredBenchmarkFile> files,
     List<MatrixCoordinate> coords,
     BenchPressConfig config,
@@ -370,32 +380,77 @@ final class RunCommand({
     final vmFlags = argResults!.multiOption('vm-flag');
 
     BenchmarkSuiteResult? accumulated;
+    var hasFailures = false;
 
     for (final discovered in files) {
-      for (final coord in coords) {
-        final result = await _executeMatrixCoordinate(
-          discovered: discovered,
-          coord: coord,
-          defaultTargets: defaultTargets,
-          trials: trials,
-          maxTrials: maxTrials,
-          forceRun: forceRun,
-          isolateMode: isolateMode,
-          compilerFlags: compilerFlags,
-          vmFlags: vmFlags,
-          effectiveSdk: effectiveSdk,
-        );
-        if (result != null) {
-          accumulated = accumulated == null
-              ? result
-              : accumulated.deepMerge(result);
-        }
+      final result = await _executeFileCoordinates(
+        discovered: discovered,
+        coords: coords,
+        defaultTargets: defaultTargets,
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        compilerFlags: compilerFlags,
+        vmFlags: vmFlags,
+        effectiveSdk: effectiveSdk,
+      );
+      if (result.hasFailures) {
+        hasFailures = true;
+      }
+      if (result.suite != null) {
+        accumulated = _mergeResults(accumulated, result.suite!);
       }
     }
-    return accumulated;
+    return (suite: accumulated, hasFailures: hasFailures);
   }
 
-  Future<BenchmarkSuiteResult?> _executeMatrixCoordinate({
+  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
+  _executeFileCoordinates({
+    required DiscoveredBenchmarkFile discovered,
+    required List<MatrixCoordinate> coords,
+    required List<TargetRuntime> defaultTargets,
+    required int? trials,
+    required int? maxTrials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> compilerFlags,
+    required List<String> vmFlags,
+    required DartSdk effectiveSdk,
+  }) async {
+    BenchmarkSuiteResult? fileAccumulated;
+    var hasFailures = false;
+
+    for (final coord in coords) {
+      final result = await _executeMatrixCoordinate(
+        discovered: discovered,
+        coord: coord,
+        defaultTargets: defaultTargets,
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        compilerFlags: compilerFlags,
+        vmFlags: vmFlags,
+        effectiveSdk: effectiveSdk,
+      );
+      if (result.hasFailures) {
+        hasFailures = true;
+      }
+      if (result.suite != null) {
+        fileAccumulated = _mergeResults(fileAccumulated, result.suite!);
+      }
+    }
+    return (suite: fileAccumulated, hasFailures: hasFailures);
+  }
+
+  static BenchmarkSuiteResult _mergeResults(
+    BenchmarkSuiteResult? current,
+    BenchmarkSuiteResult incoming,
+  ) => current == null ? incoming : current.deepMerge(incoming);
+
+  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
+  _executeMatrixCoordinate({
     required DiscoveredBenchmarkFile discovered,
     required MatrixCoordinate coord,
     required List<TargetRuntime> defaultTargets,
@@ -415,6 +470,7 @@ final class RunCommand({
         : defaultTargets;
 
     BenchmarkSuiteResult? coordAccumulated;
+    var hasFailures = false;
     for (final runtime in runtimes) {
       final result = await _executeMatrixEntry(
         discovered: discovered,
@@ -428,16 +484,18 @@ final class RunCommand({
         vmFlags: vmFlags,
         effectiveSdk: effectiveSdk,
       );
-      if (result != null) {
-        coordAccumulated = coordAccumulated == null
-            ? result
-            : coordAccumulated.deepMerge(result);
+      if (result.hasFailures) {
+        hasFailures = true;
+      }
+      if (result.suite != null) {
+        coordAccumulated = _mergeResults(coordAccumulated, result.suite!);
       }
     }
-    return coordAccumulated;
+    return (suite: coordAccumulated, hasFailures: hasFailures);
   }
 
-  Future<BenchmarkSuiteResult?> _executeMatrixEntry({
+  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
+  _executeMatrixEntry({
     required DiscoveredBenchmarkFile discovered,
     required MatrixCoordinate coord,
     required TargetRuntime runtime,
@@ -452,6 +510,13 @@ final class RunCommand({
     final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
     final execFlags = _resolveFlagsFromCoordinate(coord, compilerFlags);
 
+    final currentCompiler = currentSdk == sdk
+        ? compiler
+        : TargetCompiler(sdk: currentSdk);
+    final currentProcessRunner = currentSdk == sdk
+        ? processRunner
+        : BenchmarkProcessRunner(sdk: currentSdk);
+
     return await _executeMatrixSingleTarget(
       discovered: discovered,
       runtime: runtime,
@@ -461,8 +526,8 @@ final class RunCommand({
       isolateMode: isolateMode,
       compilerFlags: execFlags,
       vmFlags: vmFlags,
-      compiler: TargetCompiler(sdk: currentSdk),
-      processRunner: BenchmarkProcessRunner(sdk: currentSdk),
+      compiler: currentCompiler,
+      processRunner: currentProcessRunner,
       coordinate: coord,
     );
   }
@@ -479,7 +544,8 @@ final class RunCommand({
     return execFlags;
   }
 
-  Future<BenchmarkSuiteResult?> _executeMatrixSingleTarget({
+  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
+  _executeMatrixSingleTarget({
     required DiscoveredBenchmarkFile discovered,
     required TargetRuntime runtime,
     required int? trials,
@@ -494,7 +560,7 @@ final class RunCommand({
   }) async {
     if (!compiler.sdk.isRuntimeAvailable(runtime)) {
       stderr.writeln('Warning: Runtime "$runtime" is not available.');
-      return null;
+      return (suite: null, hasFailures: false);
     }
 
     final compilation = await compiler.compile(
@@ -509,7 +575,7 @@ final class RunCommand({
         'Compilation failed for ${discovered.basename} ($runtime):',
       );
       stderr.writeln(compilation.stderr);
-      return null;
+      return (suite: null, hasFailures: true);
     }
 
     final execResult = await processRunner.execute(
@@ -524,10 +590,18 @@ final class RunCommand({
     if (!execResult.success || execResult.suiteResult == null) {
       stderr.writeln('Execution failed for ${discovered.basename} ($runtime):');
       stderr.writeln(execResult.errorMessage ?? execResult.stderr);
-      return null;
+      return (suite: null, hasFailures: true);
     }
 
     final suiteResult = execResult.suiteResult!;
+    if (suiteResult.benchmarks.isEmpty) {
+      stderr.writeln(
+        'Benchmark target ${discovered.basename} ($runtime) produced zero '
+        'results.',
+      );
+      return (suite: null, hasFailures: true);
+    }
+
     final taggedBenchmarks = suiteResult.benchmarks.map((b) {
       if (coordinate.coordinates.isEmpty) return b;
       return b.copyWith(
@@ -535,12 +609,13 @@ final class RunCommand({
         isBaseline: coordinate.isBaseline,
       );
     }).toList();
-    return BenchmarkSuiteResult(
+    final resultSuite = BenchmarkSuiteResult(
       version: suiteResult.version,
       timestamp: suiteResult.timestamp,
       environment: suiteResult.environment,
       benchmarks: taggedBenchmarks,
     );
+    return (suite: resultSuite, hasFailures: false);
   }
 
   bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
@@ -751,8 +826,12 @@ final class ValidateCommand({
     List<String> compilerFlags,
     DartSdk effectiveSdk,
   ) async {
-    final effectiveCompiler = TargetCompiler(sdk: effectiveSdk);
-    final effectiveProcessRunner = BenchmarkProcessRunner(sdk: effectiveSdk);
+    final effectiveCompiler = effectiveSdk == sdk
+        ? compiler
+        : TargetCompiler(sdk: effectiveSdk);
+    final effectiveProcessRunner = effectiveSdk == sdk
+        ? processRunner
+        : BenchmarkProcessRunner(sdk: effectiveSdk);
     var allPassed = true;
     for (final discovered in files) {
       for (final runtime in targets) {
@@ -781,25 +860,67 @@ final class ValidateCommand({
     final coords = config.generateCoordinates();
     for (final discovered in files) {
       for (final coord in coords) {
-        final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
-        final currentCompiler = TargetCompiler(sdk: currentSdk);
-        final currentProcessRunner = BenchmarkProcessRunner(sdk: currentSdk);
-        final runtimeTarget = coord.resolvedValues['runtime'];
-        final runtime = (runtimeTarget != null && runtimeTarget.isNotEmpty)
-            ? TargetRuntime.parseTargets([runtimeTarget]).first
-            : targets.first;
-        final passed = await _validateTarget(
+        final passed = await _validateCoordinate(
           discovered: discovered,
-          runtime: runtime,
+          coord: coord,
+          targets: targets,
           compilerFlags: compilerFlags,
-          currentSdk: currentSdk,
-          currentCompiler: currentCompiler,
-          currentProcessRunner: currentProcessRunner,
+          effectiveSdk: effectiveSdk,
         );
         if (!passed) allPassed = false;
       }
     }
     return allPassed;
+  }
+
+  Future<bool> _validateCoordinate({
+    required DiscoveredBenchmarkFile discovered,
+    required MatrixCoordinate coord,
+    required List<TargetRuntime> targets,
+    required List<String> compilerFlags,
+    required DartSdk effectiveSdk,
+  }) async {
+    final currentSdk = _resolveSdkFromCoordinate(coord, effectiveSdk);
+    final (compiler, runner) = _resolveCompilerAndRunner(currentSdk);
+    final runtimes = _resolveTargetsFromCoordinate(coord, targets);
+    var allPassed = true;
+    for (final runtime in runtimes) {
+      final passed = await _validateTarget(
+        discovered: discovered,
+        runtime: runtime,
+        compilerFlags: compilerFlags,
+        currentSdk: currentSdk,
+        currentCompiler: compiler,
+        currentProcessRunner: runner,
+      );
+      if (!passed) allPassed = false;
+    }
+    return allPassed;
+  }
+
+  (TargetCompiler, BenchmarkProcessRunner) _resolveCompilerAndRunner(
+    DartSdk currentSdk,
+  ) {
+    if (currentSdk == sdk) {
+      return (compiler, processRunner);
+    }
+    return (
+      TargetCompiler(sdk: currentSdk),
+      BenchmarkProcessRunner(sdk: currentSdk),
+    );
+  }
+
+  List<TargetRuntime> _resolveTargetsFromCoordinate(
+    MatrixCoordinate coord,
+    List<TargetRuntime> defaultTargets,
+  ) {
+    final target =
+        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
+        coord.resolvedValues[BenchmarkCoordinates.targetKey];
+    if (target != null && target.isNotEmpty) {
+      return TargetRuntime.parseTargets([target]);
+    }
+    return defaultTargets;
   }
 
   Future<bool> _validateTarget({
@@ -841,6 +962,13 @@ final class ValidateCommand({
     );
 
     if (execResult.success && execResult.suiteResult != null) {
+      if (execResult.suiteResult!.benchmarks.isEmpty) {
+        stdout.writeln(
+          '❌ [$runtime] ${discovered.basename} (zero benchmarks produced)',
+        );
+        stderr.writeln('Target execution produced zero results.');
+        return false;
+      }
       final ms = execResult.executionDuration.inMilliseconds;
       stdout.writeln('✅ [$runtime] ${discovered.basename} (${ms}ms)');
       return true;

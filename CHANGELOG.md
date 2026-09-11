@@ -1,3 +1,8 @@
+## 0.3.1-wip
+
+- Hardened `bench_press run` and `bench_press validate` to exit with non-zero exit code (`ExitCode.software`) when target builds fail compilation, executions crash, or benchmark targets produce zero results.
+- Fixed `_finishSuiteExecution` in `RunCommand` to propagate partial failure statuses across multi-target and multi-file Cartesian matrix executions while still preserving valid accumulated results.
+
 ## 0.3.0
 
 - **Breaking Change**: Streamlined `Blackhole` API to a single universal `consume(Object? value)` method. Removed redundant specialized methods (`consumeInt`, `consumeDouble`, `consumeBool`, `consumeString`, `consumeObject`).

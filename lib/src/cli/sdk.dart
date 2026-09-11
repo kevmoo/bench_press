@@ -361,4 +361,36 @@ final class const DartSdk({
     }
     return null;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DartSdk &&
+          runtimeType == other.runtimeType &&
+          customSdkPath == other.customSdkPath &&
+          customD8Path == other.customD8Path &&
+          customNodePath == other.customNodePath &&
+          _mapsEqual(environment, other.environment);
+
+  @override
+  int get hashCode => Object.hash(
+    customSdkPath,
+    customD8Path,
+    customNodePath,
+    environment != null
+        ? Object.hashAllUnordered(
+            environment!.entries.map((e) => Object.hash(e.key, e.value)),
+          )
+        : null,
+  );
+
+  static bool _mapsEqual(Map<String, String>? a, Map<String, String>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (a[key] != b[key]) return false;
+    }
+    return true;
+  }
 }

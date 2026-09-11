@@ -593,5 +593,258 @@ void main(List<String> args) => mainBenchmark(DiffTarget(), args);
       check(unchanged.coordinates['group']).equals('SDK1');
       check(unchanged.isBaseline).isTrue();
     });
+
+    test(
+      'run subcommand exits with software error when target compilation fails',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('comp_fail_');
+        try {
+          final benchFile = File(p.join(tempDir.path, 'broken_bench.dart'))
+            ..writeAsStringSync('void main() { syntax error here ;;;');
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'run',
+            '-t',
+            'jit',
+            benchFile.path,
+          ]);
+          check(exitCode).equals(ExitCode.software.code);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'run subcommand exits with software error when target execution crashes',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('crash_run_');
+        try {
+          final benchFile = File(p.join(tempDir.path, 'crash_bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class CrashingBenchmark extends Benchmark {
+  CrashingBenchmark() : super('crash_bench');
+  @override
+  void run() {
+    throw StateError('Intentional crash');
+  }
+}
+
+void main(List<String> args) => mainBenchmark(CrashingBenchmark(), args);
+''');
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'run',
+            '-t',
+            'jit',
+            '--trials',
+            '1',
+            '--force-run',
+            '--no-save',
+            benchFile.path,
+          ]);
+          check(exitCode).equals(ExitCode.software.code);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('run subcommand exits with software error when target produces zero '
+        'results', () async {
+      final tempDir = Directory.systemTemp.createTempSync('zero_results_');
+      try {
+        final benchFile = File(p.join(tempDir.path, 'empty_bench.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+void main(List<String> args) => mainBenchmarkSuite([], args);
+''');
+
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'run',
+          '-t',
+          'jit',
+          '--no-save',
+          benchFile.path,
+        ]);
+        check(exitCode).equals(ExitCode.software.code);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('run subcommand preserves successful results but exits with software '
+        'error on partial target failure', () async {
+      final tempDir = Directory.systemTemp.createTempSync('partial_fail_');
+      try {
+        File(p.join(tempDir.path, 'good_bench.dart')).writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class GoodBenchmark extends Benchmark {
+  GoodBenchmark() : super('good_bench');
+  @override
+  void run() {
+    Blackhole.consume(1);
+  }
+}
+
+void main(List<String> args) => mainBenchmark(GoodBenchmark(), args);
+''');
+
+        File(p.join(tempDir.path, 'bad_bench.dart')).writeAsStringSync('''
+void main() { syntax error here ;;;
+''');
+
+        final outputFile = File(p.join(tempDir.path, 'results.json'));
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'run',
+          '-t',
+          'jit',
+          '--trials',
+          '1',
+          '--force-run',
+          '--save',
+          outputFile.path,
+          tempDir.path,
+        ]);
+
+        check(exitCode).equals(ExitCode.software.code);
+        check(outputFile.existsSync()).isTrue();
+        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        check(suite.benchmarks.length).equals(1);
+        check(suite.benchmarks.first.name).equals('good_bench');
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('validate subcommand exits with software error when target produces '
+        'zero results', () async {
+      final tempDir = Directory.systemTemp.createTempSync('validate_zero_');
+      try {
+        final benchFile = File(p.join(tempDir.path, 'empty_bench.dart'))
+          ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+void main(List<String> args) => mainBenchmarkSuite([], args);
+''');
+
+        final runner = BenchPressCommandRunner();
+        final exitCode = await runner.run([
+          'validate',
+          '-t',
+          'jit',
+          benchFile.path,
+        ]);
+        check(exitCode).equals(ExitCode.software.code);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'validate subcommand preserves injected compiler and processRunner',
+      () {
+        const customSdk = DartSdk(customSdkPath: '/mock/sdk');
+        const customCompiler = TargetCompiler(sdk: customSdk);
+        const customRunner = BenchmarkProcessRunner(sdk: customSdk);
+
+        final runner = BenchPressCommandRunner(
+          sdk: customSdk,
+          compiler: customCompiler,
+          processRunner: customRunner,
+        );
+
+        final validateCmd = runner.commands['validate'] as ValidateCommand;
+        check(validateCmd.sdk).equals(customSdk);
+        check(identical(validateCmd.compiler, customCompiler)).isTrue();
+        check(identical(validateCmd.processRunner, customRunner)).isTrue();
+      },
+    );
+
+    test(
+      'validate subcommand validates multiple targets in matrix execution',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync('validate_multi_');
+        try {
+          final configFile = File(p.join(tempDir.path, 'bench_press.yaml'))
+            ..writeAsStringSync('''
+matrix:
+  axes:
+    flag:
+      - opt1
+''');
+          final benchFile = File(p.join(tempDir.path, 'smoke_bench.dart'))
+            ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+final class SmokeBenchmark extends Benchmark {
+  SmokeBenchmark() : super('smoke');
+  @override
+  void run() {
+    Blackhole.consume(1);
+  }
+}
+
+void main(List<String> args) => mainBenchmark(SmokeBenchmark(), args);
+''');
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'validate',
+            '-c',
+            configFile.path,
+            '-t',
+            'jit,aot',
+            benchFile.path,
+          ]);
+          check(exitCode).equals(0);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'validate subcommand fails with software error when matrix target fails',
+      () async {
+        final tempDir = Directory.systemTemp.createTempSync(
+          'validate_matrix_fail_',
+        );
+        try {
+          final configFile = File(p.join(tempDir.path, 'bench_press.yaml'))
+            ..writeAsStringSync('''
+matrix:
+  axes:
+    mode:
+      - fast
+''');
+          final benchFile = File(p.join(tempDir.path, 'bad_bench.dart'))
+            ..writeAsStringSync('''
+void main() { syntax error here ;;;
+''');
+
+          final runner = BenchPressCommandRunner();
+          final exitCode = await runner.run([
+            'validate',
+            '-c',
+            configFile.path,
+            '-t',
+            'jit',
+            benchFile.path,
+          ]);
+          check(exitCode).equals(ExitCode.software.code);
+        } finally {
+          tempDir.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 }
