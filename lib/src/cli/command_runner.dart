@@ -16,7 +16,7 @@ import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
 
-const String benchPressVersion = '0.3.1-wip';
+const String benchPressVersion = '0.3.1';
 
 /// The top-level command runner for `bench_press`.
 final class BenchPressCommandRunner({
