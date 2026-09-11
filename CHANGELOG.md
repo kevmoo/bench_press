@@ -1,7 +1,10 @@
-## 0.3.1-wip
+## 0.3.1
 
 - Hardened `bench_press run` and `bench_press validate` to exit with non-zero exit code (`ExitCode.software`) when target builds fail compilation, executions crash, or benchmark targets produce zero results.
 - Fixed `_finishSuiteExecution` in `RunCommand` to propagate partial failure statuses across multi-target and multi-file Cartesian matrix executions while still preserving valid accumulated results.
+- Implemented value equality (`operator ==`) and order-independent `hashCode` on `DartSdk`.
+- Fixed CLI-specified `--d8-path` and `--node-path` overrides in `RunCommand` and `ValidateCommand` to ensure user-provided binary paths instantiate fresh compilers and process runners.
+- Fixed `ValidateCommand._validateCoordinate` to iterate across all resolved runtime targets when Cartesian matrix configurations omit runtime dimensions (matching `RunCommand` behavior).
 
 ## 0.3.0
 
