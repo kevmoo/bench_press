@@ -3,13 +3,26 @@ framework for Dart and Flutter.
 
 ## Highlights
 
-* **Multi-Runtime Orchestration**: Run benchmarks across VM JIT (`dart run`), Native AOT (`dart compile exe`), WebAssembly (`dart compile wasm`), and JavaScript (`dart compile js`) with a single command.
-* **Dead Code Elimination (DCE) Barrier**: `Blackhole` prevents optimizing compilers (LLVM, Binaryen, V8) from erasing benchmark loops while maintaining zero per-iteration heap allocations.
-* **Automated Warmup Detection**: Adaptive Steady-State Warmup Detection (RBF Kernel MMD + SEM Relative Error) determines true steady-state execution so you never have to guess warmup iteration counts.
-* **Payload-Aware Throughput**: Sealed `Throughput.bytes` and `Throughput.elements` automatically calculate and format rates (`MB/s`, `GB/s`, `items/s`).
-* **Implementation Comparisons**: `BenchmarkGroup` compares multiple implementations within a run (e.g. `concat` vs `StringBuffer`), computing speedup multipliers and exact Fieller 95% confidence intervals.
-* **Git Baseline Diffing**: `--diff <ref>` compares live runs against prior git commits (or stored JSON baselines) with isolated Before vs. After delta tables.
-* **GitHub-Ready Markdown Reports**: Generates clean, publication-ready Markdown tables and structured JSON telemetry.
+- **Multi-Runtime Orchestration**: Run benchmarks across VM JIT (`dart run`),
+  Native AOT (`dart compile exe`), WebAssembly (`dart compile wasm`), and
+  JavaScript (`dart compile js`) with a single command.
+- **Dead Code Elimination (DCE) Barrier**: `Blackhole` prevents optimizing
+  compilers (LLVM, Binaryen, V8) from erasing benchmark loops while maintaining
+  zero per-iteration heap allocations.
+- **Automated Warmup Detection**: Adaptive Steady-State Warmup Detection (RBF
+  Kernel MMD + SEM Relative Error) determines true steady-state execution so you
+  never have to guess warmup iteration counts.
+- **Payload-Aware Throughput**: Sealed `Throughput.bytes` and
+  `Throughput.elements` automatically calculate and format rates (`MB/s`,
+  `GB/s`, `items/s`).
+- **Implementation Comparisons**: `BenchmarkGroup` compares multiple
+  implementations within a run (e.g. `concat` vs `StringBuffer`), computing
+  speedup multipliers and exact Fieller 95% confidence intervals.
+- **Git Baseline Diffing**: `--diff <ref>` compares live runs against prior git
+  commits (or stored JSON baselines) with isolated Before vs. After delta
+  tables.
+- **GitHub-Ready Markdown Reports**: Generates clean, publication-ready Markdown
+  tables and structured JSON telemetry.
 
 ---
 
@@ -98,7 +111,8 @@ Future<void> main(List<String> args) async {
 
 #### Parameterized Matrix Groups (`BenchmarkGroup.matrix`)
 
-Evaluate competing implementations across multiple inputs or datasets without repetitive boilerplate:
+Evaluate competing implementations across multiple inputs or datasets without
+repetitive boilerplate:
 
 ```dart
 Future<void> main(List<String> args) async {
@@ -180,9 +194,14 @@ dart run bench_press validate
 
 `bench_press` discovers benchmarks using standard Dart conventions:
 
-* **File Suffixes**: When scanning a directory (defaulting to `benchmark/`), it discovers all files ending in `*_benchmark.dart` or `*_bench.dart`. Helper files (e.g. `utils.dart`, `fixtures.dart`) are cleanly ignored.
-* **Direct File Targets**: You can also target any individual `.dart` file directly (e.g. `dart run bench_press run benchmark/my_custom_run.dart`).
-* **Entrypoints**: Every benchmark file must be an executable script declaring a `main` entrypoint (such as `void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);`).
+- **File Suffixes**: When scanning a directory (defaulting to `benchmark/`), it
+  discovers all files ending in `*_benchmark.dart` or `*_bench.dart`. Helper
+  files (e.g. `utils.dart`, `fixtures.dart`) are cleanly ignored.
+- **Direct File Targets**: You can also target any individual `.dart` file
+  directly (e.g. `dart run bench_press run benchmark/my_custom_run.dart`).
+- **Entrypoints**: Every benchmark file must be an executable script declaring a
+  `main` entrypoint (such as
+  `void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);`).
 
 ### Comparing Against Git Baselines (`--diff`)
 
@@ -245,9 +264,11 @@ jobs:
 
 ## Architecture & Statistical Methodology
 
-For in-depth details on compiler mechanics, `Blackhole` static sinks, Adaptive Steady-State Warmup Detection (RBF Kernel MMD + SEM Relative Error), and Fieller ratio confidence intervals, see:
+For in-depth details on compiler mechanics, `Blackhole` static sinks, Adaptive
+Steady-State Warmup Detection (RBF Kernel MMD + SEM Relative Error), and Fieller
+ratio confidence intervals, see:
 
-* [**Architecture & Statistical Methodology**](doc/background.md)
+- [**Architecture & Statistical Methodology**](doc/background.md)
 
 ---
 
