@@ -1,3 +1,5 @@
+## 0.3.2-wip
+
 ## 0.3.1
 
 - Hardened `bench_press run` and `bench_press validate` to exit with non-zero

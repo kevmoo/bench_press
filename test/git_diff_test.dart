@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
+
+import 'test_helpers.dart';
 
 void main() {
   group('GitBaselineExtractor & GitDiffReporter', () {
@@ -27,77 +30,51 @@ void main() {
     });
 
     test('extractSuite and renderGitDiffReport extract baseline', () {
-      final tempDir = Directory.systemTemp.createTempSync(
-        'bench_press_git_test_',
+      _initGitRepo(d.sandbox);
+
+      final baseEntry = _createEntry('crypto_hash', 'aot', 100.0);
+      final baseSuite = createSampleSuite(benchmarks: [baseEntry]);
+
+      File(d.path('benchmark_results.json'))
+          .writeAsStringSync(baseSuite.toFormattedJson());
+
+      _commitAll(d.sandbox, 'baseline commit');
+
+      final extracted = GitBaselineExtractor.extractSuite(
+        gitRef: 'HEAD',
+        filePath: 'benchmark_results.json',
+        workingDirectory: d.sandbox,
       );
-      try {
-        _initGitRepo(tempDir.path);
 
-        const env = EnvironmentInfo(
-          dartVersion: '3.14.0',
-          os: 'linux',
-          arch: 'x64',
-        );
+      check(extracted).isNotNull();
+      check(extracted!.benchmarks.length).equals(1);
+      check(extracted.benchmarks.first.key).equals('crypto_hash:aot');
 
-        final baseEntry = _createEntry('crypto_hash', 'aot', 100.0);
-        final baseSuite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
-          environment: env,
-          benchmarks: [baseEntry],
-        );
+      final curEntry = _createEntry('crypto_hash', 'aot', 50.0);
+      final curSuite = createSampleSuite(
+        benchmarks: [curEntry],
+        timestamp: '2026-08-30T01:00:00.000Z',
+      );
 
-        final telemetryFile = File('${tempDir.path}/benchmark_results.json');
-        telemetryFile.writeAsStringSync(baseSuite.toFormattedJson());
+      final report = GitDiffReporter.renderGitDiffReport(
+        gitRef: 'HEAD',
+        filePath: 'benchmark_results.json',
+        current: curSuite,
+        workingDirectory: d.sandbox,
+      );
 
-        _commitAll(tempDir.path, 'baseline commit');
-
-        // Extract suite from HEAD
-        final extracted = GitBaselineExtractor.extractSuite(
-          gitRef: 'HEAD',
-          filePath: 'benchmark_results.json',
-          workingDirectory: tempDir.path,
-        );
-
-        check(extracted).isNotNull();
-        check(extracted!.benchmarks.length).equals(1);
-        check(extracted.benchmarks.first.key).equals('crypto_hash:aot');
-
-        // Compare with current (50ns -> 2.00x speedup)
-        final curEntry = _createEntry('crypto_hash', 'aot', 50.0);
-        final curSuite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
-          environment: env,
-          benchmarks: [curEntry],
-        );
-
-        final report = GitDiffReporter.renderGitDiffReport(
-          gitRef: 'HEAD',
-          filePath: 'benchmark_results.json',
-          current: curSuite,
-          workingDirectory: tempDir.path,
-        );
-
-        check(report).contains('Git Baseline Delta');
-        check(report).contains('crypto_hash');
-        check(report).contains('2.00x');
-        check(report).contains('🚀 Faster');
-        check(report).contains('<!-- mdformat off(prevent table wrapping) -->');
-        check(report).contains('<!-- mdformat on -->');
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
+      check(report).contains('Git Baseline Delta');
+      check(report).contains('crypto_hash');
+      check(report).contains('2.00x');
+      check(report).contains('🚀 Faster');
+      check(report).contains('<!-- mdformat off(prevent table wrapping) -->');
+      check(report).contains('<!-- mdformat on -->');
     });
 
     test('renderGitDiffReport falls back when baseline is missing', () {
-      const env = EnvironmentInfo(
-        dartVersion: '3.14.0',
-        os: 'linux',
-        arch: 'x64',
-      );
-      final curSuite = BenchmarkSuiteResult(
-        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
-        environment: env,
+      final curSuite = createSampleSuite(
         benchmarks: [_createEntry('crypto_hash', 'aot', 50.0)],
+        timestamp: '2026-08-30T01:00:00.000Z',
       );
 
       final report = GitDiffReporter.renderGitDiffReport(
@@ -112,44 +89,29 @@ void main() {
     });
 
     test('async git extraction functions work properly', () async {
-      final tempDir = Directory.systemTemp.createTempSync(
-        'bench_press_git_async_test_',
+      _initGitRepo(d.sandbox);
+
+      final suite = createSampleSuite(
+        benchmarks: [_createEntry('sort_int', 'wasm', 80.0)],
       );
-      try {
-        _initGitRepo(tempDir.path);
 
-        const env = EnvironmentInfo(
-          dartVersion: '3.14.0',
-          os: 'linux',
-          arch: 'x64',
-        );
-        final suite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
-          environment: env,
-          benchmarks: [_createEntry('sort_int', 'wasm', 80.0)],
-        );
+      await d.file('results.json', suite.toFormattedJson()).create();
+      _commitAll(d.sandbox, 'add results.json');
 
-        final file = File('${tempDir.path}/results.json');
-        await file.writeAsString(suite.toFormattedJson());
-        _commitAll(tempDir.path, 'add results.json');
+      final extractedRaw = await GitBaselineExtractor.extractRawAsync(
+        gitRef: 'HEAD',
+        filePath: 'results.json',
+        workingDirectory: d.sandbox,
+      );
+      check(extractedRaw).isNotNull();
 
-        final extractedRaw = await GitBaselineExtractor.extractRawAsync(
-          gitRef: 'HEAD',
-          filePath: 'results.json',
-          workingDirectory: tempDir.path,
-        );
-        check(extractedRaw).isNotNull();
-
-        final extractedSuite = await GitBaselineExtractor.extractSuiteAsync(
-          gitRef: 'HEAD',
-          filePath: 'results.json',
-          workingDirectory: tempDir.path,
-        );
-        check(extractedSuite).isNotNull();
-        check(extractedSuite!.benchmarks.first.key).equals('sort_int:wasm');
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
+      final extractedSuite = await GitBaselineExtractor.extractSuiteAsync(
+        gitRef: 'HEAD',
+        filePath: 'results.json',
+        workingDirectory: d.sandbox,
+      );
+      check(extractedSuite).isNotNull();
+      check(extractedSuite!.benchmarks.first.key).equals('sort_int:wasm');
     });
   });
 }
@@ -177,25 +139,21 @@ void _commitAll(String workingDir, String message) {
   ], workingDirectory: workingDir);
 }
 
-BenchmarkEntry _createEntry(String name, String target, double meanNs) {
-  final metrics = BenchmarkMetrics(
-    meanNs: meanNs,
-    medianNs: meanNs,
-    minNs: meanNs * 0.95,
-    maxNs: meanNs * 1.1,
-    stddevNs: meanNs * 0.05,
-    cv: 0.05,
-    p95Ns: meanNs * 1.05,
-    p99Ns: meanNs * 1.08,
-    opsPerSec: 1e9 / meanNs,
-    isStable: true,
-  );
-  return BenchmarkEntry(
-    name: name,
-    target: target,
-    mode: 'sync',
-    samples: 15,
-    metrics: metrics,
-    rawTrialsNs: [meanNs * 0.95, meanNs, meanNs * 1.05],
-  );
-}
+BenchmarkEntry _createEntry(String name, String target, double meanNs) =>
+    createSampleEntry(
+      name: name,
+      target: target,
+      samples: 15,
+      metrics: createSampleMetrics(
+        meanNs: meanNs,
+        medianNs: meanNs,
+        minNs: meanNs * 0.95,
+        maxNs: meanNs * 1.1,
+        stddevNs: meanNs * 0.05,
+        cv: 0.05,
+        p95Ns: meanNs * 1.05,
+        p99Ns: meanNs * 1.08,
+        opsPerSec: 1e9 / meanNs,
+      ),
+      rawTrialsNs: [meanNs * 0.95, meanNs, meanNs * 1.05],
+    );
