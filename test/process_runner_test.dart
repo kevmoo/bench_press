@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
-import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 import 'test_helpers.dart';
 
@@ -12,9 +12,7 @@ void main() {
     test(
       'executes JIT benchmark and extracts suite result from json-output',
       () async {
-        final tempDir = createTempDir('process_test_');
         final sourceFile = writeSyncBenchmark(
-          tempDir,
           fileName: 'simple_bench.dart',
           className: 'SyncBench',
           name: 'sync_bench',
@@ -33,9 +31,7 @@ void main() {
     );
 
     test('executes JIT benchmark in isolate mode', () async {
-      final tempDir = createTempDir('isolate_test_');
       final sourceFile = writeSyncBenchmark(
-        tempDir,
         fileName: 'isolate_bench.dart',
         className: 'IsolateBench',
         name: 'isolate_bench',
@@ -52,17 +48,14 @@ void main() {
     test(
       'captures unhandled exception and stack trace in isolate mode',
       () async {
-        final tempDir = createTempDir('isolate_error_test_');
-        final sourceFile =
-            File(p.join(tempDir.path, 'failing_isolate_bench.dart'))
-              ..writeAsStringSync('''
+        await d.file('failing_isolate_bench.dart', '''
 void main(List<String> args) {
   throw StateError('Simulated isolate crash');
 }
-''');
+''').create();
 
         final result = await compileAndExecute(
-          sourceFile,
+          File(d.path('failing_isolate_bench.dart')),
           isolateMode: true,
           trials: 1,
           forceRun: false,
@@ -79,16 +72,14 @@ void main(List<String> args) {
     );
 
     test('captures stderr and failure when benchmark crashes', () async {
-      final tempDir = createTempDir('failing_proc_');
-      final sourceFile = File(p.join(tempDir.path, 'failing_bench.dart'))
-        ..writeAsStringSync('''
+      await d.file('failing_bench.dart', '''
 void main(List<String> args) {
   throw StateError('Simulated process crash');
 }
-''');
+''').create();
 
       final result = await compileAndExecute(
-        sourceFile,
+        File(d.path('failing_bench.dart')),
         trials: 1,
         forceRun: false,
       );
@@ -136,9 +127,7 @@ void main(List<String> args) {
     );
 
     test('executes AOT compiled benchmark', () async {
-      final tempDir = createTempDir('aot_proc_test_');
       final sourceFile = writeSyncBenchmark(
-        tempDir,
         fileName: 'aot_bench.dart',
         className: 'AotBench',
         name: 'aot_bench',
@@ -156,16 +145,14 @@ void main(List<String> args) {
     });
 
     test('executes Wasm/JS benchmark using discovered runner', () async {
-      final tempDir = createTempDir('mock_runner_test_');
       writeMockRunnerScript(
-        tempDir,
         executableName: 'node',
         benchmarkName: 'mock_wasm_bench',
       );
 
       final compilation = createMockCompilationResult();
       final runner = BenchmarkProcessRunner(
-        sdk: DartSdk(environment: {'PATH': tempDir.path}),
+        sdk: DartSdk(environment: {'PATH': d.sandbox}),
       );
 
       if (!Platform.isWindows) {
@@ -186,14 +173,11 @@ void main(List<String> args) {
     test(
       'prioritizes customD8Path over ambient Node on PATH for Wasm and JS',
       () async {
-        final tempDir = createTempDir('mock_precedence_test_');
         writeMockRunnerScript(
-          tempDir,
           executableName: 'node',
           benchmarkName: 'ran_with_node',
         );
         final mockD8 = writeMockRunnerScript(
-          tempDir,
           executableName: 'my_d8',
           benchmarkName: 'ran_with_d8',
           meanNs: 25.0,
@@ -203,7 +187,7 @@ void main(List<String> args) {
         final runnerWithD8Override = BenchmarkProcessRunner(
           sdk: DartSdk(
             customD8Path: mockD8.path,
-            environment: {'PATH': tempDir.path},
+            environment: {'PATH': d.sandbox},
           ),
         );
 

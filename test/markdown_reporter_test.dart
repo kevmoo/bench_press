@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 void main() {
   group('MarkdownReporter', () {
@@ -117,47 +118,40 @@ void main() {
     });
 
     test('Zero-Token rehydration from JSON file renders complete report', () {
-      final tempDir = Directory.systemTemp.createTempSync(
-        'bench_press_report_test_',
+      final baseFile = File(d.path('baseline.json'));
+      final curFile = File(d.path('current.json'));
+
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
       );
-      try {
-        final baseFile = File('${tempDir.path}/baseline.json');
-        final curFile = File('${tempDir.path}/current.json');
 
-        const env = EnvironmentInfo(
-          dartVersion: '3.14.0',
-          os: 'linux',
-          arch: 'x64',
-        );
+      final baseSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [_createEntry('crypto_sign', 'aot', 200.0)],
+      );
+      baseSuite.saveToFile(baseFile);
 
-        final baseSuite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
-          environment: env,
-          benchmarks: [_createEntry('crypto_sign', 'aot', 200.0)],
-        );
-        baseSuite.saveToFile(baseFile);
+      final curSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [_createEntry('crypto_sign', 'aot', 100.0)],
+      );
+      curSuite.saveToFile(curFile);
 
-        final curSuite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
-          environment: env,
-          benchmarks: [_createEntry('crypto_sign', 'aot', 100.0)],
-        );
-        curSuite.saveToFile(curFile);
+      final rehydratedReport = MarkdownReporter.renderFromFile(curFile);
+      check(rehydratedReport).contains('# Benchmark Suite Results');
+      check(rehydratedReport).contains('crypto_sign');
+      check(rehydratedReport).contains('100.0 ns');
 
-        final rehydratedReport = MarkdownReporter.renderFromFile(curFile);
-        check(rehydratedReport).contains('# Benchmark Suite Results');
-        check(rehydratedReport).contains('crypto_sign');
-        check(rehydratedReport).contains('100.0 ns');
-
-        final deltaReport = MarkdownReporter.renderDeltaFromFiles(
-          baselineFile: baseFile,
-          currentFile: curFile,
-        );
-        check(deltaReport).contains('2.00x');
-        check(deltaReport).contains('🚀 Faster');
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
+      final deltaReport = MarkdownReporter.renderDeltaFromFiles(
+        baselineFile: baseFile,
+        currentFile: curFile,
+      );
+      check(deltaReport).contains('2.00x');
+      check(deltaReport).contains('🚀 Faster');
     });
 
     test('renderGroupComparisonTable formats Model 1 variant matrix', () {

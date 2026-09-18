@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 void main() {
   group('Telemetry & Serialization', () {
@@ -226,48 +227,43 @@ void main() {
     });
 
     test('File persistence: saveToFile, loadFromFile, and mergeAndSave', () {
-      final tempDir = Directory.systemTemp.createTempSync('bench_press_test_');
-      try {
-        final telemetryFile = File('${tempDir.path}/benchmark_results.json');
-        const env = EnvironmentInfo(
-          dartVersion: '3.14.0',
-          os: 'linux',
-          arch: 'x64',
-        );
+      final telemetryFile = File(d.path('benchmark_results.json'));
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
 
-        final initialEntry = _createEntry('workload_a', 'jit', 100.0);
-        final initialSuite = BenchmarkSuiteResult(
-          version: currentTelemetrySchemaVersion,
-          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
-          environment: env,
-          benchmarks: [initialEntry],
-        );
+      final initialEntry = _createEntry('workload_a', 'jit', 100.0);
+      final initialSuite = BenchmarkSuiteResult(
+        version: currentTelemetrySchemaVersion,
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [initialEntry],
+      );
 
-        initialSuite.saveToFile(telemetryFile);
-        check(telemetryFile.existsSync()).isTrue();
+      initialSuite.saveToFile(telemetryFile);
+      check(telemetryFile.existsSync()).isTrue();
 
-        final loaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
-        check(loaded.benchmarks.length).equals(1);
-        check(loaded.benchmarks.first.key).equals('workload_a:jit');
+      final loaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
+      check(loaded.benchmarks.length).equals(1);
+      check(loaded.benchmarks.first.key).equals('workload_a:jit');
 
-        final secondEntry = _createEntry('workload_a', 'aot', 40.0);
-        final secondSuite = BenchmarkSuiteResult(
-          version: currentTelemetrySchemaVersion,
-          timestamp: DateTime.parse('2026-08-30T02:00:00.000Z'),
-          environment: env,
-          benchmarks: [secondEntry],
-        );
+      final secondEntry = _createEntry('workload_a', 'aot', 40.0);
+      final secondSuite = BenchmarkSuiteResult(
+        version: currentTelemetrySchemaVersion,
+        timestamp: DateTime.parse('2026-08-30T02:00:00.000Z'),
+        environment: env,
+        benchmarks: [secondEntry],
+      );
 
-        final mergedResult = secondSuite.mergeAndSave(telemetryFile);
-        check(mergedResult.benchmarks.length).equals(2);
+      final mergedResult = secondSuite.mergeAndSave(telemetryFile);
+      check(mergedResult.benchmarks.length).equals(2);
 
-        final reloaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
-        check(reloaded.benchmarks.length).equals(2);
-        check(reloaded.findEntry('workload_a', 'jit')).isNotNull();
-        check(reloaded.findEntry('workload_a', 'aot')).isNotNull();
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
+      final reloaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
+      check(reloaded.benchmarks.length).equals(2);
+      check(reloaded.findEntry('workload_a', 'jit')).isNotNull();
+      check(reloaded.findEntry('workload_a', 'aot')).isNotNull();
     });
     test(
       'toString formatting on telemetry models produces clean descriptions',

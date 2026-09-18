@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
-import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 enum _Dataset(final int size) {
   small(10),
@@ -237,9 +237,52 @@ void main() {
     );
 
     test('is directly compatible with mainBenchmarkSuite', () async {
-      final tempDir = Directory.systemTemp.createTempSync('matrix_suite_test_');
-      try {
-        final outputFile = File(p.join(tempDir.path, 'matrix_output.json'));
+      final outputFile = File(d.path('matrix_output.json'));
+      final args = [
+        '--json-output',
+        outputFile.path,
+        '--validate',
+        '--target',
+        'jit',
+      ];
+
+      final matrix = BenchmarkGroup.matrix<String>(
+        cases: ['mini', 'micro'],
+        name: (c) => 'dataset_$c',
+        baseline: ('base', (c) => c.length),
+        candidates: {'cand': (c) => c.hashCode},
+      );
+
+      // Pass BenchmarkMatrix directly as the suite argument
+      await mainBenchmarkSuite(matrix, args);
+
+      check(outputFile.existsSync()).isTrue();
+      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      check(suite.benchmarks.length).equals(4);
+
+      final miniBase = suite.benchmarks.any(
+        (b) => b.name == 'base' && b.coordinates.group == 'dataset_mini',
+      );
+      final miniCand = suite.benchmarks.any(
+        (b) => b.name == 'cand' && b.coordinates.group == 'dataset_mini',
+      );
+      final microBase = suite.benchmarks.any(
+        (b) => b.name == 'base' && b.coordinates.group == 'dataset_micro',
+      );
+      final microCand = suite.benchmarks.any(
+        (b) => b.name == 'cand' && b.coordinates.group == 'dataset_micro',
+      );
+
+      check(miniBase).isTrue();
+      check(miniCand).isTrue();
+      check(microBase).isTrue();
+      check(microCand).isTrue();
+    });
+
+    test(
+      'is compatible when passed in a list alongside other benchmarks',
+      () async {
+        final outputFile = File(d.path('matrix_list_output.json'));
         final args = [
           '--json-output',
           outputFile.path,
@@ -248,126 +291,58 @@ void main() {
           'jit',
         ];
 
-        final matrix = BenchmarkGroup.matrix<String>(
-          cases: ['mini', 'micro'],
-          name: (c) => 'dataset_$c',
-          baseline: ('base', (c) => c.length),
-          candidates: {'cand': (c) => c.hashCode},
+        final matrix = BenchmarkGroup.matrix<int>(
+          cases: [100],
+          name: (n) => 'matrix_case_$n',
+          baseline: ('m_base', (n) => n),
+          candidates: {'m_cand': (n) => n + 1},
         );
 
-        // Pass BenchmarkMatrix directly as the suite argument
-        await mainBenchmarkSuite(matrix, args);
+        final singleVariant = BenchmarkVariant('standalone_var', () => 123);
+
+        // Pass inside a list containing both BenchmarkVariant and Matrix
+        await mainBenchmarkSuite([singleVariant, matrix], args);
 
         check(outputFile.existsSync()).isTrue();
         final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
-        check(suite.benchmarks.length).equals(4);
+        check(suite.benchmarks.length).equals(3); // 1 standalone + 2 matrix
+        check(suite.findEntry('standalone_var', 'jit')).isNotNull();
 
-        final miniBase = suite.benchmarks.any(
-          (b) => b.name == 'base' && b.coordinates.group == 'dataset_mini',
+        final caseBase = suite.benchmarks.any(
+          (b) => b.name == 'm_base' && b.coordinates.group == 'matrix_case_100',
         );
-        final miniCand = suite.benchmarks.any(
-          (b) => b.name == 'cand' && b.coordinates.group == 'dataset_mini',
+        final caseCand = suite.benchmarks.any(
+          (b) => b.name == 'm_cand' && b.coordinates.group == 'matrix_case_100',
         );
-        final microBase = suite.benchmarks.any(
-          (b) => b.name == 'base' && b.coordinates.group == 'dataset_micro',
-        );
-        final microCand = suite.benchmarks.any(
-          (b) => b.name == 'cand' && b.coordinates.group == 'dataset_micro',
-        );
-
-        check(miniBase).isTrue();
-        check(miniCand).isTrue();
-        check(microBase).isTrue();
-        check(microCand).isTrue();
-      } finally {
-        tempDir.deleteSync(recursive: true);
-      }
-    });
-
-    test(
-      'is compatible when passed in a list alongside other benchmarks',
-      () async {
-        final tempDir = Directory.systemTemp.createTempSync(
-          'matrix_list_test_',
-        );
-        try {
-          final outputFile = File(
-            p.join(tempDir.path, 'matrix_list_output.json'),
-          );
-          final args = [
-            '--json-output',
-            outputFile.path,
-            '--validate',
-            '--target',
-            'jit',
-          ];
-
-          final matrix = BenchmarkGroup.matrix<int>(
-            cases: [100],
-            name: (n) => 'matrix_case_$n',
-            baseline: ('m_base', (n) => n),
-            candidates: {'m_cand': (n) => n + 1},
-          );
-
-          final singleVariant = BenchmarkVariant('standalone_var', () => 123);
-
-          // Pass inside a list containing both BenchmarkVariant and Matrix
-          await mainBenchmarkSuite([singleVariant, matrix], args);
-
-          check(outputFile.existsSync()).isTrue();
-          final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
-          check(suite.benchmarks.length).equals(3); // 1 standalone + 2 matrix
-          check(suite.findEntry('standalone_var', 'jit')).isNotNull();
-
-          final caseBase = suite.benchmarks.any(
-            (b) =>
-                b.name == 'm_base' && b.coordinates.group == 'matrix_case_100',
-          );
-          final caseCand = suite.benchmarks.any(
-            (b) =>
-                b.name == 'm_cand' && b.coordinates.group == 'matrix_case_100',
-          );
-          check(caseBase).isTrue();
-          check(caseCand).isTrue();
-        } finally {
-          tempDir.deleteSync(recursive: true);
-        }
+        check(caseBase).isTrue();
+        check(caseCand).isTrue();
       },
     );
 
     test(
       'mainBenchmarkMatrix forwards seamlessly to mainBenchmarkSuite',
       () async {
-        final tempDir = Directory.systemTemp.createTempSync(
-          'matrix_entrypoint_test_',
+        final outputFile = File(d.path('entrypoint_output.json'));
+        final args = [
+          '--json-output',
+          outputFile.path,
+          '--validate',
+          '--target',
+          'jit',
+        ];
+
+        final matrix = BenchmarkGroup.matrix<int>(
+          cases: [99],
+          name: (n) => 'fwd_group_$n',
+          baseline: ('fwd_base', (n) => n),
+          candidates: {'fwd_cand': (n) => n},
         );
-        try {
-          final outputFile = File(
-            p.join(tempDir.path, 'entrypoint_output.json'),
-          );
-          final args = [
-            '--json-output',
-            outputFile.path,
-            '--validate',
-            '--target',
-            'jit',
-          ];
 
-          final matrix = BenchmarkGroup.matrix<int>(
-            cases: [99],
-            name: (n) => 'fwd_group_$n',
-            baseline: ('fwd_base', (n) => n),
-            candidates: {'fwd_cand': (n) => n},
-          );
+        await mainBenchmarkMatrix(matrix, args);
 
-          await mainBenchmarkMatrix(matrix, args);
-
-          check(outputFile.existsSync()).isTrue();
-          final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
-          check(suite.benchmarks.length).equals(2);
-        } finally {
-          tempDir.deleteSync(recursive: true);
-        }
+        check(outputFile.existsSync()).isTrue();
+        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        check(suite.benchmarks.length).equals(2);
       },
     );
   });

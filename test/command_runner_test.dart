@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:io/io.dart';
-import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 import 'test_helpers.dart';
 
@@ -33,11 +33,7 @@ void main() {
     });
 
     test('validate subcommand conducts fast smoke test', () async {
-      final tempDir = createTempDir('validate_test_');
-      final benchFile = writeSyncBenchmark(
-        tempDir,
-        body: 'Blackhole.consume(123);',
-      );
+      final benchFile = writeSyncBenchmark(body: 'Blackhole.consume(123);');
 
       final runner = BenchPressCommandRunner();
       final exitCode = await runner.run([
@@ -53,9 +49,8 @@ void main() {
     test(
       'report subcommand renders markdown report from stored JSON',
       () async {
-        final tempDir = createTempDir('report_test_');
-        final telemetryFile = File(p.join(tempDir.path, 'suite.json'));
-        final markdownOut = File(p.join(tempDir.path, 'report.md'));
+        final telemetryFile = File(d.path('suite.json'));
+        final markdownOut = File(d.path('report.md'));
 
         final entry = createSampleEntry(
           name: 'report_workload',
@@ -83,10 +78,9 @@ void main() {
     );
 
     test('diff subcommand compares two JSON telemetry files', () async {
-      final tempDir = createTempDir('diff_test_');
-      final baseFile = File(p.join(tempDir.path, 'base.json'));
-      final curFile = File(p.join(tempDir.path, 'cur.json'));
-      final diffOut = File(p.join(tempDir.path, 'diff.md'));
+      final baseFile = File(d.path('base.json'));
+      final curFile = File(d.path('cur.json'));
+      final diffOut = File(d.path('diff.md'));
 
       final baseEntry = createSampleEntry(
         name: 'opt_task',
@@ -156,12 +150,10 @@ void main() {
     });
 
     test('report subcommand exits with error on malformed JSON file', () async {
-      final tempDir = createTempDir('bad_json_test_');
-      final badFile = File(p.join(tempDir.path, 'bad.json'))
-        ..writeAsStringSync('{ this is not valid json }');
+      await d.file('bad.json', '{ this is not valid json }').create();
 
       final runner = BenchPressCommandRunner();
-      final exitCode = await runner.run(['report', '-f', badFile.path]);
+      final exitCode = await runner.run(['report', '-f', d.path('bad.json')]);
       check(exitCode).not((it) => it.equals(0));
     });
 
@@ -179,11 +171,9 @@ void main() {
     test(
       'validate subcommand exits with usage error on non-Dart file target',
       () async {
-        final tempDir = createTempDir('non_dart_validate_');
-        final txtFile = File(p.join(tempDir.path, 'bench.txt'))
-          ..writeAsStringSync('text');
+        await d.file('bench.txt', 'text').create();
         final runner = BenchPressCommandRunner();
-        final exitCode = await runner.run(['validate', txtFile.path]);
+        final exitCode = await runner.run(['validate', d.path('bench.txt')]);
         check(exitCode).equals(ExitCode.usage.code);
       },
     );
@@ -254,8 +244,7 @@ void main() {
 
     test('validate subcommand exits with software error when target produces '
         'zero results', () async {
-      final tempDir = createTempDir('validate_zero_');
-      final benchFile = writeEmptyBenchmark(tempDir);
+      final benchFile = writeEmptyBenchmark();
 
       final runner = BenchPressCommandRunner();
       final exitCode = await runner.run([
@@ -290,14 +279,13 @@ void main() {
     test(
       'validate subcommand validates multiple targets in matrix execution',
       () async {
-        final tempDir = createTempDir('validate_multi_');
-        final configFile = writeBenchPressYaml(tempDir, '''
+        final configFile = writeBenchPressYaml('''
 matrix:
   axes:
     flag:
       - opt1
 ''');
-        final benchFile = writeSyncBenchmark(tempDir);
+        final benchFile = writeSyncBenchmark();
 
         final runner = BenchPressCommandRunner();
         final exitCode = await runner.run([
@@ -315,14 +303,13 @@ matrix:
     test(
       'validate subcommand fails with software error when matrix target fails',
       () async {
-        final tempDir = createTempDir('validate_matrix_fail_');
-        final configFile = writeBenchPressYaml(tempDir, '''
+        final configFile = writeBenchPressYaml('''
 matrix:
   axes:
     mode:
       - fast
 ''');
-        final benchFile = writeBrokenBenchmark(tempDir);
+        final benchFile = writeBrokenBenchmark();
 
         final runner = BenchPressCommandRunner();
         final exitCode = await runner.run([

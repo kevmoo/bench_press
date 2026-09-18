@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:bench_press/bench_press.dart';
 import 'package:checks/checks.dart';
 import 'package:io/io.dart';
-import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 import 'test_helpers.dart';
 
@@ -13,9 +13,7 @@ void main() {
     test(
       'run subcommand executes benchmarks and saves json telemetry',
       () async {
-        final tempDir = createTempDir('runner_test_');
         final benchFile = writeSyncBenchmark(
-          tempDir,
           subDir: 'benchmark',
           fileName: 'calc_bench.dart',
           className: 'CalcBenchmark',
@@ -28,7 +26,7 @@ void main() {
     Blackhole.consume(x);''',
         );
 
-        final outputFile = File(p.join(tempDir.path, 'results.json'));
+        final outputFile = File(d.path('results.json'));
         final runner = BenchPressCommandRunner();
 
         final exitCode = await runner.run([
@@ -54,9 +52,7 @@ void main() {
     );
 
     test('run subcommand executes BenchmarkGroup and records groups', () async {
-      final tempDir = createTempDir('group_runner_test_');
-      final benchFile = File(p.join(tempDir.path, 'group_bench.dart'))
-        ..writeAsStringSync('''
+      await d.file('group_bench.dart', '''
 import 'package:bench_press/bench_press.dart';
 
 final BenchmarkGroup stringGroup = BenchmarkGroup('String Group', [
@@ -67,9 +63,9 @@ final BenchmarkGroup stringGroup = BenchmarkGroup('String Group', [
 final List<Object> benchmarks = [stringGroup];
 
 void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
-''');
+''').create();
 
-      final outputFile = File(p.join(tempDir.path, 'group_results.json'));
+      final outputFile = File(d.path('group_results.json'));
       final runner = BenchPressCommandRunner();
 
       final exitCode = await runner.run([
@@ -81,7 +77,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         '--force-run',
         '--save',
         outputFile.path,
-        benchFile.path,
+        d.path('group_bench.dart'),
       ]);
 
       check(exitCode).equals(0);
@@ -105,8 +101,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
     test(
       'run subcommand with --diff against baseline JSON file renders delta',
       () async {
-        final tempDir = createTempDir('diff_run_test_');
-        final baseFile = File(p.join(tempDir.path, 'baseline.json'));
+        final baseFile = File(d.path('baseline.json'));
         final baseEntry = createSampleEntry(
           name: 'diff_target',
           metrics: createSampleMetrics(
@@ -125,7 +120,6 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         createSampleSuite(benchmarks: [baseEntry]).saveToFile(baseFile);
 
         final benchFile = writeSyncBenchmark(
-          tempDir,
           fileName: 'bench.dart',
           className: 'DiffTarget',
           name: 'diff_target',
@@ -164,11 +158,9 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
     test(
       'run subcommand exits with usage error on non-Dart file target',
       () async {
-        final tempDir = createTempDir('non_dart_run_');
-        final txtFile = File(p.join(tempDir.path, 'bench.txt'))
-          ..writeAsStringSync('text');
+        await d.file('bench.txt', 'text').create();
         final runner = BenchPressCommandRunner();
-        final exitCode = await runner.run(['run', txtFile.path]);
+        final exitCode = await runner.run(['run', d.path('bench.txt')]);
         check(exitCode).equals(ExitCode.usage.code);
       },
     );
@@ -214,11 +206,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
     test(
       'run subcommand exits with software error when target compilation fails',
       () async {
-        final tempDir = createTempDir('comp_fail_');
-        final benchFile = writeBrokenBenchmark(
-          tempDir,
-          fileName: 'broken_bench.dart',
-        );
+        final benchFile = writeBrokenBenchmark(fileName: 'broken_bench.dart');
 
         final runner = BenchPressCommandRunner();
         final exitCode = await runner.run(['run', '-t', 'jit', benchFile.path]);
@@ -229,9 +217,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
     test(
       'run subcommand exits with software error when target execution crashes',
       () async {
-        final tempDir = createTempDir('crash_run_');
         final benchFile = writeSyncBenchmark(
-          tempDir,
           fileName: 'crash_bench.dart',
           className: 'CrashingBenchmark',
           name: 'crash_bench',
@@ -255,8 +241,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
 
     test('run subcommand exits with software error when target produces zero '
         'results', () async {
-      final tempDir = createTempDir('zero_results_');
-      final benchFile = writeEmptyBenchmark(tempDir);
+      final benchFile = writeEmptyBenchmark();
 
       final runner = BenchPressCommandRunner();
       final exitCode = await runner.run([
@@ -271,16 +256,14 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
 
     test('run subcommand preserves successful results but exits with software '
         'error on partial target failure', () async {
-      final tempDir = createTempDir('partial_fail_');
       writeSyncBenchmark(
-        tempDir,
         fileName: 'good_bench.dart',
         className: 'GoodBenchmark',
         name: 'good_bench',
       );
-      writeBrokenBenchmark(tempDir, fileName: 'bad_bench.dart');
+      writeBrokenBenchmark(fileName: 'bad_bench.dart');
 
-      final outputFile = File(p.join(tempDir.path, 'results.json'));
+      final outputFile = File(d.path('results.json'));
       final runner = BenchPressCommandRunner();
       final exitCode = await runner.run([
         'run',
@@ -291,7 +274,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         '--force-run',
         '--save',
         outputFile.path,
-        tempDir.path,
+        d.sandbox,
       ]);
 
       check(exitCode).equals(ExitCode.software.code);

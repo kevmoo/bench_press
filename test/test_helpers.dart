@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
 import 'package:path/path.dart' as p;
-import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
 
 const EnvironmentInfo defaultTestEnvironment = EnvironmentInfo(
   dartVersion: '3.14.0',
@@ -10,28 +10,18 @@ const EnvironmentInfo defaultTestEnvironment = EnvironmentInfo(
   arch: 'x64',
 );
 
-Directory createTempDir(String prefix) {
-  final dir = Directory.systemTemp.createTempSync(prefix);
-  addTearDown(() {
-    if (dir.existsSync()) {
-      dir.deleteSync(recursive: true);
-    }
-  });
-  return dir;
-}
-
-File writeSyncBenchmark(
-  Directory tempDir, {
+File writeSyncBenchmark({
+  String? dirPath,
   String fileName = 'smoke_bench.dart',
   String className = 'SmokeBenchmark',
   String name = 'smoke',
   String body = 'Blackhole.consume(1);',
   String? subDir,
 }) {
-  final targetDir = subDir != null
-      ? (Directory(p.join(tempDir.path, subDir))..createSync(recursive: true))
-      : tempDir;
-  return File(p.join(targetDir.path, fileName))..writeAsStringSync('''
+  final root = dirPath ?? d.sandbox;
+  final targetDirPath = subDir != null ? p.join(root, subDir) : root;
+  Directory(targetDirPath).createSync(recursive: true);
+  return File(p.join(targetDirPath, fileName))..writeAsStringSync('''
 import 'package:bench_press/bench_press.dart';
 
 final class $className extends Benchmark {
@@ -46,25 +36,26 @@ void main(List<String> args) => mainBenchmark($className(), args);
 ''');
 }
 
-File writeEmptyBenchmark(
-  Directory tempDir, {
+File writeEmptyBenchmark({
+  String? dirPath,
   String fileName = 'empty_bench.dart',
-}) => File(p.join(tempDir.path, fileName))
+}) => File(p.join(dirPath ?? d.sandbox, fileName))
   ..writeAsStringSync('''
 import 'package:bench_press/bench_press.dart';
 
 void main(List<String> args) => mainBenchmarkSuite([], args);
 ''');
 
-File writeBrokenBenchmark(
-  Directory tempDir, {
+File writeBrokenBenchmark({
+  String? dirPath,
   String fileName = 'bad_bench.dart',
 }) =>
-    File(p.join(tempDir.path, fileName))
+    File(p.join(dirPath ?? d.sandbox, fileName))
       ..writeAsStringSync('void main() { syntax error here ;;;\n');
 
-File writeBenchPressYaml(Directory tempDir, String content) =>
-    File(p.join(tempDir.path, 'bench_press.yaml'))..writeAsStringSync(content);
+File writeBenchPressYaml(String content, {String? dirPath}) =>
+    File(p.join(dirPath ?? d.sandbox, 'bench_press.yaml'))
+      ..writeAsStringSync(content);
 
 BenchmarkMetrics createSampleMetrics({
   double meanNs = 100.0,
@@ -159,13 +150,13 @@ CompilationResult createMockCompilationResult({
   exitCode: exitCode,
 );
 
-File writeMockRunnerScript(
-  Directory tempDir, {
+File writeMockRunnerScript({
+  String? dirPath,
   required String executableName,
   required String benchmarkName,
   double meanNs = 50.0,
 }) {
-  final script = File(p.join(tempDir.path, executableName))
+  final script = File(p.join(dirPath ?? d.sandbox, executableName))
     ..writeAsStringSync('''#!/bin/sh
 cat << 'END_OF_JSON'
 <<<BENCH_PRESS_JSON_START>>>
