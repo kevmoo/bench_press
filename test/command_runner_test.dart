@@ -323,5 +323,72 @@ matrix:
         check(exitCode).equals(ExitCode.software.code);
       },
     );
+
+    test('validate handles empty directory, unavailable runtime, AOT '
+        'compilation failure, and matrix runtime coordinate', () async {
+      final runner = BenchPressCommandRunner();
+
+      // Empty directory -> ExitCode.noInput
+      final emptyCode = await runner.run(['validate', d.sandbox]);
+      check(emptyCode).equals(ExitCode.noInput.code);
+
+      // Matrix with runtime coordinate and skipped unavailable wasm target
+      final configFile = writeBenchPressYaml('''
+matrix:
+  axes:
+    runtime: [wasm]
+''');
+      final benchFile = writeSyncBenchmark();
+      const noWasmSdk = DartSdk(environment: {'PATH': ''});
+      final noWasmRunner = BenchPressCommandRunner(sdk: noWasmSdk);
+      final skippedCode = await noWasmRunner.run([
+        'validate',
+        '-c',
+        configFile.path,
+        benchFile.path,
+      ]);
+      check(skippedCode).equals(ExitCode.success.code);
+
+      // AOT compilation failure in validate
+      final brokenFile = writeBrokenBenchmark(fileName: 'aot_broken.dart');
+      final aotFailCode = await runner.run([
+        'validate',
+        '-t',
+        'aot',
+        brokenFile.path,
+      ]);
+      check(aotFailCode).equals(ExitCode.software.code);
+    });
+
+    test('report and diff handle positional arguments, stdout output, '
+        'missing files, and git ref fallback', () async {
+      final runner = BenchPressCommandRunner();
+
+      // report missing file -> ExitCode.noInput
+      check(await runner.run(['report', d.path('missing.json')]))
+          .equals(ExitCode.noInput.code);
+
+      // report positional argument writing to stdout (no -o)
+      final suiteFile = File(d.path('positional_suite.json'));
+      createSampleSuite(benchmarks: [createSampleEntry()])
+          .saveToFile(suiteFile);
+      check(await runner.run(['report', suiteFile.path]))
+          .equals(ExitCode.success.code);
+
+      // diff missing current file -> ExitCode.noInput
+      check(
+        await runner.run([
+          'diff',
+          '-b',
+          suiteFile.path,
+          '-c',
+          d.path('missing_curr.json'),
+        ]),
+      ).equals(ExitCode.noInput.code);
+
+      // diff against git ref writing to stdout (no -o)
+      check(await runner.run(['diff', '-b', 'HEAD', '-c', suiteFile.path]))
+          .equals(ExitCode.success.code);
+    });
   });
 }

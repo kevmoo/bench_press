@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
+import 'package:bench_press/src/cli/run_command.dart';
+import 'package:bench_press/src/config/bench_press_config.dart';
 import 'package:checks/checks.dart';
 import 'package:io/io.dart';
 import 'package:test/scaffolding.dart';
@@ -282,6 +284,150 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
       check(suite.benchmarks.length).equals(1);
       check(suite.benchmarks.first.name).equals('good_bench');
+    });
+
+    test('run --dry-run prints resolved matrix plan and exits 0', () async {
+      final configFile = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+    flags: -O2
+  axes:
+    runtime: [jit, aot]
+    flags: [-O2, -O4]
+''');
+      final benchFile = writeSyncBenchmark();
+
+      final runner = BenchPressCommandRunner();
+      final exitCode = await runner.run([
+        'run',
+        '--dry-run',
+        '-c',
+        configFile.path,
+        benchFile.path,
+      ]);
+      check(exitCode).equals(ExitCode.success.code);
+    });
+
+    test('run handles empty directory, invalid config targets, and invalid '
+        'matrix config', () async {
+      final runner = BenchPressCommandRunner();
+
+      // Empty directory -> ExitCode.noInput
+      final emptyCode = await runner.run(['run', d.sandbox]);
+      check(emptyCode).equals(ExitCode.noInput.code);
+
+      // Invalid defaults.targets in bench_press.yaml -> ExitCode.usage
+      final badTargetsConfig = writeBenchPressYaml('''
+defaults:
+  targets: [not_a_valid_runtime]
+''');
+      final benchFile = writeSyncBenchmark();
+      final badTargetsCode = await runner.run([
+        'run',
+        '-c',
+        badTargetsConfig.path,
+        benchFile.path,
+      ]);
+      check(badTargetsCode).equals(ExitCode.usage.code);
+
+      // Invalid runtime in matrix axis -> ExitCode.config (ConfigValidator)
+      final badMatrixConfig = writeBenchPressYaml('''
+matrix:
+  axes:
+    runtime:
+      - invalid_runtime
+''');
+      final badMatrixCode = await runner.run([
+        'run',
+        '-c',
+        badMatrixConfig.path,
+        benchFile.path,
+      ]);
+      check(badMatrixCode).equals(ExitCode.config.code);
+    });
+
+    test('run executes Cartesian matrix with runtime, flags, max-trials, '
+        'json format, and diff fallback', () async {
+      final configFile = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+    flags: --define=MODE=1
+  axes:
+    runtime: [jit]
+    flags: [--define=MODE=1, --define=MODE=2]
+''');
+      final benchFile = writeSyncBenchmark();
+      final corruptDiffFile = File(d.path('corrupt_base.json'))
+        ..writeAsStringSync('{ invalid json');
+
+      final runner = BenchPressCommandRunner();
+      final jsonCode = await runner.run([
+        'run',
+        '-c',
+        configFile.path,
+        '--trials',
+        '1',
+        '--max-trials',
+        '2',
+        '--force-run',
+        '--no-save',
+        '--format',
+        'json',
+        benchFile.path,
+      ]);
+      check(jsonCode).equals(ExitCode.success.code);
+
+      // Test --diff fallback when baseline file is malformed JSON
+      final diffFallbackCode = await runner.run([
+        'run',
+        '-t',
+        'jit',
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        '--diff',
+        corruptDiffFile.path,
+        benchFile.path,
+      ]);
+      check(diffFallbackCode).equals(ExitCode.success.code);
+
+      // Test unavailable runtime (wasm with empty PATH) skips cleanly
+      const noWasmSdk = DartSdk(environment: {'PATH': ''});
+      final noWasmRunner = BenchPressCommandRunner(sdk: noWasmSdk);
+      final unavailableCode = await noWasmRunner.run([
+        'run',
+        '-t',
+        'wasm',
+        '--no-save',
+        benchFile.path,
+      ]);
+      check(unavailableCode).equals(ExitCode.software.code);
+    });
+
+    test('resolveTargetPath and resolveSdkFromCoordinate handle defaults '
+        'and home tilde expansion', () {
+      check(resolveTargetPath(['custom_dir'])).equals('custom_dir');
+      check(resolveTargetPath([])).equals('benchmark');
+
+      const baseSdk = DartSdk();
+      final stockCoord = MatrixCoordinate(
+        const {'sdk': 'stock'},
+        true,
+        const {'sdk': 'stock'},
+      );
+      check(resolveSdkFromCoordinate(stockCoord, baseSdk)).equals(baseSdk);
+
+      final tildeCoord = MatrixCoordinate(
+        const {'sdk': '~/.custom_sdk'},
+        false,
+        const {'sdk': '~/.custom_sdk'},
+      );
+      final expandedSdk = resolveSdkFromCoordinate(tildeCoord, baseSdk);
+      check(expandedSdk.customSdkPath).isNotNull();
+      check(expandedSdk.customSdkPath!).not((it) => it.startsWith('~'));
     });
   });
 }
