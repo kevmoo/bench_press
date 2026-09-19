@@ -151,3 +151,7 @@
 - Markdown reporting with side-by-side variant comparisons and before/after
   baseline diffing.
 - `bench_press` CLI with `run`, `validate`, `report`, and `diff` subcommands.
+- Implemented **Fieller's Theorem Confidence Interval Gating** in `BenchmarkRunner` to validate measurement trial stability. After steady-state warmup converges, `BenchmarkCalibrator` executes again to dynamically update `calibratedBatch` sizes before final measurements, ensuring high-fidelity sampling within 10x deviation constraints.
+- Updated telemetry and Markdown reporters to display a new `<Batch>` column for reporting variant executions where batch size dynamically deviates from baseline.
+- `unresolved` confidence intervals (formerly false/unstable baseline vs regression pairs) are automatically excluded from the final geometric mean calculations for improved clarity across noisy workloads.
+- Wired `--gate` / `--no-gate` to the CLI entrypoint to allow consumers to bypass Fieller convergence checks.

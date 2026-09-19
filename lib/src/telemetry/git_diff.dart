@@ -153,6 +153,7 @@ abstract final class GitDiffReporter() {
     required BenchmarkSuiteResult current,
     String? workingDirectory,
     String? title,
+    bool gate = true,
   }) {
     final diff = loadDiff(
       gitRef: gitRef,

@@ -31,6 +31,11 @@ final class RunCommand({
 
   this {
     argParser
+      ..addFlag(
+        'gate',
+        defaultsTo: true,
+        help: 'Gate measurements that lack statistical stability or bound limits.',
+      )
       ..addOption(
         'config',
         abbr: 'c',
@@ -568,6 +573,7 @@ final class RunCommand({
     String? title,
     String? diffRef,
     required String outputPath,
+    bool gate = true,
   }) {
     if (format == 'json') {
       stdout.writeln(suite.toFormattedJson());
@@ -575,11 +581,15 @@ final class RunCommand({
     }
 
     if (diffRef != null && diffRef.isNotEmpty) {
-      _outputDiffReport(suite, diffRef, title, outputPath);
+      _outputDiffReport(suite, diffRef, title, outputPath, gate: gate);
       return;
     }
 
-    final report = MarkdownReporter.renderSuite(suite, title: title);
+    final report = MarkdownReporter.renderSuite(
+      suite,
+      title: title,
+      gate: gate,
+    );
     stdout.writeln(report);
   }
 
@@ -587,8 +597,9 @@ final class RunCommand({
     BenchmarkSuiteResult suite,
     String diffRef,
     String? title,
-    String outputPath,
-  ) {
+    String outputPath, {
+    bool gate = true,
+  }) {
     final diffFile = File(diffRef);
     if (diffFile.existsSync()) {
       try {
@@ -599,6 +610,7 @@ final class RunCommand({
           title: title ?? 'Baseline Delta: `$diffRef`',
           baselineLabel: 'Baseline ($diffRef)',
           currentLabel: 'Current',
+          gate: gate,
         );
         stdout.writeln(report);
         return;
@@ -611,6 +623,7 @@ final class RunCommand({
       filePath: outputPath,
       current: suite,
       title: title,
+      gate: gate,
     );
     stdout.writeln(report);
   }

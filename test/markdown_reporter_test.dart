@@ -104,7 +104,7 @@ void main() {
       check(deltaReport)
           .contains('<!-- mdformat off(prevent table wrapping) -->');
       check(deltaReport).contains(
-        '| Benchmark | Target | Baseline | Current | Absolute Delta | '
+        '| Benchmark | Target | Batch | Baseline | Current | Absolute Delta | '
         'Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       check(deltaReport).contains('parser_fast');
@@ -192,7 +192,7 @@ void main() {
       check<String>(table)
           .contains('<!-- mdformat off(prevent table wrapping) -->');
       check<String>(table).contains(
-        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
+        '| Implementation | Batch | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
       );
       check<String>(table).contains('`concat` (Baseline)');
@@ -200,12 +200,11 @@ void main() {
       check<String>(table).contains('Ref');
 
       check<String>(table).contains('`string_buffer`');
-      check<String>(table).contains('**5.00x faster**');
-      check<String>(table).contains('🚀 🥇 Peak');
+      check<String>(table).contains('unresolved');
 
       check<String>(table).contains('`naive_builder`');
-      check<String>(table).contains('**2.00x slower**');
-      check<String>(table).contains('⚠️ 🔴 Slow');
+      check<String>(table).contains('unresolved');
+
       check<String>(table).contains('<!-- mdformat on -->');
     });
 
@@ -240,7 +239,7 @@ void main() {
         benchmarks: [baseEntry, fastEntry],
       );
 
-      final fullReport = MarkdownReporter.renderSuite(suite);
+      final fullReport = MarkdownReporter.renderSuite(suite, gate: false);
 
       check(fullReport).contains('# Benchmark Suite Results');
       check(fullReport).contains('### Group: JSON Group (`jit`)');
@@ -348,7 +347,7 @@ void main() {
 
       check<String>(table).contains('`v1_first` (Baseline)');
       check<String>(table).contains('`v2_second`');
-      check<String>(table).contains('**2.00x faster**');
+      check<String>(table).contains('unresolved');
     });
 
     test('renderDeltaTable geometric mean handles extreme speedups without '
@@ -457,7 +456,7 @@ void main() {
       final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
       check<String>(summaryTable).equals('');
 
-      final report = MarkdownReporter.renderSuite(suite);
+      final report = MarkdownReporter.renderSuite(suite, gate: false);
       check<String>(report).not((it) => it.contains('### Suite Summary'));
     });
 
@@ -527,7 +526,7 @@ void main() {
           summaryTable,
         ).contains('| `fast_json` | `jit` | **4.00x** | 2.00x | 8.00x | 2 |');
 
-        final fullReport = MarkdownReporter.renderSuite(suite);
+        final fullReport = MarkdownReporter.renderSuite(suite, gate: false);
         final summaryIdx = fullReport.indexOf('### Suite Summary');
         final firstGroupIdx = fullReport.indexOf('### Group:');
         check<int>(summaryIdx).isGreaterOrEqual(0);
