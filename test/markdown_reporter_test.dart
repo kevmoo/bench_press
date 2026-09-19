@@ -748,6 +748,80 @@ void main() {
       check(closeTable)
           .not((it) => it.contains('Calibrated batch sizes differ'));
     });
+
+    test(
+      'renderSuite collates grouped benchmarks alongside standalone benchmarks '
+      'into a single multi-row Group table with baseline first and '
+      'deterministic sorted reasons',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.11.0-edge',
+          os: 'linux',
+          arch: 'x64',
+        );
+        final standalone = _createEntry('standalone_bench', 'jit', 100.0);
+        final candidateUnstable = _createEntry(
+          'candidate_unstable',
+          'jit',
+          50.0,
+          isStable: false,
+          group: 'String Construction',
+          isBaseline: false,
+        );
+        final baselineSecond = _createGroupEntryWithSamples(
+          name: 'plus_concat',
+          target: 'jit',
+          meanNs: 200.0,
+          samples: [199.0, 200.0, 201.0],
+          group: 'String Construction',
+          isBaseline: true,
+          calibratedBatchIterations: 100,
+        );
+        final candidateUnbounded = _createGroupEntryWithSamples(
+          name: 'candidate_unbounded',
+          target: 'jit',
+          meanNs: 1.0,
+          samples: [-100.0, 1.0, 102.0],
+          group: 'String Construction',
+          isBaseline: false,
+          calibratedBatchIterations: 150,
+        );
+
+        final mixedSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+          environment: env,
+          benchmarks: [
+            standalone,
+            candidateUnstable,
+            baselineSecond,
+            candidateUnbounded,
+          ],
+        );
+
+        final report = MarkdownReporter.renderSuite(mixedSuite);
+        check(report).contains('### Group: String Construction (`jit`)');
+        check(report).not((it) => it.contains('### Benchmark: `plus_concat`'));
+        check(report)
+            .not((it) => it.contains('### Benchmark: `candidate_unstable`'));
+
+        // Baseline must be ordered as the first data row in the group table
+        final baseIdx = report.indexOf('| `plus_concat` (Baseline) |');
+        final candIdx = report.indexOf('| `candidate_unstable` |');
+        check(baseIdx).isGreaterThan(0);
+        check(candIdx).isGreaterThan(baseIdx);
+
+        // Reasons must be sorted alphabetically ('unbounded CI and unstable')
+        // even though 'unstable samples' was encountered before 'unbounded CI'
+        check(report).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'unbounded CI and unstable samples.',
+        );
+        check(report).contains(
+          '> **Summary**: No resolved measurements to compute Geometric Mean '
+          'Speedup | ❓ **2** Unresolved (excluded from GeoMean)',
+        );
+      },
+    );
   });
 }
 

@@ -29,9 +29,9 @@ abstract final class MarkdownReporter() {
         suite.benchmarks.isNotEmpty &&
         suite.benchmarks.any((b) => b.coordinates.group != null) &&
         suite.benchmarks.every(
-          (b) =>
-              b.coordinates.length == 1 &&
-              b.coordinates.containsKey(BenchmarkCoordinates.groupKey),
+          (b) => b.coordinates.keys.every(
+            (k) => k == BenchmarkCoordinates.groupKey,
+          ),
         );
 
     if (isLegacyGrouped) {
@@ -202,7 +202,16 @@ abstract final class MarkdownReporter() {
   ) {
     final map = <String, List<BenchmarkEntry>>{};
     for (final b in suite.benchmarks) {
-      map.putIfAbsent(b.name, () => []).add(b);
+      final group = b.coordinates.group;
+      if (group != null && group.isNotEmpty) {
+        final newCoords = Map<String, String>.from(b.coordinates)
+          ..remove(BenchmarkCoordinates.groupKey);
+        map
+            .putIfAbsent(group, () => [])
+            .add(b.copyWith(coordinates: newCoords));
+      } else {
+        map.putIfAbsent(b.name, () => []).add(b);
+      }
     }
     return map;
   }
@@ -226,12 +235,16 @@ abstract final class MarkdownReporter() {
       (e) => e.isBaseline,
       orElse: () => entries.first,
     );
+    final orderedEntries = [
+      baseEntry,
+      ...entries.where((e) => !identical(e, baseEntry)),
+    ];
 
     _writeMatrixHeader(buffer, axesList, hasThroughput, baseEntry);
 
     final stats = _DeltaStats();
     final baseMeanNs = baseEntry.metrics.meanNs;
-    for (final entry in entries) {
+    for (final entry in orderedEntries) {
       buffer.writeln(
         _formatMatrixRow(
           entry,
@@ -244,9 +257,13 @@ abstract final class MarkdownReporter() {
         ),
       );
     }
-    _updateMatrixBatchDivergence(entries, stats);
+    _updateMatrixBatchDivergence(orderedEntries, stats);
     buffer.writeln('<!-- mdformat on -->');
-    _writeAdvisoryNotes(buffer, stats);
+    if (orderedEntries.length > 1) {
+      _writeDeltaFooter(buffer, stats);
+    } else {
+      _writeAdvisoryNotes(buffer, stats);
+    }
     return buffer.toString().trimRight();
   }
 
@@ -369,9 +386,16 @@ abstract final class MarkdownReporter() {
 
     final verdict = _computeFiellerVerdict(baselineEntry, entry);
     final isUnresolved = gate && !verdict.resolved;
+    final movement = _classifyMovement(speedup, isDelta: false);
     if (isUnresolved) {
       stats.unresolvedCount++;
       stats.reasons.add(verdict.reason!);
+    } else {
+      stats.logSum += math.log(speedup);
+      stats.includedInGeoMean++;
+      if (movement.$2 > 0) stats.fasterCount++;
+      if (movement.$2 < 0) stats.slowerCount++;
+      if (movement.$2 == 0) stats.neutralCount++;
     }
 
     final diffStr = isUnresolved
@@ -383,9 +407,7 @@ abstract final class MarkdownReporter() {
         ? 'unresolved'
         : '${speedup.toStringAsFixed(2)}x';
     final ciStr = _formatMatrixFiellerCi(speedup, verdict);
-    final statusLabel = isUnresolved
-        ? '❓ Unresolved'
-        : _classifyMovement(speedup, isDelta: false).$1;
+    final statusLabel = isUnresolved ? '❓ Unresolved' : movement.$1;
 
     return [diffStr, ratioStr, ciStr, statusLabel];
   }
@@ -586,7 +608,6 @@ abstract final class MarkdownReporter() {
     }
 
     buffer.writeln('<!-- mdformat on -->');
-    buffer.writeln();
 
     _writeDeltaFooter(buffer, stats);
 
@@ -678,7 +699,7 @@ abstract final class MarkdownReporter() {
       );
     }
     if (stats.reasons.isNotEmpty) {
-      final joinedReasons = stats.reasons.join(' and ');
+      final joinedReasons = (stats.reasons.toList()..sort()).join(' and ');
       buffer.writeln();
       buffer.writeln(
         '> ❓ **Unresolved**: Speedup omitted due to $joinedReasons.',
@@ -688,9 +709,7 @@ abstract final class MarkdownReporter() {
 
   static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
     _writeAdvisoryNotes(buffer, stats);
-    if (stats.maxBatchDiv > 2.0 || stats.reasons.isNotEmpty) {
-      buffer.writeln();
-    }
+    buffer.writeln();
 
     if (stats.includedInGeoMean > 0) {
       final geomean = math.exp(stats.logSum / stats.includedInGeoMean);

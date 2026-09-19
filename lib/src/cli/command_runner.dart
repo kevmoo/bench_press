@@ -397,9 +397,9 @@ final class ReportCommand() extends Command<int> {
         'gate',
         defaultsTo: true,
         help:
-            'Publish speedup ratios even when their confidence interval is '
-            'unbounded or the samples are not robustly stable '
-            '(exploration only).',
+            'Withhold speedup ratios whose confidence interval is unbounded '
+            'or whose samples are not robustly stable. Pass --no-gate to '
+            'publish them anyway (exploration only).',
       )
       ..addOption(
         'from-json',
@@ -472,9 +472,9 @@ final class DiffCommand() extends Command<int> {
         'gate',
         defaultsTo: true,
         help:
-            'Publish speedup ratios even when their confidence interval is '
-            'unbounded or the samples are not robustly stable '
-            '(exploration only).',
+            'Withhold speedup ratios whose confidence interval is unbounded '
+            'or whose samples are not robustly stable. Pass --no-gate to '
+            'publish them anyway (exploration only).',
       )
       ..addOption(
         'baseline',

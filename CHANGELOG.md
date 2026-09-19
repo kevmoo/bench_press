@@ -1,14 +1,18 @@
 ## 0.3.2-wip
 
-- Added Fieller confidence interval gating to `MarkdownReporter` (`gate: true`
-  by default, configurable via `--[no-]gate` in `bench_press run` and `diff`),
-  rendering `unresolved` and excluding unstable or zero-sample comparisons from
-  geometric mean rollup metrics.
+- Added Fieller confidence interval and `isRobustStable` gating to
+  `MarkdownReporter` (`gate: true` by default, configurable via `--[no-]gate` in
+  `bench_press run`, `report`, and `diff`), rendering `unresolved` and excluding
+  unstable or unbounded-CI comparisons from geometric mean rollup metrics.
 - Added `Batch` column to `MarkdownReporter` variant, matrix, and delta tables
   alongside a `>2.0x` batch-size divergence warning banner.
-- Updated `BenchmarkRunner` (`runSync`, `runAsync`, `runVariant`) to perform
+- Updated `BenchmarkRunner` (`run`, `runAsync`, `runVariant`) to perform
   post-warmup recalibration via `BenchmarkCalibrator` before recording
   measurement trials, warning when steady-state batch size increases by `>10x`.
+- Fixed `MarkdownReporter.renderSuite` and `renderMatrixComparisonTable` so
+  suites mixing standalone benchmarks and `BenchmarkGroup` variants collate
+  grouped variants into a single multi-row `### Group: ...` comparison table
+  with the baseline ordered first and a geometric mean summary footer.
 
 ## 0.3.1
 
