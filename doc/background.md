@@ -164,9 +164,13 @@ $$
 $$
 
 where $g = \frac{t_{\text{crit}}^2 s_B^2}{n_B \bar{x}_B^2}$. If $g \ge 1$
-(indicating the denominator variance is too high for a bounded ratio),
-`bench_press` gracefully reports ratio bounds as indeterminate rather than
-producing false mathematical certainty.
+(indicating the denominator variance is too high for a bounded ratio), or if
+either sample fails robust stability (`isRobustStable`), `bench_press` gates the
+published speedup ratio as `unresolved` (`❓ Unresolved`, overrideable via
+`--no-gate`). Because every candidate row in a group or matrix comparison table
+is evaluated against the table's baseline entry, a single unstable baseline
+(`baseline samples unstable`) gates all candidate speedup ratios in that table
+even when individual candidate samples are stable.
 
 ---
 

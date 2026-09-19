@@ -40,11 +40,22 @@ abstract final class MarkdownReporter() {
     }
 
     final workloads = _groupMatrixByWorkload(suite);
+    final targetCounts = <String, int>{};
+    for (final key in workloads.keys) {
+      targetCounts[key.$1] = (targetCounts[key.$1] ?? 0) + 1;
+    }
     for (final workload in workloads.entries) {
+      final (workloadName, target, isGroup) = workload.key;
+      final defaultTitle = isGroup
+          ? 'Group: $workloadName (`$target`)'
+          : ((targetCounts[workloadName] ?? 1) > 1
+                ? 'Benchmark: `$workloadName` (`$target`)'
+                : 'Benchmark: `$workloadName`');
       buffer.writeln(
         renderMatrixComparisonTable(
-          workloadName: workload.key,
+          workloadName: workloadName,
           entries: workload.value,
+          title: defaultTitle,
           gate: gate,
         ),
       );
@@ -197,20 +208,19 @@ abstract final class MarkdownReporter() {
         '${maxSpeedup.toStringAsFixed(2)}x | $count |';
   }
 
-  static Map<String, List<BenchmarkEntry>> _groupMatrixByWorkload(
-    BenchmarkSuiteResult suite,
-  ) {
-    final map = <String, List<BenchmarkEntry>>{};
+  static Map<(String, String, bool), List<BenchmarkEntry>>
+  _groupMatrixByWorkload(BenchmarkSuiteResult suite) {
+    final map = <(String, String, bool), List<BenchmarkEntry>>{};
     for (final b in suite.benchmarks) {
       final group = b.coordinates.group;
       if (group != null && group.isNotEmpty) {
         final newCoords = Map<String, String>.from(b.coordinates)
           ..remove(BenchmarkCoordinates.groupKey);
         map
-            .putIfAbsent(group, () => [])
+            .putIfAbsent((group, b.target, true), () => [])
             .add(b.copyWith(coordinates: newCoords));
       } else {
-        map.putIfAbsent(b.name, () => []).add(b);
+        map.putIfAbsent((b.name, b.target, false), () => []).add(b);
       }
     }
     return map;
@@ -239,8 +249,17 @@ abstract final class MarkdownReporter() {
       baseEntry,
       ...entries.where((e) => !identical(e, baseEntry)),
     ];
+    final includeNameCol =
+        axesList.isEmpty ||
+        orderedEntries.map((e) => e.name).toSet().length > 1;
 
-    _writeMatrixHeader(buffer, axesList, hasThroughput, baseEntry);
+    _writeMatrixHeader(
+      buffer,
+      axesList,
+      hasThroughput,
+      baseEntry,
+      includeNameCol: includeNameCol,
+    );
 
     final stats = _DeltaStats();
     final baseMeanNs = baseEntry.metrics.meanNs;
@@ -254,6 +273,7 @@ abstract final class MarkdownReporter() {
           axesList,
           gate,
           stats,
+          includeNameCol: includeNameCol,
         ),
       );
     }
@@ -279,24 +299,30 @@ abstract final class MarkdownReporter() {
     StringBuffer buffer,
     List<String> axesList,
     bool hasThroughput,
-    BenchmarkEntry baseEntry,
-  ) {
+    BenchmarkEntry baseEntry, {
+    required bool includeNameCol,
+  }) {
+    final baselineLabel = _formatBaselineLabel(
+      baseEntry,
+      axesList,
+      includeNameCol: includeNameCol,
+    );
     final headerRow = <String>[
+      if (includeNameCol) 'Implementation',
       for (final axis in axesList)
         axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
-      if (axesList.isEmpty) 'Implementation',
       'Batch',
       'Ops/sec',
       if (hasThroughput) 'Throughput',
       'Mean Latency',
-      'vs. Baseline (`${_formatBaselineLabel(baseEntry, axesList)}`)',
+      'vs. Baseline (`$baselineLabel`)',
       'Speedup Ratio',
       '95% Confidence Interval',
       'Status',
     ];
     buffer.writeln('| ${headerRow.join(' | ')} |');
 
-    final dimCount = axesList.isEmpty ? 1 : axesList.length;
+    final dimCount = axesList.length + (includeNameCol ? 1 : 0);
     final metricCount = hasThroughput ? 8 : 7;
     final sepRow = <String>[
       for (var i = 0; i < dimCount; i++) ':---',
@@ -324,9 +350,16 @@ abstract final class MarkdownReporter() {
     }
   }
 
-  static String _formatBaselineLabel(BenchmarkEntry entry, List<String> axes) {
+  static String _formatBaselineLabel(
+    BenchmarkEntry entry,
+    List<String> axes, {
+    required bool includeNameCol,
+  }) {
     if (axes.isEmpty) return entry.name;
     final vals = axes.map((a) => entry.coordinates[a] ?? '-').toList();
+    if (includeNameCol) {
+      return '${entry.name}, ${vals.join(', ')}';
+    }
     return vals.join(', ');
   }
 
@@ -337,8 +370,9 @@ abstract final class MarkdownReporter() {
     bool hasThroughput,
     List<String> axes,
     bool gate,
-    _DeltaStats stats,
-  ) {
+    _DeltaStats stats, {
+    required bool includeNameCol,
+  }) {
     final curMeanNs = entry.metrics.meanNs;
     final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
         ? (baseMeanNs / curMeanNs)
@@ -347,7 +381,12 @@ abstract final class MarkdownReporter() {
     final batchStr = entry.calibratedBatchIterations?.toString() ?? '-';
 
     final cols = <String>[
-      ..._formatDimensionCols(entry, baselineEntry, axes),
+      ..._formatDimensionCols(
+        entry,
+        baselineEntry,
+        axes,
+        includeNameCol: includeNameCol,
+      ),
       batchStr,
       _formatOps(entry.metrics.opsPerSec),
       if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
@@ -361,12 +400,19 @@ abstract final class MarkdownReporter() {
   static List<String> _formatDimensionCols(
     BenchmarkEntry entry,
     BenchmarkEntry baselineEntry,
-    List<String> axes,
-  ) {
+    List<String> axes, {
+    required bool includeNameCol,
+  }) {
     final isBase = identical(entry, baselineEntry);
     final suffix = isBase ? ' (Baseline)' : '';
     if (axes.isEmpty) {
       return ['`${entry.name}`$suffix'];
+    }
+    if (includeNameCol) {
+      return [
+        '`${entry.name}`$suffix',
+        for (final axis in axes) '`${entry.coordinates[axis] ?? '-'}`',
+      ];
     }
     return [
       for (final axis in axes) '`${entry.coordinates[axis] ?? '-'}`$suffix',
@@ -389,7 +435,7 @@ abstract final class MarkdownReporter() {
     final movement = _classifyMovement(speedup, isDelta: false);
     if (isUnresolved) {
       stats.unresolvedCount++;
-      stats.reasons.add(verdict.reason!);
+      stats.reasons.addAll(verdict.reasons);
     } else {
       stats.logSum += math.log(speedup);
       stats.includedInGeoMean++;
@@ -661,7 +707,7 @@ abstract final class MarkdownReporter() {
 
     if (gate && !verdict.resolved) {
       stats.unresolvedCount++;
-      stats.reasons.add(verdict.reason!);
+      stats.reasons.addAll(verdict.reasons);
     } else {
       stats.logSum += math.log(speedup);
       stats.includedInGeoMean++;
@@ -864,12 +910,17 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry base,
     BenchmarkEntry cur,
   ) {
-    if (!base.metrics.isRobustStable || !cur.metrics.isRobustStable) {
+    final baseUnstable = !base.metrics.isRobustStable;
+    final curUnstable = !cur.metrics.isRobustStable;
+    if (baseUnstable || curUnstable) {
       return (
         resolved: false,
         ciString: '[N/A]',
         matrixCiString: '[N/A]',
-        reason: 'unstable samples',
+        reasons: [
+          if (baseUnstable) 'baseline samples unstable',
+          if (curUnstable) 'candidate samples unstable',
+        ],
       );
     }
     if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
@@ -877,7 +928,7 @@ abstract final class MarkdownReporter() {
         resolved: false,
         ciString: '[N/A]',
         matrixCiString: '[N/A]',
-        reason: 'unbounded CI',
+        reasons: const ['unbounded CI'],
       );
     }
     final interval = FiellerInterval.compute(
@@ -891,7 +942,7 @@ abstract final class MarkdownReporter() {
         resolved: false,
         ciString: '[N/A]',
         matrixCiString: '[N/A]',
-        reason: 'unbounded CI',
+        reasons: const ['unbounded CI'],
       );
     }
     final low = interval.lowerBound.toStringAsFixed(2);
@@ -900,7 +951,7 @@ abstract final class MarkdownReporter() {
       resolved: true,
       ciString: '[$low x, $high x]',
       matrixCiString: '[${low}x – ${high}x]',
-      reason: null,
+      reasons: const [],
     );
   }
 }
@@ -909,7 +960,7 @@ typedef _Verdict = ({
   bool resolved,
   String ciString,
   String matrixCiString,
-  String? reason,
+  List<String> reasons,
 });
 
 final class _DeltaStats() {

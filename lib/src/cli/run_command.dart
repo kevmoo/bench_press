@@ -554,9 +554,13 @@ final class RunCommand({
 
     final taggedBenchmarks = suiteResult.benchmarks.map((b) {
       if (coordinate.coordinates.isEmpty) return b;
+      final hasGroup =
+          b.coordinates.group != null && b.coordinates.group!.isNotEmpty;
       return b.copyWith(
         coordinates: {...b.coordinates, ...coordinate.coordinates},
-        isBaseline: coordinate.isBaseline,
+        isBaseline: hasGroup
+            ? (b.isBaseline && coordinate.isBaseline)
+            : coordinate.isBaseline,
       );
     }).toList();
     final resultSuite = BenchmarkSuiteResult(

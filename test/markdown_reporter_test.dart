@@ -650,7 +650,7 @@ void main() {
         );
 
         // Matrix/Group table check: baseline renders 1.00x (ref), candidate
-        // renders unresolved
+        // renders unresolved with 'candidate samples unstable'
         final groupTable = MarkdownReporter.renderGroupComparisonTable(
           groupName: 'G1',
           target: 'jit',
@@ -660,7 +660,36 @@ void main() {
         check(groupTable).contains('unresolved');
         check(groupTable).contains('❓ Unresolved');
         check(groupTable).contains(
-          '> ❓ **Unresolved**: Speedup omitted due to unstable samples.',
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'candidate samples unstable.',
+        );
+
+        // When the baseline is unstable and the candidate is stable, the
+        // footnote explicitly attributes the failure to the baseline:
+        final unstableBase = _createEntry(
+          'unstable_base',
+          'jit',
+          100.0,
+          isStable: false,
+          group: 'G1',
+          isBaseline: true,
+        );
+        final stableCur = _createEntry(
+          'stable_cand',
+          'jit',
+          50.0,
+          isStable: true,
+          group: 'G1',
+        );
+        final baselineUnstableTable =
+            MarkdownReporter.renderGroupComparisonTable(
+              groupName: 'G1',
+              target: 'jit',
+              entries: [unstableBase, stableCur],
+            );
+        check(baselineUnstableTable).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'baseline samples unstable.',
         );
 
         // Delta table where EVERY row is unresolved must not emit NaN
@@ -810,11 +839,10 @@ void main() {
         check(baseIdx).isGreaterThan(0);
         check(candIdx).isGreaterThan(baseIdx);
 
-        // Reasons must be sorted alphabetically ('unbounded CI and unstable')
-        // even though 'unstable samples' was encountered before 'unbounded CI'
+        // Reasons must be sorted alphabetically
         check(report).contains(
           '> ❓ **Unresolved**: Speedup omitted due to '
-          'unbounded CI and unstable samples.',
+          'candidate samples unstable and unbounded CI.',
         );
         check(report).contains(
           '> **Summary**: No resolved measurements to compute Geometric Mean '
@@ -822,6 +850,133 @@ void main() {
         );
       },
     );
+
+    test('renderSuite with group + multiple coordinate axes across two targets '
+        'produces distinct row labels and never spans multiple targets in a '
+        'single table', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.11.0-edge',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      BenchmarkEntry makeMultiAxisEntry({
+        required String name,
+        required String target,
+        required String sdk,
+        required String tier,
+        required double meanNs,
+        required bool isBaseline,
+      }) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: target,
+            meanNs: meanNs,
+            samples: [meanNs - 1.0, meanNs, meanNs + 1.0],
+            group: 'Decode Group',
+            isBaseline: isBaseline,
+            calibratedBatchIterations: 1000,
+          ).copyWith(
+            coordinates: {'group': 'Decode Group', 'sdk': sdk, 'tier': tier},
+          );
+
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [
+          makeMultiAxisEntry(
+            name: 'decode_json',
+            target: 'jit',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 200.0,
+            isBaseline: true,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_codable',
+            target: 'jit',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 100.0,
+            isBaseline: false,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_json',
+            target: 'jit',
+            sdk: 'fork',
+            tier: 't2',
+            meanNs: 180.0,
+            isBaseline: false,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_codable',
+            target: 'jit',
+            sdk: 'fork',
+            tier: 't2',
+            meanNs: 80.0,
+            isBaseline: false,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_json',
+            target: 'aot',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 150.0,
+            isBaseline: true,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_codable',
+            target: 'aot',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 75.0,
+            isBaseline: false,
+          ),
+        ],
+      );
+
+      final report = MarkdownReporter.renderSuite(suite);
+
+      // (b) Separate tables per target — never spanning multiple targets
+      check(report).contains('### Group: Decode Group (`jit`)');
+      check(report).contains('### Group: Decode Group (`aot`)');
+
+      final jitSectionStart = report.indexOf('### Group: Decode Group (`jit`)');
+      final aotSectionStart = report.indexOf('### Group: Decode Group (`aot`)');
+      final allBenchesStart = report.indexOf('### All Benchmarks');
+      check(jitSectionStart).isGreaterThan(0);
+      check(aotSectionStart).isGreaterThan(jitSectionStart);
+
+      final jitTableText = report.substring(jitSectionStart, aotSectionStart);
+      final aotTableText = report.substring(aotSectionStart, allBenchesStart);
+
+      // Extract data rows from each table and assert (a) every row has a
+      // distinct dimension tuple (Implementation | Sdk | Tier)
+      List<String> extractDimensionTuples(String section) {
+        final lines = section
+            .split('\n')
+            .where((l) => l.startsWith('| `'))
+            .toList();
+        return [
+          for (final line in lines)
+            line.split('|').sublist(1, 4).map((c) => c.trim()).join(' | '),
+        ];
+      }
+
+      final jitTuples = extractDimensionTuples(jitTableText);
+      check(jitTuples.length).equals(4);
+      check(jitTuples.toSet().length).equals(4);
+      check(jitTuples).contains('`decode_json` (Baseline) | `stock` | `t1`');
+      check(jitTuples).contains('`decode_codable` | `stock` | `t1`');
+      check(jitTuples).contains('`decode_json` | `fork` | `t2`');
+      check(jitTuples).contains('`decode_codable` | `fork` | `t2`');
+
+      final aotTuples = extractDimensionTuples(aotTableText);
+      check(aotTuples.length).equals(2);
+      check(aotTuples.toSet().length).equals(2);
+      check(aotTuples).contains('`decode_json` (Baseline) | `stock` | `t1`');
+      check(aotTuples).contains('`decode_codable` | `stock` | `t1`');
+    });
   });
 }
 
