@@ -24,7 +24,7 @@ final class const WarmupResult({
 
   /// The estimated steady-state per-op latency (in nanoseconds) across the
   /// converged window.
-  required final double estimatedOpNanoseconds,
+  final double estimatedOpNanoseconds = 0.0,
 }) {
   @override
   String toString() =>
@@ -150,12 +150,10 @@ final class AdaptiveWarmupDetector({
 
     var estimatedOpNs = 0.0;
     if (_samples.isNotEmpty) {
-      if (_isConverged && _samples.length >= windowSize) {
-        final steadyWindow = _samples.sublist(_samples.length - windowSize);
-        estimatedOpNs = computeMedian(filterInliers(steadyWindow));
-      } else {
-        estimatedOpNs = computeMedian(_samples);
-      }
+      final tail = _samples.length > windowSize
+          ? _samples.sublist(_samples.length - windowSize)
+          : _samples;
+      estimatedOpNs = computeMedian(filterInliers(tail));
     }
 
     return WarmupResult(

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:meta/meta.dart';
 
 import 'config.dart';
+import 'stats/warmup.dart';
 
 /// Exception thrown when a benchmark operation violates operational timing
 /// bounds.
@@ -53,6 +54,18 @@ const double _subMillisecondNoticeThresholdUs = 1000.0;
 
 /// Utility for calibrating inner loop iteration counts.
 abstract final class BenchmarkCalibrator() {
+  /// Returns a [CalibratedBatch] derived from [warmupResult]'s steady-state
+  /// latency, or `null` if [warmupResult] does not have a finite positive
+  /// latency estimate.
+  static CalibratedBatch? calibratedBatchFromWarmup(
+    WarmupResult warmupResult,
+    BenchmarkConfig config,
+  ) {
+    final opNs = warmupResult.estimatedOpNanoseconds;
+    if (opNs <= 0.0 || !opNs.isFinite) return null;
+    return calibratedBatchForDuration(opNs / 1000.0, config);
+  }
+
   /// Computes the final calibrated batch size directly from an estimated
   /// steady-state per-operation latency.
   static CalibratedBatch calibratedBatchForDuration(

@@ -189,4 +189,40 @@ void _testDetectorFallback() {
     check(warnings.length).isGreaterThan(0);
     check(warnings.first).contains('Proceeding with isStable: false');
   });
+
+  test('unconverged warmup uses inlier-filtered tail window for '
+      'estimatedOpNanoseconds rather than cold early samples', () {
+    final config = const BenchmarkConfig(
+      minWarmupIterations: 10,
+      maxWarmupIterations: 25,
+    );
+    final detector = AdaptiveWarmupDetector(config: config, windowSize: 5);
+
+    // 20 cold decaying startup samples (20,000 ns down to 4,800 ns)
+    for (var i = 0; i < 20; i++) {
+      detector.addSample(20000.0 - i * 800.0);
+    }
+    // 5 warm tail samples around 1,000 ns with 1 massive spike (50,000 ns)
+    // that prevents MMD convergence
+    for (final sample in [1000.0, 1020.0, 980.0, 1010.0, 50000.0]) {
+      detector.addSample(sample);
+    }
+
+    final result = detector.finish();
+    check(result.isStable).isFalse();
+    // Inliers of the 5-sample tail [1000, 1020, 980, 1010, 50000] are
+    // [980, 1000, 1010, 1020] -> median 1005.0 (NOT ~10400.0 from cold prefix)
+    check(result.estimatedOpNanoseconds).isCloseTo(1005.0, 5.0);
+  });
+
+  test('WarmupResult defaults estimatedOpNanoseconds to 0.0', () {
+    const result = WarmupResult(
+      isStable: true,
+      totalWarmupIterations: 10,
+      convergedAtIteration: 10,
+      bestMmd: 0.01,
+      elapsedSeconds: 0.25,
+    );
+    check(result.estimatedOpNanoseconds).equals(0.0);
+  });
 }
