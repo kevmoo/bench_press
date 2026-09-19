@@ -169,6 +169,7 @@ abstract final class GitDiffReporter() {
         title: title ?? 'Git Baseline Delta: `$gitRef` ($filePath)',
         baselineLabel: 'Git ($gitRef)',
         currentLabel: 'Current',
+        gate: gate,
       );
     } else {
       final buffer = StringBuffer();

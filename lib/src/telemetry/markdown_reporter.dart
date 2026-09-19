@@ -6,22 +6,7 @@ import 'schema.dart';
 
 /// Generates formatted, mdformat-compliant Markdown tables and performance
 /// telemetry reports.
-typedef _Verdict = ({bool resolved, String ciString, String? reason});
-
-class _DeltaStats() {
-  int fasterCount = 0;
-  int slowerCount = 0;
-  int neutralCount = 0;
-  int unresolvedCount = 0;
-  double logSum = 0.0;
-  int includedInGeoMean = 0;
-  double maxBatchDiv = 1.0;
-  int divMinBatch = 0;
-  int divMaxBatch = 0;
-  Set<String> reasons = {};
-}
-
-class MarkdownReporter() {
+abstract final class MarkdownReporter() {
   /// Renders a full comprehensive Markdown report for a [BenchmarkSuiteResult].
   static String renderSuite(
     BenchmarkSuiteResult suite, {
@@ -75,7 +60,7 @@ class MarkdownReporter() {
     bool gate = true,
   }) {
     final buffer = StringBuffer();
-    final suiteSummary = renderSuiteSummaryTable(suite);
+    final suiteSummary = renderSuiteSummaryTable(suite, gate: gate);
     if (suiteSummary.isNotEmpty) {
       buffer.writeln(suiteSummary);
       buffer.writeln();
@@ -99,9 +84,10 @@ class MarkdownReporter() {
   static String renderSuiteSummaryTable(
     BenchmarkSuiteResult suite, {
     String? title,
+    bool gate = true,
   }) {
     final (distinctGroupCount, candidateSpeedups) =
-        _collectCandidateGroupSpeedups(suite);
+        _collectCandidateGroupSpeedups(suite, gate: gate);
     if (distinctGroupCount < 2 || candidateSpeedups.isEmpty) {
       return '';
     }
@@ -131,7 +117,10 @@ class MarkdownReporter() {
   }
 
   static (int, Map<(String, String), List<double>>)
-  _collectCandidateGroupSpeedups(BenchmarkSuiteResult suite) {
+  _collectCandidateGroupSpeedups(
+    BenchmarkSuiteResult suite, {
+    bool gate = true,
+  }) {
     final groups = <(String, String), List<BenchmarkEntry>>{};
     for (final entry in suite.benchmarks) {
       final group = entry.coordinates.group;
@@ -143,7 +132,13 @@ class MarkdownReporter() {
     final distinctGroups = <String>{};
     final candidateSpeedups = <(String, String), List<double>>{};
     for (final MapEntry(:key, :value) in groups.entries) {
-      _recordGroupSpeedups(key.$1, value, distinctGroups, candidateSpeedups);
+      _recordGroupSpeedups(
+        key.$1,
+        value,
+        distinctGroups,
+        candidateSpeedups,
+        gate: gate,
+      );
     }
     candidateSpeedups.removeWhere((_, speedups) => speedups.length < 2);
     return (distinctGroups.length, candidateSpeedups);
@@ -153,8 +148,9 @@ class MarkdownReporter() {
     String groupName,
     List<BenchmarkEntry> entries,
     Set<String> distinctGroups,
-    Map<(String, String), List<double>> candidateSpeedups,
-  ) {
+    Map<(String, String), List<double>> candidateSpeedups, {
+    bool gate = true,
+  }) {
     if (entries.length < 2) return;
     distinctGroups.add(groupName);
 
@@ -166,6 +162,7 @@ class MarkdownReporter() {
 
     for (final entry in entries) {
       if (identical(entry, baseEntry)) continue;
+      if (gate && !_computeFiellerVerdict(baseEntry, entry).resolved) continue;
       final curMeanNs = entry.metrics.meanNs;
       final ratio =
           (curMeanNs.isFinite &&
@@ -223,72 +220,91 @@ class MarkdownReporter() {
     buffer.writeln('### $heading\n');
     buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
 
-    final axes = <String>{};
-    for (final e in entries) {
-      axes.addAll(e.coordinates.keys);
-    }
-    final axesList = axes.toList()..sort();
-
+    final axesList = _extractSortedAxes(entries);
     final hasThroughput = entries.any((e) => e.throughput != null);
-
-    final headerRow = <String>[];
-    for (final axis in axesList) {
-      final cap = axis.isEmpty
-          ? 'Variant'
-          : axis[0].toUpperCase() + axis.substring(1);
-      headerRow.add(cap);
-    }
-    if (axesList.isEmpty) {
-      headerRow.add('Implementation');
-    }
-
-    headerRow.add('Batch');
-    headerRow.add('Ops/sec');
-    if (hasThroughput) headerRow.add('Throughput');
-    headerRow.add('Mean Latency');
-
     final baseEntry = entries.firstWhere(
       (e) => e.isBaseline,
       orElse: () => entries.first,
     );
-    final baselineLabel = _formatBaselineLabel(baseEntry, axesList);
 
-    headerRow.addAll([
-      'vs. Baseline (`$baselineLabel`)',
-      'Speedup Ratio',
-      '95% Confidence Interval',
-      'Status',
-    ]);
+    _writeMatrixHeader(buffer, axesList, hasThroughput, baseEntry);
 
-    buffer.writeln('| ${headerRow.join(' | ')} |');
-
-    final sepRow = List.generate(
-      axesList.isEmpty ? 1 : axesList.length,
-      (_) => ':---',
-    );
-    if (hasThroughput) {
-      sepRow.addAll([':---:', ':---:', ':---:', ':---:']);
-    } else {
-      sepRow.addAll([':---:', ':---:', ':---:']);
-    }
-    sepRow.addAll([':---:', ':---:', ':---:', ':---:']);
-    buffer.writeln('| ${sepRow.join(' | ')} |');
-
-    final curMeanNs = baseEntry.metrics.meanNs;
+    final stats = _DeltaStats();
+    final baseMeanNs = baseEntry.metrics.meanNs;
     for (final entry in entries) {
       buffer.writeln(
         _formatMatrixRow(
           entry,
           baseEntry,
-          curMeanNs,
+          baseMeanNs,
           hasThroughput,
           axesList,
           gate,
+          stats,
         ),
       );
     }
+    _updateMatrixBatchDivergence(entries, stats);
     buffer.writeln('<!-- mdformat on -->');
+    _writeAdvisoryNotes(buffer, stats);
     return buffer.toString().trimRight();
+  }
+
+  static List<String> _extractSortedAxes(List<BenchmarkEntry> entries) {
+    final axes = <String>{};
+    for (final e in entries) {
+      axes.addAll(e.coordinates.keys);
+    }
+    return axes.toList()..sort();
+  }
+
+  static void _writeMatrixHeader(
+    StringBuffer buffer,
+    List<String> axesList,
+    bool hasThroughput,
+    BenchmarkEntry baseEntry,
+  ) {
+    final headerRow = <String>[
+      for (final axis in axesList)
+        axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
+      if (axesList.isEmpty) 'Implementation',
+      'Batch',
+      'Ops/sec',
+      if (hasThroughput) 'Throughput',
+      'Mean Latency',
+      'vs. Baseline (`${_formatBaselineLabel(baseEntry, axesList)}`)',
+      'Speedup Ratio',
+      '95% Confidence Interval',
+      'Status',
+    ];
+    buffer.writeln('| ${headerRow.join(' | ')} |');
+
+    final dimCount = axesList.isEmpty ? 1 : axesList.length;
+    final metricCount = hasThroughput ? 8 : 7;
+    final sepRow = <String>[
+      for (var i = 0; i < dimCount; i++) ':---',
+      for (var i = 0; i < metricCount; i++) ':---:',
+    ];
+    buffer.writeln('| ${sepRow.join(' | ')} |');
+  }
+
+  static void _updateMatrixBatchDivergence(
+    List<BenchmarkEntry> entries,
+    _DeltaStats stats,
+  ) {
+    var minB = 0;
+    var maxB = 0;
+    for (final e in entries) {
+      final b = e.calibratedBatchIterations;
+      if (b == null || b <= 0) continue;
+      if (minB == 0 || b < minB) minB = b;
+      if (b > maxB) maxB = b;
+    }
+    if (minB > 0 && maxB > minB) {
+      stats.maxBatchDiv = maxB / minB;
+      stats.divMinBatch = minB;
+      stats.divMaxBatch = maxB;
+    }
   }
 
   static String _formatBaselineLabel(BenchmarkEntry entry, List<String> axes) {
@@ -304,17 +320,14 @@ class MarkdownReporter() {
     bool hasThroughput,
     List<String> axes,
     bool gate,
+    _DeltaStats stats,
   ) {
     final curMeanNs = entry.metrics.meanNs;
     final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
         ? (baseMeanNs / curMeanNs)
         : 1.0;
 
-    final bBase = baselineEntry.calibratedBatchIterations?.toString() ?? '-';
-    final bCur = entry.calibratedBatchIterations?.toString() ?? '-';
-    final batchStr = identical(entry, baselineEntry)
-        ? bBase
-        : (bBase == bCur ? bBase : '$bBase → $bCur');
+    final batchStr = entry.calibratedBatchIterations?.toString() ?? '-';
 
     final cols = <String>[
       ..._formatDimensionCols(entry, baselineEntry, axes),
@@ -322,7 +335,7 @@ class MarkdownReporter() {
       _formatOps(entry.metrics.opsPerSec),
       if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
       _formatLatency(curMeanNs),
-      ..._formatComparisonCols(entry, baselineEntry, speedup, gate),
+      ..._formatComparisonCols(entry, baselineEntry, speedup, gate, stats),
     ];
 
     return '| ${cols.join(' | ')} |';
@@ -348,6 +361,7 @@ class MarkdownReporter() {
     BenchmarkEntry baselineEntry,
     double speedup,
     bool gate,
+    _DeltaStats stats,
   ) {
     if (identical(entry, baselineEntry)) {
       return ['1.00x (ref)', '1.00x', '[1.00x – 1.00x]', 'Ref'];
@@ -355,6 +369,10 @@ class MarkdownReporter() {
 
     final verdict = _computeFiellerVerdict(baselineEntry, entry);
     final isUnresolved = gate && !verdict.resolved;
+    if (isUnresolved) {
+      stats.unresolvedCount++;
+      stats.reasons.add(verdict.reason!);
+    }
 
     final diffStr = isUnresolved
         ? 'unresolved'
@@ -364,12 +382,7 @@ class MarkdownReporter() {
     final ratioStr = isUnresolved
         ? 'unresolved'
         : '${speedup.toStringAsFixed(2)}x';
-    final ciStr = _formatMatrixFiellerCi(
-      baselineEntry,
-      entry,
-      speedup,
-      verdict,
-    );
+    final ciStr = _formatMatrixFiellerCi(speedup, verdict);
     final statusLabel = isUnresolved
         ? '❓ Unresolved'
         : _classifyMovement(speedup, isDelta: false).$1;
@@ -377,14 +390,9 @@ class MarkdownReporter() {
     return [diffStr, ratioStr, ciStr, statusLabel];
   }
 
-  static String _formatMatrixFiellerCi(
-    BenchmarkEntry baselineEntry,
-    BenchmarkEntry entry,
-    double speedup,
-    _Verdict verdict,
-  ) {
-    final ci = verdict.ciString;
-    if (speedup >= 1.05 || speedup <= 0.95) {
+  static String _formatMatrixFiellerCi(double speedup, _Verdict verdict) {
+    final ci = verdict.matrixCiString;
+    if (verdict.resolved && (speedup >= 1.05 || speedup <= 0.95)) {
       return '**$ci**';
     }
     return ci;
@@ -655,10 +663,11 @@ class MarkdownReporter() {
     }
   }
 
-  static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
+  static void _writeAdvisoryNotes(StringBuffer buffer, _DeltaStats stats) {
     if (stats.maxBatchDiv > 2.0) {
       final divStr = stats.maxBatchDiv.toStringAsFixed(1);
       final rangeStr = '${stats.divMinBatch}–${stats.divMaxBatch}';
+      buffer.writeln();
       buffer.writeln(
         '> ⚠️ Calibrated batch sizes differ by ${divStr}x across compared '
         'cells ($rangeStr).',
@@ -667,13 +676,19 @@ class MarkdownReporter() {
         '> Latencies may reflect different GC regimes and are not directly '
         'comparable.',
       );
-      buffer.writeln();
     }
     if (stats.reasons.isNotEmpty) {
       final joinedReasons = stats.reasons.join(' and ');
+      buffer.writeln();
       buffer.writeln(
         '> ❓ **Unresolved**: Speedup omitted due to $joinedReasons.',
       );
+    }
+  }
+
+  static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
+    _writeAdvisoryNotes(buffer, stats);
+    if (stats.maxBatchDiv > 2.0 || stats.reasons.isNotEmpty) {
       buffer.writeln();
     }
 
@@ -831,10 +846,20 @@ class MarkdownReporter() {
     BenchmarkEntry cur,
   ) {
     if (!base.metrics.isRobustStable || !cur.metrics.isRobustStable) {
-      return (resolved: false, ciString: '[N/A]', reason: 'unstable samples');
+      return (
+        resolved: false,
+        ciString: '[N/A]',
+        matrixCiString: '[N/A]',
+        reason: 'unstable samples',
+      );
     }
     if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
-      return (resolved: false, ciString: '[N/A]', reason: 'unbounded CI');
+      return (
+        resolved: false,
+        ciString: '[N/A]',
+        matrixCiString: '[N/A]',
+        reason: 'unbounded CI',
+      );
     }
     final interval = FiellerInterval.compute(
       sampleA: base.rawTrialsNs,
@@ -843,10 +868,40 @@ class MarkdownReporter() {
     if (!interval.isValid ||
         interval.lowerBound.isNaN ||
         interval.upperBound.isNaN) {
-      return (resolved: false, ciString: '[N/A]', reason: 'unbounded CI');
+      return (
+        resolved: false,
+        ciString: '[N/A]',
+        matrixCiString: '[N/A]',
+        reason: 'unbounded CI',
+      );
     }
     final low = interval.lowerBound.toStringAsFixed(2);
     final high = interval.upperBound.toStringAsFixed(2);
-    return (resolved: true, ciString: '[$low x, $high x]', reason: null);
+    return (
+      resolved: true,
+      ciString: '[$low x, $high x]',
+      matrixCiString: '[${low}x – ${high}x]',
+      reason: null,
+    );
   }
+}
+
+typedef _Verdict = ({
+  bool resolved,
+  String ciString,
+  String matrixCiString,
+  String? reason,
+});
+
+final class _DeltaStats() {
+  int fasterCount = 0;
+  int slowerCount = 0;
+  int neutralCount = 0;
+  int unresolvedCount = 0;
+  double logSum = 0.0;
+  int includedInGeoMean = 0;
+  double maxBatchDiv = 1.0;
+  int divMinBatch = 0;
+  int divMaxBatch = 0;
+  Set<String> reasons = {};
 }

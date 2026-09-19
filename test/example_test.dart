@@ -10,7 +10,6 @@ void main() {
         'bin/bench_press.dart',
         '--version',
       ]);
-      print(result.stderr);
       check(result.exitCode).equals(0);
       check(result.stdout.toString()).contains('bench_press');
     });
@@ -20,7 +19,6 @@ void main() {
         'bin/bench_press.dart',
         '--help',
       ]);
-      print(result.stderr);
       check(result.exitCode).equals(0);
       check(result.stdout.toString()).contains('A modern, statistically sound');
     });
@@ -31,7 +29,6 @@ void main() {
         final result = await Process.run(Platform.resolvedExecutable, [
           'example/bench_press_example.dart',
         ]);
-        print(result.stderr);
         check(result.exitCode).equals(0);
         final output = result.stdout.toString();
         check(output).contains('=== Running Standalone Benchmark Reports ===');

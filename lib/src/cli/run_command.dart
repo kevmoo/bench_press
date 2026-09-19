@@ -35,8 +35,9 @@ final class RunCommand({
         'gate',
         defaultsTo: true,
         help:
-            'Gate measurements that lack statistical stability or bound '
-            'limits.',
+            'Publish speedup ratios even when their confidence interval is '
+            'unbounded or the samples are not robustly stable '
+            '(exploration only).',
       )
       ..addOption(
         'config',
@@ -287,6 +288,7 @@ final class RunCommand({
       title: argResults!.option('title'),
       diffRef: argResults!.option('diff'),
       outputPath: outputPath,
+      gate: argResults!.flag('gate'),
     );
 
     if (hasFailures) {
