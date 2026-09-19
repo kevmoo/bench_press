@@ -131,6 +131,7 @@ void main() {
     test('toJson serializes FiellerInterval properly', () {
       const fieller = FiellerInterval(
         ratio: 0.5,
+        medianRatio: 0.5,
         lowerBound: 0.48,
         upperBound: 0.52,
         g: 0.002,
@@ -139,6 +140,7 @@ void main() {
       final json = fieller.toJson();
 
       check(json['ratio']).equals(0.5);
+      check(json['median_ratio']).equals(0.5);
       check(json['lower_bound']).equals(0.48);
       check(json['upper_bound']).equals(0.52);
       check(json['g']).equals(0.002);
@@ -149,6 +151,7 @@ void main() {
     test('FiellerInterval toString returns formatted string', () {
       const fieller = FiellerInterval(
         ratio: 0.5,
+        medianRatio: 0.5,
         lowerBound: 0.45,
         upperBound: 0.55,
         g: 0.01,
@@ -156,6 +159,7 @@ void main() {
       );
 
       check(fieller.toString()).contains('FiellerInterval(ratio: 0.500');
+      check(fieller.toString()).contains('medianRatio: 0.500');
       check(fieller.toString()).contains('CI_95%: [0.450, 0.550]');
     });
 

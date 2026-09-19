@@ -104,7 +104,7 @@ void _testDetectorConvergence() {
       if (detector.isDone()) break;
     }
 
-    final result = detector.finish();
+    final result = detector.finish(iterationsPerSample: 1);
     check(result.isStable).isTrue();
     check(result.convergedAtIteration).isLessThan(40);
     check(result.bestMmd).isLessOrEqual(0.25);
@@ -122,7 +122,7 @@ void _testDetectorConvergence() {
       detector.addSample(500.0 + (i.isEven ? 1.0 : -1.0));
     }
 
-    final result = detector.finish();
+    final result = detector.finish(iterationsPerSample: 1);
     check(result.isStable).isTrue();
     check(result.convergedAtIteration).isLessOrEqual(15);
   });
@@ -145,7 +145,7 @@ void _testDetectorConvergence() {
       if (detector.isDone()) break;
     }
 
-    final result = detector.finish();
+    final result = detector.finish(iterationsPerSample: 1);
     check(result.isStable).isTrue();
     check(result.convergedAtIteration).isLessOrEqual(15);
   });
@@ -182,9 +182,9 @@ void _testDetectorFallback() {
     }
 
     check(detector.isDone()).isTrue();
-    final result = detector.finish();
+    final result = detector.finish(iterationsPerSample: 1);
 
-    check(result.isStable).isFalse();
+    check(result.isStable).equals(false);
     check(result.totalWarmupIterations).equals(25);
     check(warnings.length).isGreaterThan(0);
     check(warnings.first).contains('Proceeding with isStable: false');

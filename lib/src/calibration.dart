@@ -57,9 +57,10 @@ abstract final class BenchmarkCalibrator() {
   static CalibratedBatch calibrateSync(
     void Function() action,
     BenchmarkConfig config, {
+    int startingIterations = 1,
     @visibleForTesting Stopwatch? stopwatch,
   }) {
-    var iterations = 1;
+    var iterations = startingIterations > 0 ? startingIterations : 1;
     stopwatch ??= Stopwatch();
 
     // Exponential probing loop to find measurable duration
@@ -100,9 +101,10 @@ abstract final class BenchmarkCalibrator() {
   static Future<CalibratedBatch> calibrateAsync(
     Future<void> Function() action,
     BenchmarkConfig config, {
+    int startingIterations = 1,
     @visibleForTesting Stopwatch? stopwatch,
   }) async {
-    var iterations = 1;
+    var iterations = startingIterations > 0 ? startingIterations : 1;
     stopwatch ??= Stopwatch();
 
     while (true) {

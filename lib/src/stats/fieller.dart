@@ -8,6 +8,9 @@ final class const FiellerInterval({
   /// Point estimate ratio of means ($\bar{x}_A / \bar{x}_B$).
   required final double ratio,
 
+  /// Point estimate ratio of medians.
+  required final double medianRatio,
+
   /// Lower bound of the confidence interval.
   required final double lowerBound,
 
@@ -36,6 +39,7 @@ final class const FiellerInterval({
     if (sampleA.length < 2 || sampleB.length < 2) {
       return FiellerInterval(
         ratio: double.nan,
+        medianRatio: double.nan,
         lowerBound: double.nan,
         upperBound: double.nan,
         g: double.infinity,
@@ -49,10 +53,16 @@ final class const FiellerInterval({
 
     final meanA = AdaptiveWarmupDetector.computeMean(sampleA);
     final meanB = AdaptiveWarmupDetector.computeMean(sampleB);
+    final medianA = AdaptiveWarmupDetector.computeMedian(sampleA);
+    final medianB = AdaptiveWarmupDetector.computeMedian(sampleB);
+
+    final ratio = meanA / meanB;
+    final medianRatio = medianB == 0.0 ? double.infinity : (medianA / medianB);
 
     if (meanB == 0.0) {
       return FiellerInterval(
         ratio: double.infinity,
+        medianRatio: double.infinity,
         lowerBound: double.negativeInfinity,
         upperBound: double.infinity,
         g: double.infinity,
@@ -60,8 +70,6 @@ final class const FiellerInterval({
         confidenceLevel: confidenceLevel,
       );
     }
-
-    final ratio = meanA / meanB;
 
     final varA = _sampleVariance(sampleA, meanA);
     final varB = _sampleVariance(sampleB, meanB);
@@ -72,6 +80,7 @@ final class const FiellerInterval({
     if (vA == 0.0 && vB == 0.0) {
       return FiellerInterval(
         ratio: ratio,
+        medianRatio: medianRatio,
         lowerBound: ratio,
         upperBound: ratio,
         g: 0.0,
@@ -96,6 +105,7 @@ final class const FiellerInterval({
     if (g >= 1.0 || g.isNaN || g.isInfinite) {
       return FiellerInterval(
         ratio: ratio,
+        medianRatio: medianRatio,
         lowerBound: double.negativeInfinity,
         upperBound: double.infinity,
         g: g,
@@ -108,6 +118,7 @@ final class const FiellerInterval({
     if (disc < 0.0) {
       return FiellerInterval(
         ratio: ratio,
+        medianRatio: medianRatio,
         lowerBound: ratio,
         upperBound: ratio,
         g: g,
@@ -123,6 +134,7 @@ final class const FiellerInterval({
 
     return FiellerInterval(
       ratio: ratio,
+      medianRatio: medianRatio,
       lowerBound: lower,
       upperBound: upper,
       g: g,
@@ -144,6 +156,7 @@ final class const FiellerInterval({
   /// Converts to JSON map.
   Map<String, Object?> toJson() => {
     'ratio': ratio,
+    'median_ratio': medianRatio,
     'lower_bound': lowerBound,
     'upper_bound': upperBound,
     'g': g,
@@ -154,6 +167,7 @@ final class const FiellerInterval({
   @override
   String toString() =>
       'FiellerInterval(ratio: ${ratio.toStringAsFixed(3)}, '
+      'medianRatio: ${medianRatio.toStringAsFixed(3)}, '
       'CI_${(confidenceLevel * 100).round()}%: '
       '[${lowerBound.toStringAsFixed(3)}, ${upperBound.toStringAsFixed(3)}], '
       'g: ${g.toStringAsFixed(4)}, '

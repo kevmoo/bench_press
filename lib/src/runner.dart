@@ -108,6 +108,7 @@ abstract final class BenchmarkRunner() {
       warmupStopwatch.stop();
 
       final warmupResult = warmupDetector.finish(
+        iterationsPerSample: provisional.iterations,
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
       benchmark.warmupComplete();
@@ -115,6 +116,7 @@ abstract final class BenchmarkRunner() {
       final calibrated = BenchmarkCalibrator.calibrateSync(
         benchmark.run,
         config,
+        startingIterations: warmupResult.iterationsPerSample,
       );
       _logRecalibrationSwing(provisional, calibrated, config);
 
@@ -195,6 +197,7 @@ abstract final class BenchmarkRunner() {
       warmupStopwatch.stop();
 
       final warmupResult = warmupDetector.finish(
+        iterationsPerSample: provisional.iterations,
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
       await benchmark.warmupComplete();
@@ -202,6 +205,7 @@ abstract final class BenchmarkRunner() {
       final calibrated = await BenchmarkCalibrator.calibrateAsync(
         benchmark.run,
         config,
+        startingIterations: warmupResult.iterationsPerSample,
       );
       _logRecalibrationSwing(provisional, calibrated, config);
 
@@ -288,15 +292,23 @@ abstract final class BenchmarkRunner() {
       warmupStopwatch.stop();
 
       final warmupResult = warmupDetector.finish(
+        iterationsPerSample: provisional.iterations,
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
+
+      variant.warmupComplete?.call();
 
       final calibrated = isAsync
           ? await BenchmarkCalibrator.calibrateAsync(
               variant.executeAsync,
               config,
+              startingIterations: warmupResult.iterationsPerSample,
             )
-          : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
+          : BenchmarkCalibrator.calibrateSync(
+              variant.executeSync,
+              config,
+              startingIterations: warmupResult.iterationsPerSample,
+            );
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
@@ -355,7 +367,7 @@ abstract final class BenchmarkRunner() {
     final calIter = calibrated.iterations;
     if (provIter <= 0 || calIter <= 0) return;
     final ratio = math.max(provIter, calIter) / math.min(provIter, calIter);
-    if (ratio > 10.0) {
+    if (ratio > 1.5) {
       config.logger?.call(
         'Post-warmup recalibration changed batch size $provIter -> $calIter '
         '(${ratio.toStringAsFixed(1)}x). Cold-probe estimate was unreliable; '

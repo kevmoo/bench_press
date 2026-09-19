@@ -21,6 +21,9 @@ final class const WarmupResult({
 
   /// Total elapsed seconds spent in the warmup phase.
   required final double elapsedSeconds,
+
+  /// The iterations per sample used during warmup.
+  required final int iterationsPerSample,
 }) {
   @override
   String toString() =>
@@ -133,7 +136,10 @@ final class AdaptiveWarmupDetector({
   }
 
   /// Concludes the warmup phase and returns the structured [WarmupResult].
-  WarmupResult finish({double elapsedSeconds = 0.0}) {
+  WarmupResult finish({
+    required int iterationsPerSample,
+    double elapsedSeconds = 0.0,
+  }) {
     if (!_isConverged) {
       final bestStr = _bestMmd.isFinite ? _bestMmd.toStringAsFixed(4) : 'N/A';
       config.logger?.call(
@@ -150,6 +156,7 @@ final class AdaptiveWarmupDetector({
       convergedAtIteration: _isConverged ? _convergedIteration : _bestIteration,
       bestMmd: _bestMmd.isFinite ? _bestMmd : 0.0,
       elapsedSeconds: elapsedSeconds,
+      iterationsPerSample: iterationsPerSample,
     );
   }
 
