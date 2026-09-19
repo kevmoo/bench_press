@@ -381,7 +381,7 @@ abstract final class BenchmarkRunner() {
     final calIter = calibrated.iterations;
     if (provIter <= 0 || calIter <= 0) return;
     final ratio = math.max(provIter, calIter) / math.min(provIter, calIter);
-    if (ratio > 1.5) {
+    if (ratio > 10.0) {
       config.logger?.call(
         'Post-warmup recalibration changed batch size $provIter -> $calIter '
         '(${ratio.toStringAsFixed(1)}x). Cold-probe estimate was unreliable; '

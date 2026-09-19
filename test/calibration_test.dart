@@ -97,37 +97,3 @@ final class _ZeroStopwatch() implements Stopwatch {
   @override
   void stop() {}
 }
-
-final class _MockStopwatch({final int microsPerMeasurement = 6000})
-    implements Stopwatch {
-  int _elapsedMicroseconds = 0;
-  bool _isRunning = false;
-
-  @override
-  Duration get elapsed => Duration(microseconds: _elapsedMicroseconds);
-  @override
-  int get elapsedMicroseconds => _elapsedMicroseconds;
-  @override
-  int get elapsedMilliseconds => _elapsedMicroseconds ~/ 1000;
-  @override
-  int get elapsedTicks => _elapsedMicroseconds;
-  @override
-  int get frequency => 1000000;
-  @override
-  bool get isRunning => _isRunning;
-  @override
-  void reset() {
-    _elapsedMicroseconds = 0;
-  }
-
-  @override
-  void start() {
-    _isRunning = true;
-  }
-
-  @override
-  void stop() {
-    _isRunning = false;
-    _elapsedMicroseconds = microsPerMeasurement;
-  }
-}
