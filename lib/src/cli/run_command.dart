@@ -31,6 +31,14 @@ final class RunCommand({
 
   this {
     argParser
+      ..addFlag(
+        'gate',
+        defaultsTo: true,
+        help:
+            'Withhold speedup ratios whose confidence interval is unbounded '
+            'or whose samples are not robustly stable. Pass --no-gate to '
+            'publish them anyway (exploration only).',
+      )
       ..addOption(
         'config',
         abbr: 'c',
@@ -280,6 +288,7 @@ final class RunCommand({
       title: argResults!.option('title'),
       diffRef: argResults!.option('diff'),
       outputPath: outputPath,
+      gate: argResults!.flag('gate'),
     );
 
     if (hasFailures) {
@@ -545,9 +554,13 @@ final class RunCommand({
 
     final taggedBenchmarks = suiteResult.benchmarks.map((b) {
       if (coordinate.coordinates.isEmpty) return b;
+      final hasGroup =
+          b.coordinates.group != null && b.coordinates.group!.isNotEmpty;
       return b.copyWith(
         coordinates: {...b.coordinates, ...coordinate.coordinates},
-        isBaseline: coordinate.isBaseline,
+        isBaseline: hasGroup
+            ? (b.isBaseline && coordinate.isBaseline)
+            : coordinate.isBaseline,
       );
     }).toList();
     final resultSuite = BenchmarkSuiteResult(
@@ -568,6 +581,7 @@ final class RunCommand({
     String? title,
     String? diffRef,
     required String outputPath,
+    bool gate = true,
   }) {
     if (format == 'json') {
       stdout.writeln(suite.toFormattedJson());
@@ -575,11 +589,15 @@ final class RunCommand({
     }
 
     if (diffRef != null && diffRef.isNotEmpty) {
-      _outputDiffReport(suite, diffRef, title, outputPath);
+      _outputDiffReport(suite, diffRef, title, outputPath, gate: gate);
       return;
     }
 
-    final report = MarkdownReporter.renderSuite(suite, title: title);
+    final report = MarkdownReporter.renderSuite(
+      suite,
+      title: title,
+      gate: gate,
+    );
     stdout.writeln(report);
   }
 
@@ -587,8 +605,9 @@ final class RunCommand({
     BenchmarkSuiteResult suite,
     String diffRef,
     String? title,
-    String outputPath,
-  ) {
+    String outputPath, {
+    bool gate = true,
+  }) {
     final diffFile = File(diffRef);
     if (diffFile.existsSync()) {
       try {
@@ -599,6 +618,7 @@ final class RunCommand({
           title: title ?? 'Baseline Delta: `$diffRef`',
           baselineLabel: 'Baseline ($diffRef)',
           currentLabel: 'Current',
+          gate: gate,
         );
         stdout.writeln(report);
         return;
@@ -611,6 +631,7 @@ final class RunCommand({
       filePath: outputPath,
       current: suite,
       title: title,
+      gate: gate,
     );
     stdout.writeln(report);
   }

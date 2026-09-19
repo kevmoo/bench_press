@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:meta/meta.dart';
 
@@ -84,7 +85,7 @@ abstract final class BenchmarkRunner() {
     benchmark.setup();
     try {
       final config = benchmark.config;
-      final calibrated = BenchmarkCalibrator.calibrateSync(
+      final provisional = BenchmarkCalibrator.calibrateSync(
         benchmark.run,
         config,
       );
@@ -95,7 +96,7 @@ abstract final class BenchmarkRunner() {
       while (true) {
         final measurement = (runBatch ?? BatchRunner.runSync)(
           benchmark,
-          calibrated.iterations,
+          provisional.iterations,
         );
         warmupDetector.addSample(measurement.perOpNanoseconds);
 
@@ -110,6 +111,12 @@ abstract final class BenchmarkRunner() {
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
       benchmark.warmupComplete();
+
+      final calibrated = BenchmarkCalibrator.calibrateSync(
+        benchmark.run,
+        config,
+      );
+      _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
@@ -165,7 +172,7 @@ abstract final class BenchmarkRunner() {
     await benchmark.setup();
     try {
       final config = benchmark.config;
-      final calibrated = await BenchmarkCalibrator.calibrateAsync(
+      final provisional = await BenchmarkCalibrator.calibrateAsync(
         benchmark.run,
         config,
       );
@@ -176,7 +183,7 @@ abstract final class BenchmarkRunner() {
       while (true) {
         final measurement = await (runBatch ?? BatchRunner.runAsync)(
           benchmark,
-          calibrated.iterations,
+          provisional.iterations,
         );
         warmupDetector.addSample(measurement.perOpNanoseconds);
 
@@ -191,6 +198,12 @@ abstract final class BenchmarkRunner() {
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
       await benchmark.warmupComplete();
+
+      final calibrated = await BenchmarkCalibrator.calibrateAsync(
+        benchmark.run,
+        config,
+      );
+      _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
@@ -249,7 +262,7 @@ abstract final class BenchmarkRunner() {
       if (isAsync) {
         await probe;
       }
-      final calibrated = isAsync
+      final provisional = isAsync
           ? await BenchmarkCalibrator.calibrateAsync(
               variant.executeAsync,
               config,
@@ -262,7 +275,7 @@ abstract final class BenchmarkRunner() {
       while (true) {
         final perOpNs = await _measureVariantBatch(
           variant,
-          calibrated.iterations,
+          provisional.iterations,
           isAsync: isAsync,
         );
         warmupDetector.addSample(perOpNs);
@@ -277,6 +290,14 @@ abstract final class BenchmarkRunner() {
       final warmupResult = warmupDetector.finish(
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
+
+      final calibrated = isAsync
+          ? await BenchmarkCalibrator.calibrateAsync(
+              variant.executeAsync,
+              config,
+            )
+          : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
+      _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
       for (var i = 0; i < config.trials; i++) {
@@ -322,6 +343,24 @@ abstract final class BenchmarkRunner() {
       );
     } finally {
       variant.teardown?.call();
+    }
+  }
+
+  static void _logRecalibrationSwing(
+    CalibratedBatch provisional,
+    CalibratedBatch calibrated,
+    BenchmarkConfig config,
+  ) {
+    final provIter = provisional.iterations;
+    final calIter = calibrated.iterations;
+    if (provIter <= 0 || calIter <= 0) return;
+    final ratio = math.max(provIter, calIter) / math.min(provIter, calIter);
+    if (ratio > 10.0) {
+      config.logger?.call(
+        'Post-warmup recalibration changed batch size $provIter -> $calIter '
+        '(${ratio.toStringAsFixed(1)}x). Cold-probe estimate was unreliable; '
+        'using post-warmup value.',
+      );
     }
   }
 

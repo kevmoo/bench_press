@@ -153,6 +153,7 @@ abstract final class GitDiffReporter() {
     required BenchmarkSuiteResult current,
     String? workingDirectory,
     String? title,
+    bool gate = true,
   }) {
     final diff = loadDiff(
       gitRef: gitRef,
@@ -168,6 +169,7 @@ abstract final class GitDiffReporter() {
         title: title ?? 'Git Baseline Delta: `$gitRef` ($filePath)',
         baselineLabel: 'Git ($gitRef)',
         currentLabel: 'Current',
+        gate: gate,
       );
     } else {
       final buffer = StringBuffer();

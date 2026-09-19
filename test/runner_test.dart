@@ -394,4 +394,141 @@ void main() {
       ).isTrue();
     });
   });
+
+  group('Change 3: Post-warmup recalibration', () {
+    test('runSync and runAsync recalibrate after warmupComplete, report the '
+        'post-warmup calibratedBatch, and log >10x swings', () async {
+      final syncLogs = <String>[];
+      final syncBench = _TieringSyncBenchmark(
+        'tiered_sync',
+        config: BenchmarkConfig(
+          trials: 3,
+          minWarmupIterations: 5,
+          maxWarmupIterations: 5,
+          targetBatchDuration: const Duration(milliseconds: 2),
+          forceRun: true,
+          logger: syncLogs.add,
+        ),
+      );
+
+      var warmupObservedBatch = 0;
+      var trialObservedBatch = 0;
+      final syncResult = BenchmarkRunner.run(
+        syncBench,
+        runBatch: (b, iters) {
+          if (!syncBench.isWarm) {
+            warmupObservedBatch = iters;
+          } else {
+            trialObservedBatch = iters;
+          }
+          return BatchMeasurement(
+            iterations: iters,
+            totalElapsedMicroseconds: 100,
+            perOpNanoseconds: 100.0,
+          );
+        },
+      );
+
+      check(syncBench.warmupCompleteCalled).isTrue();
+      check(trialObservedBatch).isGreaterThan(warmupObservedBatch * 10);
+      check(syncResult.calibratedBatch.iterations).equals(trialObservedBatch);
+      check(
+        syncLogs.any(
+          (l) => l.contains(
+            'Post-warmup recalibration changed batch size '
+            '$warmupObservedBatch -> $trialObservedBatch',
+          ),
+        ),
+      ).isTrue();
+
+      final asyncLogs = <String>[];
+      final asyncBench = _TieringAsyncBenchmark(
+        'tiered_async',
+        config: BenchmarkConfig(
+          trials: 3,
+          minWarmupIterations: 5,
+          maxWarmupIterations: 5,
+          targetBatchDuration: const Duration(milliseconds: 2),
+          forceRun: true,
+          logger: asyncLogs.add,
+        ),
+      );
+
+      var asyncWarmupBatch = 0;
+      var asyncTrialBatch = 0;
+      final asyncResult = await BenchmarkRunner.runAsync(
+        asyncBench,
+        runBatch: (b, iters) async {
+          if (!asyncBench.isWarm) {
+            asyncWarmupBatch = iters;
+          } else {
+            asyncTrialBatch = iters;
+          }
+          return BatchMeasurement(
+            iterations: iters,
+            totalElapsedMicroseconds: 100,
+            perOpNanoseconds: 100.0,
+          );
+        },
+      );
+
+      check(asyncBench.warmupCompleteCalled).isTrue();
+      check(asyncTrialBatch).isGreaterThan(asyncWarmupBatch * 10);
+      check(asyncResult.calibratedBatch.iterations).equals(asyncTrialBatch);
+      check(
+        asyncLogs.any(
+          (l) => l.contains(
+            'Post-warmup recalibration changed batch size '
+            '$asyncWarmupBatch -> $asyncTrialBatch',
+          ),
+        ),
+      ).isTrue();
+    });
+  });
+}
+
+final class _TieringSyncBenchmark(super.name, {super.config})
+    extends Benchmark {
+  bool isWarm = false;
+  bool warmupCompleteCalled = false;
+
+  @override
+  void warmupComplete() {
+    isWarm = true;
+    warmupCompleteCalled = true;
+  }
+
+  @override
+  void run() {
+    if (!isWarm) {
+      // Cold tier: ~1.5ms busy wait so provisional calibration picks batch = 1
+      final sw = Stopwatch()..start();
+      while (sw.elapsedMicroseconds < 1500) {}
+    } else {
+      // Warm tier: sub-microsecond work so post-warmup calibration picks > 100
+      Blackhole.consume(42);
+    }
+  }
+}
+
+final class _TieringAsyncBenchmark(super.name, {super.config})
+    extends AsyncBenchmark {
+  bool isWarm = false;
+  bool warmupCompleteCalled = false;
+
+  @override
+  Future<void> warmupComplete() async {
+    isWarm = true;
+    warmupCompleteCalled = true;
+  }
+
+  @override
+  Future<void> run() async {
+    if (!isWarm) {
+      final sw = Stopwatch()..start();
+      while (sw.elapsedMicroseconds < 1500) {}
+    } else {
+      Blackhole.consume(42);
+    }
+  }
 }

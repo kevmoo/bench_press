@@ -104,7 +104,7 @@ void main() {
       check(deltaReport)
           .contains('<!-- mdformat off(prevent table wrapping) -->');
       check(deltaReport).contains(
-        '| Benchmark | Target | Baseline | Current | Absolute Delta | '
+        '| Benchmark | Target | Batch | Baseline | Current | Absolute Delta | '
         'Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       check(deltaReport).contains('parser_fast');
@@ -192,7 +192,7 @@ void main() {
       check<String>(table)
           .contains('<!-- mdformat off(prevent table wrapping) -->');
       check<String>(table).contains(
-        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
+        '| Implementation | Batch | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
       );
       check<String>(table).contains('`concat` (Baseline)');
@@ -206,6 +206,7 @@ void main() {
       check<String>(table).contains('`naive_builder`');
       check<String>(table).contains('**2.00x slower**');
       check<String>(table).contains('⚠️ 🔴 Slow');
+
       check<String>(table).contains('<!-- mdformat on -->');
     });
 
@@ -534,6 +535,448 @@ void main() {
         check<int>(firstGroupIdx).isGreaterThan(summaryIdx);
       },
     );
+
+    test('Change 1: invalid Fieller interval renders unresolved, excludes from '
+        'GeoMean, and gate: false restores ratio', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      // Valid pair (2.00x speedup)
+      final validBase = _createEntry('valid_bench', 'jit', 100.0);
+      final validCur = _createEntry('valid_bench', 'jit', 50.0);
+
+      // Invalid Fieller pair (fewer than 2 raw trials -> unbounded CI)
+      const invalidBase = BenchmarkEntry(
+        name: 'unbounded_bench',
+        target: 'jit',
+        mode: 'sync',
+        samples: 1,
+        metrics: BenchmarkMetrics(
+          meanNs: 139.0,
+          medianNs: 139.0,
+          minNs: 139.0,
+          maxNs: 139.0,
+          stddevNs: 0.0,
+          cv: 0.0,
+          p95Ns: 139.0,
+          p99Ns: 139.0,
+          opsPerSec: 7194244.0,
+          isStable: true,
+        ),
+        rawTrialsNs: [139.0],
+      );
+      const invalidCur = BenchmarkEntry(
+        name: 'unbounded_bench',
+        target: 'jit',
+        mode: 'sync',
+        samples: 1,
+        metrics: BenchmarkMetrics(
+          meanNs: 100.0,
+          medianNs: 100.0,
+          minNs: 100.0,
+          maxNs: 100.0,
+          stddevNs: 0.0,
+          cv: 0.0,
+          p95Ns: 100.0,
+          p99Ns: 100.0,
+          opsPerSec: 10000000.0,
+          isStable: true,
+        ),
+        rawTrialsNs: [100.0],
+      );
+
+      final baseSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [validBase, invalidBase],
+      );
+      final curSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [validCur, invalidCur],
+      );
+
+      final gated = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: curSuite,
+      );
+      check(gated).contains(
+        '| unbounded_bench | `jit` | - | 139.0 ns | 100.0 ns | -39.0 ns | '
+        '-28.1% | unresolved | [N/A] | ❓ Unresolved |',
+      );
+      // GeoMean must be 2.00x (from valid_bench only), not contaminated
+      // by 1.39x
+      check(gated).contains('Geometric Mean Speedup: **2.00x**');
+      check(gated).contains('❓ **1** Unresolved (excluded from GeoMean)');
+      check(gated)
+          .contains('> ❓ **Unresolved**: Speedup omitted due to unbounded CI.');
+
+      final ungated = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: curSuite,
+        gate: false,
+      );
+      check(ungated).contains('1.39x');
+      check(ungated).not((it) => it.contains('unresolved'));
+    });
+
+    test(
+      'Change 1: !isRobustStable renders unresolved and all-unresolved table '
+      'guards against NaN GeoMean while keeping baseline 1.00x (ref)',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+
+        final baseEntry = _createEntry(
+          'unstable_bench',
+          'jit',
+          100.0,
+          isStable: true,
+          group: 'G1',
+          isBaseline: true,
+        );
+        final unstableCur = _createEntry(
+          'unstable_cand',
+          'jit',
+          50.0,
+          isStable: false,
+          group: 'G1',
+        );
+
+        // Matrix/Group table check: baseline renders 1.00x (ref), candidate
+        // renders unresolved with 'candidate samples unstable'
+        final groupTable = MarkdownReporter.renderGroupComparisonTable(
+          groupName: 'G1',
+          target: 'jit',
+          entries: [baseEntry, unstableCur],
+        );
+        check(groupTable).contains('1.00x (ref)');
+        check(groupTable).contains('unresolved');
+        check(groupTable).contains('❓ Unresolved');
+        check(groupTable).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'candidate samples unstable.',
+        );
+
+        // When the baseline is unstable and the candidate is stable, the
+        // footnote explicitly attributes the failure to the baseline:
+        final unstableBase = _createEntry(
+          'unstable_base',
+          'jit',
+          100.0,
+          isStable: false,
+          group: 'G1',
+          isBaseline: true,
+        );
+        final stableCur = _createEntry(
+          'stable_cand',
+          'jit',
+          50.0,
+          isStable: true,
+          group: 'G1',
+        );
+        final baselineUnstableTable =
+            MarkdownReporter.renderGroupComparisonTable(
+              groupName: 'G1',
+              target: 'jit',
+              entries: [unstableBase, stableCur],
+            );
+        check(baselineUnstableTable).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'baseline samples unstable.',
+        );
+
+        // Delta table where EVERY row is unresolved must not emit NaN
+        final baseSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+          environment: env,
+          benchmarks: [baseEntry],
+        );
+        final curSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+          environment: env,
+          benchmarks: [
+            _createEntry('unstable_bench', 'jit', 50.0, isStable: false),
+          ],
+        );
+
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: baseSuite,
+          current: curSuite,
+        );
+        check(delta).not((it) => it.contains('NaN'));
+        check(delta).contains(
+          'No resolved measurements to compute Geometric Mean Speedup',
+        );
+        check(delta).contains('❓ **1** Unresolved (excluded from GeoMean)');
+      },
+    );
+
+    test('Change 2: Batch column renders calibratedBatch, >2x divergence emits '
+        'warning, <=2x does not, and missing calibratedBatch renders -', () {
+      final b1 = _createGroupEntryWithSamples(
+        name: 'v_base',
+        target: 'jit',
+        meanNs: 100.0,
+        samples: [99.0, 100.0, 101.0],
+        group: 'BatchGroup',
+        isBaseline: true,
+        calibratedBatchIterations: 2,
+      );
+      final b2 = _createGroupEntryWithSamples(
+        name: 'v_diverged',
+        target: 'jit',
+        meanNs: 50.0,
+        samples: [49.0, 50.0, 51.0],
+        group: 'BatchGroup',
+        isBaseline: false,
+        calibratedBatchIterations: 7,
+      );
+      final bMissing = _createGroupEntryWithSamples(
+        name: 'v_missing_batch',
+        target: 'jit',
+        meanNs: 80.0,
+        samples: [79.0, 80.0, 81.0],
+        group: 'BatchGroup',
+        isBaseline: false,
+      );
+
+      final divergedTable = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'BatchGroup',
+        target: 'jit',
+        entries: [b1, b2, bMissing],
+      );
+      check(divergedTable).contains('| `v_base` (Baseline) | 2 |');
+      check(divergedTable).contains('| `v_diverged` | 7 |');
+      check(divergedTable).contains('| `v_missing_batch` | - |');
+      check(divergedTable).contains(
+        'Calibrated batch sizes differ by 3.5x across compared cells (2–7).',
+      );
+
+      // <= 2.0x divergence (2 vs 4) must NOT emit warning
+      final bClose = _createGroupEntryWithSamples(
+        name: 'v_close',
+        target: 'jit',
+        meanNs: 50.0,
+        samples: [49.0, 50.0, 51.0],
+        group: 'BatchGroup',
+        isBaseline: false,
+        calibratedBatchIterations: 4,
+      );
+      final closeTable = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'BatchGroup',
+        target: 'jit',
+        entries: [b1, bClose],
+      );
+      check(closeTable)
+          .not((it) => it.contains('Calibrated batch sizes differ'));
+    });
+
+    test(
+      'renderSuite collates grouped benchmarks alongside standalone benchmarks '
+      'into a single multi-row Group table with baseline first and '
+      'deterministic sorted reasons',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.11.0-edge',
+          os: 'linux',
+          arch: 'x64',
+        );
+        final standalone = _createEntry('standalone_bench', 'jit', 100.0);
+        final candidateUnstable = _createEntry(
+          'candidate_unstable',
+          'jit',
+          50.0,
+          isStable: false,
+          group: 'String Construction',
+          isBaseline: false,
+        );
+        final baselineSecond = _createGroupEntryWithSamples(
+          name: 'plus_concat',
+          target: 'jit',
+          meanNs: 200.0,
+          samples: [199.0, 200.0, 201.0],
+          group: 'String Construction',
+          isBaseline: true,
+          calibratedBatchIterations: 100,
+        );
+        final candidateUnbounded = _createGroupEntryWithSamples(
+          name: 'candidate_unbounded',
+          target: 'jit',
+          meanNs: 1.0,
+          samples: [-100.0, 1.0, 102.0],
+          group: 'String Construction',
+          isBaseline: false,
+          calibratedBatchIterations: 150,
+        );
+
+        final mixedSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+          environment: env,
+          benchmarks: [
+            standalone,
+            candidateUnstable,
+            baselineSecond,
+            candidateUnbounded,
+          ],
+        );
+
+        final report = MarkdownReporter.renderSuite(mixedSuite);
+        check(report).contains('### Group: String Construction (`jit`)');
+        check(report).not((it) => it.contains('### Benchmark: `plus_concat`'));
+        check(report)
+            .not((it) => it.contains('### Benchmark: `candidate_unstable`'));
+
+        // Baseline must be ordered as the first data row in the group table
+        final baseIdx = report.indexOf('| `plus_concat` (Baseline) |');
+        final candIdx = report.indexOf('| `candidate_unstable` |');
+        check(baseIdx).isGreaterThan(0);
+        check(candIdx).isGreaterThan(baseIdx);
+
+        // Reasons must be sorted alphabetically
+        check(report).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'candidate samples unstable and unbounded CI.',
+        );
+        check(report).contains(
+          '> **Summary**: No resolved measurements to compute Geometric Mean '
+          'Speedup | ❓ **2** Unresolved (excluded from GeoMean)',
+        );
+      },
+    );
+
+    test('renderSuite with group + multiple coordinate axes across two targets '
+        'produces distinct row labels and never spans multiple targets in a '
+        'single table', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.11.0-edge',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      BenchmarkEntry makeMultiAxisEntry({
+        required String name,
+        required String target,
+        required String sdk,
+        required String tier,
+        required double meanNs,
+        required bool isBaseline,
+      }) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: target,
+            meanNs: meanNs,
+            samples: [meanNs - 1.0, meanNs, meanNs + 1.0],
+            group: 'Decode Group',
+            isBaseline: isBaseline,
+            calibratedBatchIterations: 1000,
+          ).copyWith(
+            coordinates: {'group': 'Decode Group', 'sdk': sdk, 'tier': tier},
+          );
+
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [
+          makeMultiAxisEntry(
+            name: 'decode_json',
+            target: 'jit',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 200.0,
+            isBaseline: true,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_codable',
+            target: 'jit',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 100.0,
+            isBaseline: false,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_json',
+            target: 'jit',
+            sdk: 'fork',
+            tier: 't2',
+            meanNs: 180.0,
+            isBaseline: false,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_codable',
+            target: 'jit',
+            sdk: 'fork',
+            tier: 't2',
+            meanNs: 80.0,
+            isBaseline: false,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_json',
+            target: 'aot',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 150.0,
+            isBaseline: true,
+          ),
+          makeMultiAxisEntry(
+            name: 'decode_codable',
+            target: 'aot',
+            sdk: 'stock',
+            tier: 't1',
+            meanNs: 75.0,
+            isBaseline: false,
+          ),
+        ],
+      );
+
+      final report = MarkdownReporter.renderSuite(suite);
+
+      // (b) Separate tables per target — never spanning multiple targets
+      check(report).contains('### Group: Decode Group (`jit`)');
+      check(report).contains('### Group: Decode Group (`aot`)');
+
+      final jitSectionStart = report.indexOf('### Group: Decode Group (`jit`)');
+      final aotSectionStart = report.indexOf('### Group: Decode Group (`aot`)');
+      final allBenchesStart = report.indexOf('### All Benchmarks');
+      check(jitSectionStart).isGreaterThan(0);
+      check(aotSectionStart).isGreaterThan(jitSectionStart);
+
+      final jitTableText = report.substring(jitSectionStart, aotSectionStart);
+      final aotTableText = report.substring(aotSectionStart, allBenchesStart);
+
+      // Extract data rows from each table and assert (a) every row has a
+      // distinct dimension tuple (Implementation | Sdk | Tier)
+      List<String> extractDimensionTuples(String section) {
+        final lines = section
+            .split('\n')
+            .where((l) => l.startsWith('| `'))
+            .toList();
+        return [
+          for (final line in lines)
+            line.split('|').sublist(1, 4).map((c) => c.trim()).join(' | '),
+        ];
+      }
+
+      final jitTuples = extractDimensionTuples(jitTableText);
+      check(jitTuples.length).equals(4);
+      check(jitTuples.toSet().length).equals(4);
+      check(jitTuples).contains('`decode_json` (Baseline) | `stock` | `t1`');
+      check(jitTuples).contains('`decode_codable` | `stock` | `t1`');
+      check(jitTuples).contains('`decode_json` | `fork` | `t2`');
+      check(jitTuples).contains('`decode_codable` | `fork` | `t2`');
+
+      final aotTuples = extractDimensionTuples(aotTableText);
+      check(aotTuples.length).equals(2);
+      check(aotTuples.toSet().length).equals(2);
+      check(aotTuples).contains('`decode_json` (Baseline) | `stock` | `t1`');
+      check(aotTuples).contains('`decode_codable` | `stock` | `t1`');
+    });
   });
 }
 
@@ -544,6 +987,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
   required List<double> samples,
   required String group,
   required bool isBaseline,
+  int? calibratedBatchIterations,
 }) {
   final metrics = BenchmarkMetrics(
     meanNs: meanNs,
@@ -556,6 +1000,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     p99Ns: meanNs,
     opsPerSec: 1e9 / meanNs,
     isStable: true,
+    isRobustStable: true,
   );
   return BenchmarkEntry(
     name: name,
@@ -563,6 +1008,8 @@ BenchmarkEntry _createGroupEntryWithSamples({
     mode: 'sync',
     samples: samples.length,
     metrics: metrics,
+    rawTrialsNs: samples,
+    calibratedBatchIterations: calibratedBatchIterations,
     coordinates: BenchmarkCoordinates({'group': group}),
     isBaseline: isBaseline,
   );
@@ -573,6 +1020,8 @@ BenchmarkEntry _createEntry(
   String target,
   double meanNs, {
   bool isStable = true,
+  String? group,
+  bool isBaseline = false,
 }) {
   final metrics = BenchmarkMetrics(
     meanNs: meanNs,
@@ -585,6 +1034,7 @@ BenchmarkEntry _createEntry(
     p99Ns: meanNs * 1.08,
     opsPerSec: 1e9 / meanNs,
     isStable: isStable,
+    isRobustStable: isStable,
   );
   return BenchmarkEntry(
     name: name,
@@ -593,6 +1043,8 @@ BenchmarkEntry _createEntry(
     samples: 15,
     metrics: metrics,
     rawTrialsNs: [meanNs * 0.95, meanNs, meanNs * 1.05],
+    coordinates: BenchmarkCoordinates({'group': ?group}),
+    isBaseline: isBaseline,
   );
 }
 

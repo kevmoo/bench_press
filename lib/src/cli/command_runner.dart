@@ -393,6 +393,14 @@ final class ReportCommand() extends Command<int> {
 
   this {
     argParser
+      ..addFlag(
+        'gate',
+        defaultsTo: true,
+        help:
+            'Withhold speedup ratios whose confidence interval is unbounded '
+            'or whose samples are not robustly stable. Pass --no-gate to '
+            'publish them anyway (exploration only).',
+      )
       ..addOption(
         'from-json',
         abbr: 'f',
@@ -421,9 +429,14 @@ final class ReportCommand() extends Command<int> {
 
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
+    final gate = argResults!.flag('gate');
 
     try {
-      final report = MarkdownReporter.renderFromFile(file, title: title);
+      final report = MarkdownReporter.renderFromFile(
+        file,
+        title: title,
+        gate: gate,
+      );
       if (outputPath != null && outputPath.isNotEmpty) {
         final outFile = File(outputPath);
         outFile.parent.createSync(recursive: true);
@@ -455,6 +468,14 @@ final class DiffCommand() extends Command<int> {
 
   this {
     argParser
+      ..addFlag(
+        'gate',
+        defaultsTo: true,
+        help:
+            'Withhold speedup ratios whose confidence interval is unbounded '
+            'or whose samples are not robustly stable. Pass --no-gate to '
+            'publish them anyway (exploration only).',
+      )
       ..addOption(
         'baseline',
         abbr: 'b',
@@ -543,6 +564,7 @@ final class DiffCommand() extends Command<int> {
     final targetFileArg = argResults!.option('target-file')!;
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
+    final gate = argResults!.flag('gate');
 
     final currentFile = File(current);
     if (!currentFile.existsSync()) {
@@ -557,6 +579,7 @@ final class DiffCommand() extends Command<int> {
         baselineFile: baselineFile,
         currentFile: currentFile,
         title: title,
+        gate: gate,
       );
     } else {
       final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
@@ -565,6 +588,7 @@ final class DiffCommand() extends Command<int> {
         filePath: targetFileArg,
         current: currentSuite,
         title: title,
+        gate: gate,
       );
     }
 
