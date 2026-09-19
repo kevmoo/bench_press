@@ -8,7 +8,7 @@ import 'schema.dart';
 /// telemetry reports.
 typedef _Verdict = ({bool resolved, String ciString, String? reason});
 
-class _DeltaStats {
+class _DeltaStats() {
   int fasterCount = 0;
   int slowerCount = 0;
   int neutralCount = 0;
@@ -594,12 +594,13 @@ class MarkdownReporter() {
     buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
     if (hasThroughput) {
       buffer.writeln(
-        '| Benchmark | Target | Batch | Throughput | $baselineLabel | $currentLabel | '
-        'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
+        '| Benchmark | Target | Batch | Throughput | $baselineLabel | '
+        '$currentLabel | Absolute Delta | Delta (%) | Speedup | '
+        '95% CI (Fieller) | Status |',
       );
       buffer.writeln(
-        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: | :---: |',
+        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
+        ':---: | :---: | :---: |',
       );
     } else {
       buffer.writeln(
@@ -607,8 +608,8 @@ class MarkdownReporter() {
         'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       buffer.writeln(
-        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: |',
+        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
+        ':---: | :---: |',
       );
     }
   }
@@ -656,17 +657,22 @@ class MarkdownReporter() {
 
   static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
     if (stats.maxBatchDiv > 2.0) {
+      final divStr = stats.maxBatchDiv.toStringAsFixed(1);
+      final rangeStr = '${stats.divMinBatch}–${stats.divMaxBatch}';
       buffer.writeln(
-        '> ⚠️ Calibrated batch sizes differ by ${stats.maxBatchDiv.toStringAsFixed(1)}x across compared cells (${stats.divMinBatch}–${stats.divMaxBatch}).',
+        '> ⚠️ Calibrated batch sizes differ by ${divStr}x across compared '
+        'cells ($rangeStr).',
       );
       buffer.writeln(
-        '> Latencies may reflect different GC regimes and are not directly comparable.',
+        '> Latencies may reflect different GC regimes and are not directly '
+        'comparable.',
       );
       buffer.writeln();
     }
     if (stats.reasons.isNotEmpty) {
+      final joinedReasons = stats.reasons.join(' and ');
       buffer.writeln(
-        '> ❓ **Unresolved**: Speedup omitted due to ${stats.reasons.join(' and ')}.',
+        '> ❓ **Unresolved**: Speedup omitted due to $joinedReasons.',
       );
       buffer.writeln();
     }
@@ -675,16 +681,19 @@ class MarkdownReporter() {
       final geomean = math.exp(stats.logSum / stats.includedInGeoMean);
       final geomeanStr = geomean.toStringAsFixed(2);
       final unresolvedStr = stats.unresolvedCount > 0
-          ? ' | ❓ **${stats.unresolvedCount}** Unresolved (excluded from GeoMean)'
+          ? ' | ❓ **${stats.unresolvedCount}** Unresolved '
+                '(excluded from GeoMean)'
           : '';
       buffer.writeln(
         '> **Summary**: Geometric Mean Speedup: **${geomeanStr}x** | '
-        '🚀 **${stats.fasterCount}** Faster | ⚠️ **${stats.slowerCount}** Slower | '
+        '🚀 **${stats.fasterCount}** Faster | '
+        '⚠️ **${stats.slowerCount}** Slower | '
         '➖ **${stats.neutralCount}** Neutral$unresolvedStr',
       );
     } else {
       buffer.writeln(
-        '> **Summary**: No resolved measurements to compute Geometric Mean Speedup | '
+        '> **Summary**: No resolved measurements to compute Geometric Mean '
+        'Speedup | '
         '❓ **${stats.unresolvedCount}** Unresolved (excluded from GeoMean)',
       );
     }
@@ -730,14 +739,14 @@ class MarkdownReporter() {
       final tp = cur.throughput ?? base.throughput;
       final tpStr = tp?.formatRate(curMean) ?? '-';
       final row =
-          '| ${cur.name} | `${cur.target}` | $batchStr | $tpStr | $baseStr | $curStr | '
-          '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
+          '| ${cur.name} | `${cur.target}` | $batchStr | $tpStr | $baseStr | '
+          '$curStr | $diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
       return (row, speedup, trend, verdict);
     }
 
     final row =
-        '| ${cur.name} | `${cur.target}` | $batchStr | $baseStr | $curStr | $diffStr | '
-        '$pctStr | $speedupStr | $ciStr | $statusStr |';
+        '| ${cur.name} | `${cur.target}` | $batchStr | $baseStr | $curStr | '
+        '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
 
     return (row, speedup, trend, verdict);
   }

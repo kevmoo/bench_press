@@ -34,7 +34,9 @@ final class RunCommand({
       ..addFlag(
         'gate',
         defaultsTo: true,
-        help: 'Gate measurements that lack statistical stability or bound limits.',
+        help:
+            'Gate measurements that lack statistical stability or bound '
+            'limits.',
       )
       ..addOption(
         'config',

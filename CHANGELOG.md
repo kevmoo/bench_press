@@ -1,5 +1,15 @@
 ## 0.3.2-wip
 
+- Added Fieller confidence interval gating to `MarkdownReporter` (`gate: true`
+  by default, configurable via `--[no-]gate` in `bench_press run` and `diff`),
+  rendering `unresolved` and excluding unstable or zero-sample comparisons from
+  geometric mean rollup metrics.
+- Added `Batch` column to `MarkdownReporter` variant, matrix, and delta tables
+  alongside a `>2.0x` batch-size divergence warning banner.
+- Updated `BenchmarkRunner` (`runSync`, `runAsync`, `runVariant`) to perform
+  post-warmup recalibration via `BenchmarkCalibrator` before recording
+  measurement trials, warning when steady-state batch size increases by `>10x`.
+
 ## 0.3.1
 
 - Hardened `bench_press run` and `bench_press validate` to exit with non-zero
@@ -151,7 +161,3 @@
 - Markdown reporting with side-by-side variant comparisons and before/after
   baseline diffing.
 - `bench_press` CLI with `run`, `validate`, `report`, and `diff` subcommands.
-- Implemented **Fieller's Theorem Confidence Interval Gating** in `BenchmarkRunner` to validate measurement trial stability. After steady-state warmup converges, `BenchmarkCalibrator` executes again to dynamically update `calibratedBatch` sizes before final measurements, ensuring high-fidelity sampling within 10x deviation constraints.
-- Updated telemetry and Markdown reporters to display a new `<Batch>` column for reporting variant executions where batch size dynamically deviates from baseline.
-- `unresolved` confidence intervals (formerly false/unstable baseline vs regression pairs) are automatically excluded from the final geometric mean calculations for improved clarity across noisy workloads.
-- Wired `--gate` / `--no-gate` to the CLI entrypoint to allow consumers to bypass Fieller convergence checks.
