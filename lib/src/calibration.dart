@@ -53,14 +53,38 @@ const double _subMillisecondNoticeThresholdUs = 1000.0;
 
 /// Utility for calibrating inner loop iteration counts.
 abstract final class BenchmarkCalibrator() {
+  /// Computes the final calibrated batch size directly from an estimated
+  /// steady-state per-operation latency.
+  static CalibratedBatch calibratedBatchForDuration(
+    double estimatedOpDurationMicroseconds,
+    BenchmarkConfig config,
+  ) {
+    if (estimatedOpDurationMicroseconds <= 0.0 ||
+        estimatedOpDurationMicroseconds.isNaN ||
+        estimatedOpDurationMicroseconds.isInfinite) {
+      return CalibratedBatch(
+        iterations: 1,
+        estimatedOpDurationMicroseconds: estimatedOpDurationMicroseconds,
+      );
+    }
+    final targetUs = config.targetBatchDuration.inMicroseconds;
+    final targetIters = math.max(
+      1,
+      (targetUs / estimatedOpDurationMicroseconds).round(),
+    );
+    return CalibratedBatch(
+      iterations: targetIters,
+      estimatedOpDurationMicroseconds: estimatedOpDurationMicroseconds,
+    );
+  }
+
   /// Calibrates batch size for synchronous action to reach target duration.
   static CalibratedBatch calibrateSync(
     void Function() action,
     BenchmarkConfig config, {
-    int startingIterations = 1,
     @visibleForTesting Stopwatch? stopwatch,
   }) {
-    var iterations = startingIterations > 0 ? startingIterations : 1;
+    var iterations = 1;
     stopwatch ??= Stopwatch();
 
     // Exponential probing loop to find measurable duration
@@ -101,10 +125,9 @@ abstract final class BenchmarkCalibrator() {
   static Future<CalibratedBatch> calibrateAsync(
     Future<void> Function() action,
     BenchmarkConfig config, {
-    int startingIterations = 1,
     @visibleForTesting Stopwatch? stopwatch,
   }) async {
-    var iterations = startingIterations > 0 ? startingIterations : 1;
+    var iterations = 1;
     stopwatch ??= Stopwatch();
 
     while (true) {

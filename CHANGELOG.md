@@ -1,9 +1,7 @@
 ## 0.3.2-wip
 
-- Propagated `warmupResult.iterationsPerSample` into post-warmup calibration
-  (`startingIterations`), lowered `_logRecalibrationSwing` threshold to `1.5`,
-  invoked `emitter.warmupComplete()` in `runVariant()`, and aligned
-  `FiellerInterval` ratio point estimates with sample medians.
+- Computed post-warmup calibration batch sizes directly from steady-state warmup convergence latencies via `BenchmarkCalibrator.calibratedBatchForDuration`, eliminating redundant probe loops.
+- Invoked `warmupComplete()` hook in `runVariant()`.
 - Added Fieller confidence interval and `isRobustStable` gating to
   `MarkdownReporter` (`gate: true` by default, configurable via `--[no-]gate` in
   `bench_press run`, `report`, and `diff`), rendering `unresolved` and excluding

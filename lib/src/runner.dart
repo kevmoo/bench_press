@@ -108,16 +108,20 @@ abstract final class BenchmarkRunner() {
       warmupStopwatch.stop();
 
       final warmupResult = warmupDetector.finish(
-        iterationsPerSample: provisional.iterations,
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
       benchmark.warmupComplete();
 
-      final calibrated = BenchmarkCalibrator.calibrateSync(
-        benchmark.run,
-        config,
-        startingIterations: warmupResult.iterationsPerSample,
-      );
+      final CalibratedBatch calibrated;
+      if (warmupResult.estimatedOpNanoseconds > 0 &&
+          warmupResult.estimatedOpNanoseconds.isFinite) {
+        calibrated = BenchmarkCalibrator.calibratedBatchForDuration(
+          warmupResult.estimatedOpNanoseconds / 1000.0,
+          config,
+        );
+      } else {
+        calibrated = BenchmarkCalibrator.calibrateSync(benchmark.run, config);
+      }
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
@@ -197,16 +201,23 @@ abstract final class BenchmarkRunner() {
       warmupStopwatch.stop();
 
       final warmupResult = warmupDetector.finish(
-        iterationsPerSample: provisional.iterations,
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
       await benchmark.warmupComplete();
 
-      final calibrated = await BenchmarkCalibrator.calibrateAsync(
-        benchmark.run,
-        config,
-        startingIterations: warmupResult.iterationsPerSample,
-      );
+      final CalibratedBatch calibrated;
+      if (warmupResult.estimatedOpNanoseconds > 0 &&
+          warmupResult.estimatedOpNanoseconds.isFinite) {
+        calibrated = BenchmarkCalibrator.calibratedBatchForDuration(
+          warmupResult.estimatedOpNanoseconds / 1000.0,
+          config,
+        );
+      } else {
+        calibrated = await BenchmarkCalibrator.calibrateAsync(
+          benchmark.run,
+          config,
+        );
+      }
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
@@ -292,23 +303,26 @@ abstract final class BenchmarkRunner() {
       warmupStopwatch.stop();
 
       final warmupResult = warmupDetector.finish(
-        iterationsPerSample: provisional.iterations,
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
 
       variant.warmupComplete?.call();
 
-      final calibrated = isAsync
-          ? await BenchmarkCalibrator.calibrateAsync(
-              variant.executeAsync,
-              config,
-              startingIterations: warmupResult.iterationsPerSample,
-            )
-          : BenchmarkCalibrator.calibrateSync(
-              variant.executeSync,
-              config,
-              startingIterations: warmupResult.iterationsPerSample,
-            );
+      final CalibratedBatch calibrated;
+      if (warmupResult.estimatedOpNanoseconds > 0 &&
+          warmupResult.estimatedOpNanoseconds.isFinite) {
+        calibrated = BenchmarkCalibrator.calibratedBatchForDuration(
+          warmupResult.estimatedOpNanoseconds / 1000.0,
+          config,
+        );
+      } else {
+        calibrated = isAsync
+            ? await BenchmarkCalibrator.calibrateAsync(
+                variant.executeAsync,
+                config,
+              )
+            : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
+      }
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];

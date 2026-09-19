@@ -64,24 +64,15 @@ void main() {
       check(batch.estimatedOpDurationMicroseconds).equals(0.0);
       check(loggedMessages).any((it) => it.contains('elapsedUs == 0'));
     });
-    test('post-warmup calibration carries forward startingIterations', () {
-      var actionCalls = 0;
-      final mockStopwatch = _MockStopwatch(microsPerMeasurement: 6000);
-
-      final batch = BenchmarkCalibrator.calibrateSync(
-        () {
-          actionCalls++;
-        },
+    test('calibratedBatchForDuration computes directly from latency', () {
+      final batch = BenchmarkCalibrator.calibratedBatchForDuration(
+        1000.0, // 1 ms
         const BenchmarkConfig(),
-        startingIterations: 42,
-        stopwatch: mockStopwatch,
       );
 
-      // Ensures the calibration starts at 42 instead of 1. Because the elapsed
-      // time > 5ms (6000µs), it terminates on the first probe batch.
-      check(actionCalls).equals(42);
-      // target 100,000 us / (6000/42) -> 700 iterations
-      check(batch.iterations).equals(700);
+      // target 100,000 us / 1000 us -> 100 iterations
+      check(batch.iterations).equals(100);
+      check(batch.estimatedOpDurationMicroseconds).equals(1000.0);
     });
   });
 }
