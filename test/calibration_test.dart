@@ -77,8 +77,8 @@ void main() {
         stopwatch: mockStopwatch,
       );
 
-      // Ensures the calibration starts at 42 instead of 1. Because the elapsed time
-      // > 5ms (6000µs), it terminates on the first probe batch.
+      // Ensures the calibration starts at 42 instead of 1. Because the elapsed
+      // time > 5ms (6000µs), it terminates on the first probe batch.
       check(actionCalls).equals(42);
       // target 100,000 us / (6000/42) -> 700 iterations
       check(batch.iterations).equals(700);
@@ -86,7 +86,7 @@ void main() {
   });
 }
 
-final class _ZeroStopwatch implements Stopwatch {
+final class _ZeroStopwatch() implements Stopwatch {
   @override
   Duration get elapsed => Duration.zero;
   @override
@@ -107,12 +107,10 @@ final class _ZeroStopwatch implements Stopwatch {
   void stop() {}
 }
 
-final class _MockStopwatch implements Stopwatch {
-  final int microsPerMeasurement;
+final class _MockStopwatch({final int microsPerMeasurement = 6000})
+    implements Stopwatch {
   int _elapsedMicroseconds = 0;
   bool _isRunning = false;
-
-  _MockStopwatch({this.microsPerMeasurement = 6000});
 
   @override
   Duration get elapsed => Duration(microseconds: _elapsedMicroseconds);
