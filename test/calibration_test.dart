@@ -64,6 +64,16 @@ void main() {
       check(batch.estimatedOpDurationMicroseconds).equals(0.0);
       check(loggedMessages).any((it) => it.contains('elapsedUs == 0'));
     });
+    test('calibratedBatchForDuration computes directly from latency', () {
+      final batch = BenchmarkCalibrator.calibratedBatchForDuration(
+        1000.0, // 1 ms
+        const BenchmarkConfig(),
+      );
+
+      // target 100,000 us / 1000 us -> 100 iterations
+      check(batch.iterations).equals(100);
+      check(batch.estimatedOpDurationMicroseconds).equals(1000.0);
+    });
   });
 }
 

@@ -21,6 +21,10 @@ final class const WarmupResult({
 
   /// Total elapsed seconds spent in the warmup phase.
   required final double elapsedSeconds,
+
+  /// The estimated steady-state per-op latency (in nanoseconds) across the
+  /// converged window.
+  final double estimatedOpNanoseconds = 0.0,
 }) {
   @override
   String toString() =>
@@ -144,12 +148,21 @@ final class AdaptiveWarmupDetector({
       );
     }
 
+    var estimatedOpNs = 0.0;
+    if (_samples.isNotEmpty) {
+      final tail = _samples.length > windowSize
+          ? _samples.sublist(_samples.length - windowSize)
+          : _samples;
+      estimatedOpNs = computeMedian(filterInliers(tail));
+    }
+
     return WarmupResult(
       isStable: _isConverged,
       totalWarmupIterations: _samples.length,
       convergedAtIteration: _isConverged ? _convergedIteration : _bestIteration,
       bestMmd: _bestMmd.isFinite ? _bestMmd : 0.0,
       elapsedSeconds: elapsedSeconds,
+      estimatedOpNanoseconds: estimatedOpNs,
     );
   }
 

@@ -112,10 +112,9 @@ abstract final class BenchmarkRunner() {
       );
       benchmark.warmupComplete();
 
-      final calibrated = BenchmarkCalibrator.calibrateSync(
-        benchmark.run,
-        config,
-      );
+      final calibrated =
+          BenchmarkCalibrator.calibratedBatchFromWarmup(warmupResult, config) ??
+          BenchmarkCalibrator.calibrateSync(benchmark.run, config);
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
@@ -199,10 +198,9 @@ abstract final class BenchmarkRunner() {
       );
       await benchmark.warmupComplete();
 
-      final calibrated = await BenchmarkCalibrator.calibrateAsync(
-        benchmark.run,
-        config,
-      );
+      final calibrated =
+          BenchmarkCalibrator.calibratedBatchFromWarmup(warmupResult, config) ??
+          await BenchmarkCalibrator.calibrateAsync(benchmark.run, config);
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
@@ -291,12 +289,16 @@ abstract final class BenchmarkRunner() {
         elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
       );
 
-      final calibrated = isAsync
-          ? await BenchmarkCalibrator.calibrateAsync(
-              variant.executeAsync,
-              config,
-            )
-          : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
+      variant.warmupComplete?.call();
+
+      final calibrated =
+          BenchmarkCalibrator.calibratedBatchFromWarmup(warmupResult, config) ??
+          (isAsync
+              ? await BenchmarkCalibrator.calibrateAsync(
+                  variant.executeAsync,
+                  config,
+                )
+              : BenchmarkCalibrator.calibrateSync(variant.executeSync, config));
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
