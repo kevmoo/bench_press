@@ -72,6 +72,24 @@ abstract final class BenchmarkDiscovery() {
     return results;
   }
 
+  /// Discovers benchmark files across multiple [targetPaths], preserving
+  /// the order of [targetPaths] and deduplicating by normalized file path.
+  static List<DiscoveredBenchmarkFile> discoverAll(
+    List<String> targetPaths, {
+    bool verbose = false,
+  }) {
+    final seen = <String>{};
+    final results = <DiscoveredBenchmarkFile>[];
+    for (final targetPath in targetPaths) {
+      for (final file in discover(targetPath, verbose: verbose)) {
+        if (seen.add(file.path)) {
+          results.add(file);
+        }
+      }
+    }
+    return results;
+  }
+
   static bool _isBenchmarkFileName(String filePath) {
     final name = p.basename(filePath);
     for (final suffix in benchmarkSuffixes) {

@@ -208,12 +208,17 @@ final class RunCommand({
   }
 
   ({List<DiscoveredBenchmarkFile>? files, int? exitCode}) _discoverRunFiles() {
-    final targetPath = resolveTargetPath(argResults!.rest);
+    final targetPaths = resolveTargetPaths(argResults!.rest);
     final verbose = globalResults?.flag('verbose') ?? false;
     try {
-      final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+      final files = BenchmarkDiscovery.discoverAll(
+        targetPaths,
+        verbose: verbose,
+      );
       if (files.isEmpty) {
-        stderr.writeln('No benchmark files found at "$targetPath".');
+        stderr.writeln(
+          'No benchmark files found at "${targetPaths.join(', ')}".',
+        );
         return (files: null, exitCode: ExitCode.noInput.code);
       }
       return (files: files, exitCode: null);
@@ -645,6 +650,10 @@ String resolveTargetPath(List<String> rest) {
   }
   return 'benchmark';
 }
+
+@internal
+List<String> resolveTargetPaths(List<String> rest) =>
+    rest.isNotEmpty ? rest : [resolveTargetPath(rest)];
 
 @internal
 DartSdk resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {

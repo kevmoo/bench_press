@@ -410,7 +410,10 @@ matrix:
     test('resolveTargetPath and resolveSdkFromCoordinate handle defaults '
         'and home tilde expansion', () {
       check(resolveTargetPath(['custom_dir'])).equals('custom_dir');
+      check(resolveTargetPaths(['file_a.dart', 'file_b.dart']))
+          .deepEquals(['file_a.dart', 'file_b.dart']);
       check(resolveTargetPath([])).equals('benchmark');
+      check(resolveTargetPaths([])).deepEquals(['benchmark']);
 
       const baseSdk = DartSdk();
       final stockCoord = MatrixCoordinate(
@@ -429,5 +432,43 @@ matrix:
       check(expandedSdk.customSdkPath).isNotNull();
       check(expandedSdk.customSdkPath!).not((it) => it.startsWith('~'));
     });
+
+    test(
+      'run subcommand executes all positional benchmark files in order',
+      () async {
+        final fileA = writeSyncBenchmark(
+          subDir: 'benchmark',
+          fileName: 'first_bench.dart',
+          className: 'FirstBenchmark',
+          name: 'first_workload',
+        );
+        final fileB = writeSyncBenchmark(
+          subDir: 'benchmark',
+          fileName: 'second_bench.dart',
+          className: 'SecondBenchmark',
+          name: 'second_workload',
+        );
+        final outputFile = File(d.path('multi_file_results.json'));
+        final runner = BenchPressCommandRunner();
+
+        final exitCode = await runner.run([
+          'run',
+          '-t',
+          'jit',
+          '--trials',
+          '1',
+          '--force-run',
+          '-o',
+          outputFile.path,
+          fileA.path,
+          fileB.path,
+        ]);
+
+        check(exitCode).equals(ExitCode.success.code);
+        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        check(suite.benchmarks.map((b) => b.name).toList())
+            .deepEquals(['first_workload', 'second_workload']);
+      },
+    );
   });
 }

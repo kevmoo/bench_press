@@ -180,12 +180,17 @@ final class ValidateCommand({
 
   ({List<DiscoveredBenchmarkFile>? files, int? exitCode})
   _discoverValidateFiles() {
-    final targetPath = resolveTargetPath(argResults!.rest);
+    final targetPaths = resolveTargetPaths(argResults!.rest);
     final verbose = globalResults?.flag('verbose') ?? false;
     try {
-      final files = BenchmarkDiscovery.discover(targetPath, verbose: verbose);
+      final files = BenchmarkDiscovery.discoverAll(
+        targetPaths,
+        verbose: verbose,
+      );
       if (files.isEmpty) {
-        stderr.writeln('No benchmark files found at "$targetPath".');
+        stderr.writeln(
+          'No benchmark files found at "${targetPaths.join(', ')}".',
+        );
         return (files: null, exitCode: ExitCode.noInput.code);
       }
       return (files: files, exitCode: null);
