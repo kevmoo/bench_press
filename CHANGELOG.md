@@ -1,5 +1,9 @@
 ## 0.3.2-wip
 
+- Updated `bench_press run` and `bench_press validate`
+  (`BenchmarkDiscovery.discoverAll` and `resolveTargetPaths`) to discover and
+  execute all positional file and directory paths supplied on the command line
+  rather than silently ignoring arguments after the first path.
 - Computed post-warmup calibration batch sizes directly from steady-state warmup
   convergence latencies via `BenchmarkCalibrator.calibratedBatchForDuration`,
   eliminating redundant probe loops.
