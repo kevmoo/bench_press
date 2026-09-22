@@ -101,6 +101,42 @@ void main() {
       check(sdk.dartExecutable).isNotNull();
     });
 
+    test('invalid customSdkPath does not silently fall back to PATH', () async {
+      // A real SDK on PATH, so the pre-fix fallback would have found one
+      // and reported success while measuring the wrong SDK.
+      await _createMockSdkInSandbox();
+
+      final sdk = DartSdk(
+        customSdkPath: p.join(d.sandbox, 'does_not_exist'),
+        environment: {'PATH': p.join(d.sandbox, 'bin')},
+      );
+
+      check(sdk.sdkPath).isNull();
+      check(sdk.dartExecutable).isNull();
+      check(sdk.explicitSdkError).isNotNull();
+    });
+
+    test(
+      'customSdkPath missing its executable reports the real cause',
+      () async {
+        await d.dir('bin').create();
+        await d.file('version', '3.14.0\n').create();
+
+        final sdk = DartSdk(customSdkPath: d.sandbox);
+
+        check(sdk.dartExecutable).isNull();
+        check(sdk.explicitSdkError).isNotNull();
+      },
+    );
+
+    test('explicitSdkError is null when no explicit path was given', () async {
+      await _createMockSdkInSandbox();
+
+      check(DartSdk(environment: {'DART_SDK': d.sandbox}).explicitSdkError)
+          .isNull();
+      check(DartSdk(customSdkPath: d.sandbox).explicitSdkError).isNull();
+    });
+
     test('environment map override probes DART_SDK and PATH', () async {
       await _createMockSdkInSandbox();
 

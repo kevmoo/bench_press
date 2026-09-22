@@ -202,7 +202,10 @@ void main() {
       );
 
       check(result.success).isFalse();
-      check(result.stderr).contains('Dart SDK executable not found');
+      // The configured path is the actual cause, so it must be named. The
+      // previous message blamed PATH and DART_SDK, neither of which was
+      // consulted once customSdkPath was supplied.
+      check(result.stderr).contains('/non_existent_path');
     });
 
     test('CompilationResult toString produces descriptive output', () {

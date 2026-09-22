@@ -64,6 +64,19 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
   }) async {
     final normalizedSource = p.normalize(sourceFile.absolute.path);
 
+    final sdkError = sdk.explicitSdkError;
+    if (sdkError != null) {
+      return CompilationResult(
+        success: false,
+        runtime: runtime,
+        sourcePath: normalizedSource,
+        compilationDuration: Duration.zero,
+        stdout: '',
+        stderr: sdkError,
+        exitCode: 1,
+      );
+    }
+
     if (runtime == TargetRuntime.jit) {
       return CompilationResult(
         success: true,

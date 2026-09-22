@@ -470,5 +470,35 @@ matrix:
             .deepEquals(['first_workload', 'second_workload']);
       },
     );
+
+    test('run subcommand exits with software error when matrix sdk axis has '
+        'invalid path even if stock sdk coordinate succeeds', () async {
+      final configFile = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+    sdk: stock
+  axes:
+    runtime: [jit]
+    sdk:
+      stock: stock
+      fork: ${d.path('non_existent_sdk_root')}
+''');
+      final benchFile = writeSyncBenchmark();
+
+      final runner = BenchPressCommandRunner();
+      final exitCode = await runner.run([
+        'run',
+        '-c',
+        configFile.path,
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        benchFile.path,
+      ]);
+
+      check(exitCode).equals(ExitCode.software.code);
+    });
   });
 }

@@ -256,5 +256,24 @@ void main(List<String> args) {
       check(result.success).isFalse();
       check(result.errorMessage).isNotNull();
     });
+
+    test('returns failure with explicitSdkError for JIT execution when '
+        'customSdkPath is invalid instead of falling back to PATH', () async {
+      final compilation = createMockCompilationResult(
+        runtime: TargetRuntime.jit,
+        artifactPath: '/path/to/bench.dart',
+        runnerScriptPath: null,
+      );
+      final invalidSdkPath = d.path('non_existent_sdk_root');
+      final runner = BenchmarkProcessRunner(
+        sdk: DartSdk(customSdkPath: invalidSdkPath),
+      );
+
+      final result = await runner.execute(compilationResult: compilation);
+
+      check(result.success).isFalse();
+      check(result.errorMessage).isNotNull();
+      check(result.errorMessage!).contains(invalidSdkPath);
+    });
   });
 }
