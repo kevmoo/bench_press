@@ -6,10 +6,10 @@
   of silently falling back to `dart` on `PATH`. Previously a mistyped or stale
   configured path would compile and benchmark whatever SDK happened to be on
   `PATH`, with no warning and nothing downstream able to tell the difference.
-- Added `DartSdk.explicitSdkError`, which explains why a configured SDK path
-  was rejected. `TargetCompiler` now reports it instead of the generic
-  "not found on PATH or DART_SDK", which named the two sources that are not
-  consulted once an explicit path is supplied.
+- Added `DartSdk.explicitSdkError`, which explains why a configured SDK path was
+  rejected. `TargetCompiler` now reports it instead of the generic "not found on
+  PATH or DART_SDK", which named the two sources that are not consulted once an
+  explicit path is supplied.
 - Updated `bench_press run` and `bench_press validate`
   (`BenchmarkDiscovery.discoverAll` and `resolveTargetPaths`) to discover and
   execute all positional file and directory paths supplied on the command line
