@@ -390,5 +390,22 @@ matrix:
       check(await runner.run(['diff', '-b', 'HEAD', '-c', suiteFile.path]))
           .equals(ExitCode.success.code);
     });
+
+    test('validate subcommand exits with software error when explicit '
+        'customSdkPath is invalid', () async {
+      final benchFile = writeSyncBenchmark(body: 'Blackhole.consume(123);');
+      final runner = BenchPressCommandRunner(
+        sdk: DartSdk(customSdkPath: d.path('non_existent_sdk_root')),
+      );
+
+      final exitCode = await runner.run([
+        'validate',
+        '-t',
+        'jit',
+        benchFile.path,
+      ]);
+
+      check(exitCode).equals(ExitCode.software.code);
+    });
   });
 }

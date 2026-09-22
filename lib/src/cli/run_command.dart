@@ -513,7 +513,8 @@ final class RunCommand({
     required BenchmarkProcessRunner processRunner,
     required MatrixCoordinate coordinate,
   }) async {
-    if (!compiler.sdk.isRuntimeAvailable(runtime)) {
+    if (compiler.sdk.explicitSdkError == null &&
+        !compiler.sdk.isRuntimeAvailable(runtime)) {
       stderr.writeln('Warning: Runtime "$runtime" is not available.');
       return (suite: null, hasFailures: false);
     }

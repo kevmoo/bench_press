@@ -342,7 +342,8 @@ final class ValidateCommand({
     final activeCompiler = currentCompiler ?? compiler;
     final activeProcessRunner = currentProcessRunner ?? processRunner;
 
-    if (!activeSdk.isRuntimeAvailable(runtime)) {
+    if (activeSdk.explicitSdkError == null &&
+        !activeSdk.isRuntimeAvailable(runtime)) {
       stdout.writeln(
         '⏭️  [$runtime] ${discovered.basename} (skipped: unavailable)',
       );

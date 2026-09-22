@@ -64,6 +64,19 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
   }) async {
     final normalizedSource = p.normalize(sourceFile.absolute.path);
 
+    final sdkError = sdk.explicitSdkError;
+    if (sdkError != null) {
+      return CompilationResult(
+        success: false,
+        runtime: runtime,
+        sourcePath: normalizedSource,
+        compilationDuration: Duration.zero,
+        stdout: '',
+        stderr: sdkError,
+        exitCode: 1,
+      );
+    }
+
     if (runtime == TargetRuntime.jit) {
       return CompilationResult(
         success: true,
@@ -91,9 +104,7 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         sourcePath: normalizedSource,
         compilationDuration: Duration.zero,
         stdout: '',
-        stderr:
-            sdk.explicitSdkError ??
-            'Error: Dart SDK executable not found on PATH or DART_SDK.',
+        stderr: 'Error: Dart SDK executable not found on PATH or DART_SDK.',
         exitCode: 1,
       );
     }

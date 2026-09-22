@@ -150,7 +150,13 @@ final class const BenchmarkProcessRunner({
   }) {
     switch (runtime) {
       case TargetRuntime.jit:
-        final dartExe = sdk.dartExecutable ?? 'dart';
+        final dartExe = sdk.dartExecutable;
+        if (dartExe == null) {
+          throw StateError(
+            sdk.explicitSdkError ??
+                'Dart SDK executable not found on PATH or DART_SDK.',
+          );
+        }
         final pkgConfig = sdk.packageConfigPath;
         final args = <String>[
           'run',
