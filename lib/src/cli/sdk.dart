@@ -160,7 +160,34 @@ final class const DartSdk({
         return candidate;
       }
     }
+    // An explicitly configured SDK is authoritative. Falling back to PATH here
+    // would quietly benchmark a different SDK than the caller asked for, and
+    // nothing downstream can tell the two apart.
+    if (customSdkPath != null) {
+      return null;
+    }
     return findExecutable('dart');
+  }
+
+  /// Describes why an explicitly configured [customSdkPath] could not be
+  /// used, or `null` when no explicit path was given or it resolved fine.
+  ///
+  /// Callers should surface this instead of reporting a generic "SDK not
+  /// found", which misdirects to PATH and `DART_SDK` when the real problem is
+  /// the configured path.
+  String? get explicitSdkError {
+    final configured = customSdkPath;
+    if (configured == null) return null;
+    if (!isValidSdkPath(configured)) {
+      return 'Configured Dart SDK path is not a valid SDK root: $configured';
+    }
+    final exeName = Platform.isWindows ? 'dart.exe' : 'dart';
+    final root = p.normalize(p.absolute(configured));
+    final candidate = p.join(root, 'bin', exeName);
+    if (!File(candidate).existsSync()) {
+      return 'Configured Dart SDK is missing its executable: $candidate';
+    }
+    return null;
   }
 
   /// Returns the path to the `node` (or `nodejs`) executable, resolving via

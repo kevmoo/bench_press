@@ -91,7 +91,9 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         sourcePath: normalizedSource,
         compilationDuration: Duration.zero,
         stdout: '',
-        stderr: 'Error: Dart SDK executable not found on PATH or DART_SDK.',
+        stderr:
+            sdk.explicitSdkError ??
+            'Error: Dart SDK executable not found on PATH or DART_SDK.',
         exitCode: 1,
       );
     }
