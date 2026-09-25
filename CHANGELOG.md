@@ -1,5 +1,10 @@
 ## 0.3.2-wip
 
+- Stopped `MarkdownReporter` from wrapping tables in
+  `<!-- mdformat off(prevent table wrapping) -->` / `<!-- mdformat on -->`.
+  Those guards are a Google3/Piper convention; on GitHub they are inert comments
+  that every consumer then has to strip out of committed reports. Every table
+  row is already emitted on a single physical line, so nothing relied on them.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now
   authoritative. When `customSdkPath` (the `sdk` matrix axis) is set but does
   not resolve to a usable SDK, `DartSdk.dartExecutable` returns `null` instead

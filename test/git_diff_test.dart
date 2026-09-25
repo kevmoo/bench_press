@@ -67,8 +67,7 @@ void main() {
       check(report).contains('crypto_hash');
       check(report).contains('2.00x');
       check(report).contains('🚀 Faster');
-      check(report).contains('<!-- mdformat off(prevent table wrapping) -->');
-      check(report).contains('<!-- mdformat on -->');
+      check(report).not((it) => it.contains('mdformat'));
     });
 
     test('renderGitDiffReport falls back when baseline is missing', () {
