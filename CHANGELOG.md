@@ -1,5 +1,13 @@
 ## 0.3.2-wip
 
+- Added `ThroughputPlausibility`, which screens benchmarks that declare
+  `Throughput.bytes` for two signs of a payload that is never actually read, and
+  `MarkdownReporter.renderSuite` banners naming what it finds. Such a benchmark
+  reports a rate bounded by loop overhead rather than data movement, which can
+  be an order of magnitude past what the hardware can do. `screenSuite` catches
+  rates above a memory-bandwidth ceiling; `screenInvariance` catches a benchmark
+  whose latency does not move when its payload does, which works at payload
+  sizes small enough to stay under that ceiling.
 - Stopped `MarkdownReporter` from wrapping tables in
   `<!-- mdformat off(prevent table wrapping) -->` / `<!-- mdformat on -->`.
   Those guards are a Google3/Piper convention; on GitHub they are inert comments

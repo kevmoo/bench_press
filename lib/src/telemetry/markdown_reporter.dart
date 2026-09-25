@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import '../stats/fieller.dart';
+import 'plausibility.dart';
 import 'schema.dart';
 
 /// Generates formatted Markdown tables and performance telemetry reports.
@@ -23,6 +24,9 @@ abstract final class MarkdownReporter() {
     );
     buffer.writeln('**Total Benchmarks**: ${suite.benchmarks.length}');
     buffer.writeln();
+
+    _writePlausibilityNotes(buffer, suite);
+    _writeInvarianceNotes(buffer, suite);
 
     final isLegacyGrouped =
         suite.benchmarks.isNotEmpty &&
@@ -718,6 +722,96 @@ abstract final class MarkdownReporter() {
         stats.divMaxBatch = maxB;
       }
     }
+  }
+
+  /// Emits a banner for any declared byte throughput that exceeds memory
+  /// bandwidth, which almost always means the benchmark never read its
+  /// payload.
+  static void _writePlausibilityNotes(
+    StringBuffer buffer,
+    BenchmarkSuiteResult suite,
+  ) {
+    final findings = ThroughputPlausibility.screenSuite(suite);
+    if (findings.isEmpty) {
+      return;
+    }
+    final ceiling =
+        ThroughputPlausibility.maxPlausibleBytesPerSecond /
+        (1024 * 1024 * 1024);
+    final isOne = findings.length == 1;
+    buffer.writeln(
+      '> 🚩 **Implausible throughput** — '
+      '${findings.length} benchmark${isOne ? '' : 's'} '
+      'report${isOne ? 's' : ''} faster than '
+      '${ceiling.toStringAsFixed(0)} GiB/s, above the memory bandwidth of '
+      'any machine this could run on.',
+    );
+    for (final finding in findings) {
+      buffer.writeln(
+        '> - `${finding.benchmarkName}` (`${finding.target}`): '
+        '**${finding.gibPerSecond.toStringAsFixed(2)} GiB/s** on a '
+        '${_formatBytes(finding.bytes)} payload, '
+        '${finding.overCeilingFactor.toStringAsFixed(1)}x over.',
+      );
+    }
+    buffer.writeln(
+      '> A benchmark whose sink stores the payload without reading it times '
+      'loop overhead, not data movement, and reports the same latency for '
+      'every size. Confirm the bytes are consumed before quoting these.',
+    );
+    buffer.writeln();
+  }
+
+  /// Emits a banner for any benchmark whose latency held steady while its
+  /// declared payload grew, which catches the same defect at sizes small
+  /// enough to stay under the bandwidth ceiling.
+  static void _writeInvarianceNotes(
+    StringBuffer buffer,
+    BenchmarkSuiteResult suite,
+  ) {
+    final findings = ThroughputPlausibility.screenInvariance(suite);
+    if (findings.isEmpty) {
+      return;
+    }
+    final isOne = findings.length == 1;
+    buffer.writeln(
+      '> 🚩 **Latency does not track payload size** — '
+      '${findings.length} benchmark${isOne ? '' : 's'} '
+      'cost${isOne ? 's' : ''} the same across a wide spread in declared '
+      'bytes.',
+    );
+    for (final finding in findings) {
+      buffer.writeln(
+        '> - `${finding.benchmarkName}` (`${finding.target}`): '
+        '${_formatBytes(finding.smallBytes)} at '
+        '${_formatLatency(finding.smallLatencyNs)} vs '
+        '${_formatBytes(finding.largeBytes)} at '
+        '${_formatLatency(finding.largeLatencyNs)} — '
+        '**${_formatRatio(finding.volumeRatio)}x** the data for '
+        '**${finding.latencyRatio.toStringAsFixed(2)}x** the time.',
+      );
+    }
+    buffer.writeln(
+      '> Work proportional to the payload cannot be free. Confirm the bytes '
+      'are read rather than passed along by reference.',
+    );
+    buffer.writeln();
+  }
+
+  static String _formatRatio(double ratio) =>
+      ratio >= 100 ? ratio.toStringAsFixed(0) : ratio.toStringAsFixed(1);
+
+  static String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
+    }
+    if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KiB';
+    }
+    return '$bytes B';
   }
 
   static void _writeAdvisoryNotes(StringBuffer buffer, _DeltaStats stats) {

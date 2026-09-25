@@ -44,6 +44,8 @@ export 'src/stats/warmup.dart' show AdaptiveWarmupDetector, WarmupResult;
 export 'src/telemetry/git_diff.dart'
     show GitBaselineDiffResult, GitBaselineExtractor, GitDiffReporter;
 export 'src/telemetry/markdown_reporter.dart' show MarkdownReporter;
+export 'src/telemetry/plausibility.dart'
+    show ImplausibleThroughput, InvariantLatency, ThroughputPlausibility;
 export 'src/telemetry/schema.dart'
     show
         BenchmarkCoordinates,
