@@ -35,9 +35,7 @@ void main() {
 
       final table = MarkdownReporter.renderSummaryTable(suite);
 
-      check<String>(table)
-          .contains('<!-- mdformat off(prevent table wrapping) -->');
-      check<String>(table).contains('<!-- mdformat on -->');
+      check<String>(table).not((it) => it.contains('mdformat'));
       check<String>(table).contains(
         '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
         'StdDev | Stability |',
@@ -101,8 +99,7 @@ void main() {
       );
 
       check(deltaReport).contains('### Before vs. After Delta Comparison');
-      check(deltaReport)
-          .contains('<!-- mdformat off(prevent table wrapping) -->');
+      check(deltaReport).not((it) => it.contains('mdformat'));
       check(deltaReport).contains(
         '| Benchmark | Target | Batch | Baseline | Current | Absolute Delta | '
         'Delta (%) | Speedup | 95% CI (Fieller) | Status |',
@@ -114,7 +111,6 @@ void main() {
       check(deltaReport).contains('0.83x');
       check(deltaReport).contains('⚠️ Regression');
       check(deltaReport).contains('Geometric Mean Speedup');
-      check(deltaReport).contains('<!-- mdformat on -->');
     });
 
     test('Zero-Token rehydration from JSON file renders complete report', () {
@@ -189,8 +185,7 @@ void main() {
       );
 
       check<String>(table).contains('### Group: String Construction (`jit`)');
-      check<String>(table)
-          .contains('<!-- mdformat off(prevent table wrapping) -->');
+      check<String>(table).not((it) => it.contains('mdformat'));
       check<String>(table).contains(
         '| Implementation | Batch | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
@@ -206,8 +201,6 @@ void main() {
       check<String>(table).contains('`naive_builder`');
       check<String>(table).contains('**2.00x slower**');
       check<String>(table).contains('⚠️ 🔴 Slow');
-
-      check<String>(table).contains('<!-- mdformat on -->');
     });
 
     test('renderSuite automatically embeds group comparison tables', () {
@@ -517,9 +510,7 @@ void main() {
 
         final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
         check<String>(summaryTable).contains('### Suite Summary');
-        check<String>(summaryTable)
-            .contains('<!-- mdformat off(prevent table wrapping) -->');
-        check<String>(summaryTable).contains('<!-- mdformat on -->');
+        check<String>(summaryTable).not((it) => it.contains('mdformat'));
         check<String>(summaryTable).contains(
           '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
           'Max Speedup | Groups |',

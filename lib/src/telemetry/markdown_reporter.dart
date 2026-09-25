@@ -4,8 +4,7 @@ import 'dart:math' as math;
 import '../stats/fieller.dart';
 import 'schema.dart';
 
-/// Generates formatted, mdformat-compliant Markdown tables and performance
-/// telemetry reports.
+/// Generates formatted Markdown tables and performance telemetry reports.
 abstract final class MarkdownReporter() {
   /// Renders a full comprehensive Markdown report for a [BenchmarkSuiteResult].
   static String renderSuite(
@@ -106,7 +105,6 @@ abstract final class MarkdownReporter() {
     final buffer = StringBuffer();
     final heading = title ?? 'Suite Summary';
     buffer.writeln('### $heading\n');
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
     buffer.writeln(
       '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
       'Max Speedup | Groups |',
@@ -123,7 +121,6 @@ abstract final class MarkdownReporter() {
         }
       }
     }
-    buffer.writeln('<!-- mdformat on -->');
     return buffer.toString().trimRight();
   }
 
@@ -237,7 +234,6 @@ abstract final class MarkdownReporter() {
     final buffer = StringBuffer();
     final heading = title ?? 'Benchmark: `$workloadName`';
     buffer.writeln('### $heading\n');
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
 
     final axesList = _extractSortedAxes(entries);
     final hasThroughput = entries.any((e) => e.throughput != null);
@@ -278,7 +274,6 @@ abstract final class MarkdownReporter() {
       );
     }
     _updateMatrixBatchDivergence(orderedEntries, stats);
-    buffer.writeln('<!-- mdformat on -->');
     if (orderedEntries.length > 1) {
       _writeDeltaFooter(buffer, stats);
     } else {
@@ -537,7 +532,6 @@ abstract final class MarkdownReporter() {
 
     final hasThroughput = suite.benchmarks.any((b) => b.throughput != null);
 
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
     if (hasThroughput) {
       buffer.writeln(
         '| Benchmark | Target | Ops/sec | Throughput | Mean Latency | '
@@ -581,7 +575,6 @@ abstract final class MarkdownReporter() {
       }
     }
 
-    buffer.writeln('<!-- mdformat on -->');
     return buffer.toString();
   }
 
@@ -653,8 +646,6 @@ abstract final class MarkdownReporter() {
       _processDeltaRow(buffer, base, cur, hasThroughput, gate, stats);
     }
 
-    buffer.writeln('<!-- mdformat on -->');
-
     _writeDeltaFooter(buffer, stats);
 
     return buffer.toString();
@@ -666,7 +657,6 @@ abstract final class MarkdownReporter() {
     String baselineLabel,
     String currentLabel,
   ) {
-    buffer.writeln('<!-- mdformat off(prevent table wrapping) -->');
     if (hasThroughput) {
       buffer.writeln(
         '| Benchmark | Target | Batch | Throughput | $baselineLabel | '
