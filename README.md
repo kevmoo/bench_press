@@ -14,7 +14,8 @@ framework for Dart and Flutter.
   never have to guess warmup iteration counts.
 - **Payload-Aware Throughput**: Sealed `Throughput.bytes` and
   `Throughput.elements` automatically calculate and format rates (`MB/s`,
-  `GB/s`, `items/s`).
+  `GB/s`, `items/s`), and any byte rate above memory bandwidth is flagged in the
+  report before you can quote it.
 - **Implementation Comparisons**: `BenchmarkGroup` compares multiple
   implementations within a run (e.g. `concat` vs `StringBuffer`), computing
   speedup multipliers and exact Fieller 95% confidence intervals.
