@@ -161,6 +161,71 @@ void main() {
       check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
     });
 
+    test('never pools across non-group matrix coordinates', () {
+      // stock scales 40x (13 B @ 50 µs -> 256 KiB @ 2 ms) while fork is 40x
+      // faster and also scales 40x (13 B @ 1.25 µs -> 256 KiB @ 50 µs).
+      // Pooling across sdk arms would compare stock's 13 B (50 µs) against
+      // fork's 256 KiB (50 µs) and emit a false positive.
+      final suite = _suite([
+        _entry(
+          'wire',
+          13,
+          50000.0,
+          coordinates: const BenchmarkCoordinates({
+            'group': '13b',
+            'sdk': 'stock',
+          }),
+        ),
+        _entry(
+          'wire',
+          256 * 1024,
+          2000000.0,
+          coordinates: const BenchmarkCoordinates({
+            'group': '256k',
+            'sdk': 'stock',
+          }),
+        ),
+        _entry(
+          'wire',
+          13,
+          1250.0,
+          coordinates: const BenchmarkCoordinates({
+            'group': '13b',
+            'sdk': 'fork',
+          }),
+        ),
+        _entry(
+          'wire',
+          256 * 1024,
+          50000.0,
+          coordinates: const BenchmarkCoordinates({
+            'group': '256k',
+            'sdk': 'fork',
+          }),
+        ),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('catches an invariant pair across 3+ payload sizes', () {
+      // 13 B and 256 KiB are invariant (1.15 µs), while 4 MiB scales normally
+      // (50 µs). Pairwise search still catches the (13 B, 256 KiB) defect.
+      final suite = _suite([
+        _entry('hybrid_sink', 13, _neverReadLatencyNs),
+        _entry('hybrid_sink', 256 * 1024, _neverReadLatencyNs),
+        _entry('hybrid_sink', 4 * _oneMiB, 50000.0),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+
+      check(findings).length.equals(1);
+      check(findings.single)
+        ..has((f) => f.benchmarkName, 'benchmarkName').equals('hybrid_sink')
+        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
+        ..has((f) => f.largeBytes, 'largeBytes').equals(256 * 1024);
+    });
+
     test('orders findings by widest volume spread first', () {
       final suite = _suite([
         _entry('narrower', 1024, _neverReadLatencyNs),
@@ -249,6 +314,7 @@ BenchmarkEntry _entry(
   int? bytes,
   double meanNs, {
   String target = 'exe',
+  BenchmarkCoordinates coordinates = const BenchmarkCoordinates(),
 }) => BenchmarkEntry(
   name: name,
   target: target,
@@ -266,5 +332,6 @@ BenchmarkEntry _entry(
     opsPerSec: 1e9 / meanNs,
     isStable: true,
   ),
+  coordinates: coordinates,
   throughput: bytes == null ? null : Throughput.bytes(bytes),
 );

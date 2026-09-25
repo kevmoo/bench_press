@@ -121,14 +121,15 @@ abstract final class ThroughputPlausibility() {
   /// least [minVolumeRatio] whose mean latency grew by no more than
   /// [maxInvariantLatencyRatio], ordered by widest volume spread first.
   ///
-  /// Entries are matched by name and target, so the comparison is one
-  /// benchmark across the payload sizes it was run at — typically the groups
-  /// of a `BenchmarkMatrix` — never two unrelated benchmarks.
+  /// Entries are matched by name, target, and any non-`group` matrix
+  /// coordinates, so the comparison is one benchmark arm across the payload
+  /// sizes it was run at — typically the groups of a `BenchmarkMatrix` — never
+  /// two unrelated benchmarks or two different SDK/flag arms.
   ///
   /// Unlike [screenSuite] this has no size floor, so it catches a payload small
   /// enough to hide under the bandwidth ceiling.
   static List<InvariantLatency> screenInvariance(BenchmarkSuiteResult suite) {
-    final byBenchmark = <(String, String), List<(int, double)>>{};
+    final byBenchmark = <(String, String, String), List<(int, double)>>{};
     for (final benchmark in suite.benchmarks) {
       final throughput = benchmark.throughput;
       final latencyNs = benchmark.metrics.meanNs;
@@ -139,9 +140,12 @@ abstract final class ThroughputPlausibility() {
           latencyNs <= 0.0) {
         continue;
       }
-      byBenchmark.putIfAbsent((benchmark.name, benchmark.target), () => []).add(
-        (throughput.bytes, latencyNs),
+      final key = (
+        benchmark.name,
+        benchmark.target,
+        _nonGroupCoordKey(benchmark.coordinates),
       );
+      byBenchmark.putIfAbsent(key, () => []).add((throughput.bytes, latencyNs));
     }
 
     final findings = <InvariantLatency>[];
@@ -150,25 +154,55 @@ abstract final class ThroughputPlausibility() {
         continue;
       }
       final points = value.toList()..sort((a, b) => a.$1.compareTo(b.$1));
-      final (smallBytes, smallLatencyNs) = points.first;
-      final (largeBytes, largeLatencyNs) = points.last;
-      if (largeBytes / smallBytes < minVolumeRatio ||
-          largeLatencyNs / smallLatencyNs > maxInvariantLatencyRatio) {
-        continue;
+      final widest = _findWidestInvariantPair(key.$1, key.$2, points);
+      if (widest != null) {
+        findings.add(widest);
       }
-      findings.add(
-        InvariantLatency(
-          benchmarkName: key.$1,
-          target: key.$2,
-          smallBytes: smallBytes,
-          largeBytes: largeBytes,
-          smallLatencyNs: smallLatencyNs,
-          largeLatencyNs: largeLatencyNs,
-        ),
-      );
     }
     findings.sort((a, b) => b.volumeRatio.compareTo(a.volumeRatio));
     return findings;
+  }
+
+  static String _nonGroupCoordKey(BenchmarkCoordinates coordinates) {
+    if (coordinates.isEmpty) return '';
+    final entries = [
+      for (final entry in coordinates.entries)
+        if (entry.key != BenchmarkCoordinates.groupKey)
+          '${entry.key}=${entry.value}',
+    ]..sort();
+    return entries.join(',');
+  }
+
+  static InvariantLatency? _findWidestInvariantPair(
+    String benchmarkName,
+    String target,
+    List<(int, double)> points,
+  ) {
+    InvariantLatency? widest;
+    var bestVolumeRatio = 0.0;
+    for (var i = 0; i < points.length; i++) {
+      final (smallBytes, smallLatencyNs) = points[i];
+      for (var j = points.length - 1; j > i; j--) {
+        final (largeBytes, largeLatencyNs) = points[j];
+        final volumeRatio = largeBytes / smallBytes;
+        if (volumeRatio < minVolumeRatio || volumeRatio <= bestVolumeRatio) {
+          break;
+        }
+        if (largeLatencyNs / smallLatencyNs <= maxInvariantLatencyRatio) {
+          bestVolumeRatio = volumeRatio;
+          widest = InvariantLatency(
+            benchmarkName: benchmarkName,
+            target: target,
+            smallBytes: smallBytes,
+            largeBytes: largeBytes,
+            smallLatencyNs: smallLatencyNs,
+            largeLatencyNs: largeLatencyNs,
+          );
+          break;
+        }
+      }
+    }
+    return widest;
   }
 }
 
