@@ -35,6 +35,11 @@ final class const ImplausibleThroughput({
 ///
 /// A rate above a machine's memory bandwidth is the cheapest signal that this
 /// has happened, so [screenSuite] flags it before the number can be quoted.
+///
+/// The ceiling only catches payloads large enough that no cache could explain
+/// the rate. [screenInvariance] catches the same defect from the other side,
+/// by looking for a benchmark whose latency does not move when its payload
+/// does, and it works at any size.
 abstract final class ThroughputPlausibility() {
   /// Smallest declared volume worth screening.
   ///
@@ -99,4 +104,100 @@ abstract final class ThroughputPlausibility() {
       bytesPerSecond: bytesPerSecond,
     );
   }
+
+  /// Smallest spread in declared payload size worth reading as a signal.
+  ///
+  /// Below this the two points are close enough that fixed per-invocation
+  /// overhead can genuinely dominate both.
+  static const double minVolumeRatio = 8.0;
+
+  /// Largest latency ratio still treated as "did not move".
+  ///
+  /// Payload-proportional work across a [minVolumeRatio] spread should cost far
+  /// more than this; anything under it means the payload is not being touched.
+  static const double maxInvariantLatencyRatio = 1.25;
+
+  /// Returns every benchmark in [suite] measured at byte volumes spanning at
+  /// least [minVolumeRatio] whose mean latency grew by no more than
+  /// [maxInvariantLatencyRatio], ordered by widest volume spread first.
+  ///
+  /// Entries are matched by name and target, so the comparison is one
+  /// benchmark across the payload sizes it was run at — typically the groups
+  /// of a `BenchmarkMatrix` — never two unrelated benchmarks.
+  ///
+  /// Unlike [screenSuite] this has no size floor, so it catches a payload small
+  /// enough to hide under the bandwidth ceiling.
+  static List<InvariantLatency> screenInvariance(BenchmarkSuiteResult suite) {
+    final byBenchmark = <(String, String), List<(int, double)>>{};
+    for (final benchmark in suite.benchmarks) {
+      final throughput = benchmark.throughput;
+      final latencyNs = benchmark.metrics.meanNs;
+      if (throughput is! ByteThroughput ||
+          throughput.bytes <= 0 ||
+          latencyNs.isNaN ||
+          latencyNs.isInfinite ||
+          latencyNs <= 0.0) {
+        continue;
+      }
+      byBenchmark.putIfAbsent((benchmark.name, benchmark.target), () => []).add(
+        (throughput.bytes, latencyNs),
+      );
+    }
+
+    final findings = <InvariantLatency>[];
+    for (final MapEntry(:key, :value) in byBenchmark.entries) {
+      if (value.length < 2) {
+        continue;
+      }
+      final points = value.toList()..sort((a, b) => a.$1.compareTo(b.$1));
+      final (smallBytes, smallLatencyNs) = points.first;
+      final (largeBytes, largeLatencyNs) = points.last;
+      if (largeBytes / smallBytes < minVolumeRatio ||
+          largeLatencyNs / smallLatencyNs > maxInvariantLatencyRatio) {
+        continue;
+      }
+      findings.add(
+        InvariantLatency(
+          benchmarkName: key.$1,
+          target: key.$2,
+          smallBytes: smallBytes,
+          largeBytes: largeBytes,
+          smallLatencyNs: smallLatencyNs,
+          largeLatencyNs: largeLatencyNs,
+        ),
+      );
+    }
+    findings.sort((a, b) => b.volumeRatio.compareTo(a.volumeRatio));
+    return findings;
+  }
+}
+
+/// A benchmark whose measured latency barely moved while its declared payload
+/// grew by a wide margin.
+final class const InvariantLatency({
+  /// Name of the benchmark measured at both volumes.
+  required final String benchmarkName,
+
+  /// Compilation target the benchmark ran against.
+  required final String target,
+
+  /// Smallest declared volume for this benchmark.
+  required final int smallBytes,
+
+  /// Largest declared volume for this benchmark.
+  required final int largeBytes,
+
+  /// Mean latency measured at [smallBytes].
+  required final double smallLatencyNs,
+
+  /// Mean latency measured at [largeBytes].
+  required final double largeLatencyNs,
+}) {
+  /// How many times larger [largeBytes] is than [smallBytes].
+  double get volumeRatio => largeBytes / smallBytes;
+
+  /// How many times slower the large payload was than the small one.
+  ///
+  /// A value near `1.0` alongside a large [volumeRatio] is the finding.
+  double get latencyRatio => largeLatencyNs / smallLatencyNs;
 }

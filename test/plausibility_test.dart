@@ -105,6 +105,77 @@ void main() {
     });
   });
 
+  group('ThroughputPlausibility.screenInvariance', () {
+    test('flags one benchmark whose latency held across payload sizes', () {
+      // The 256 KiB cell the bandwidth ceiling cannot see: below the size
+      // floor, but identical in latency to a payload 20,000x smaller.
+      final suite = _suite([
+        _entry('blackhole', 13, _neverReadLatencyNs),
+        _entry('blackhole', 256 * 1024, _neverReadLatencyNs),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+
+      check(findings).length.equals(1);
+      check(findings.single)
+        ..has((f) => f.benchmarkName, 'benchmarkName').equals('blackhole')
+        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
+        ..has((f) => f.largeBytes, 'largeBytes').equals(256 * 1024)
+        ..has((f) => f.volumeRatio, 'volumeRatio').isGreaterThan(20000)
+        ..has((f) => f.latencyRatio, 'latencyRatio').equals(1.0);
+    });
+
+    test('accepts latency that grows with the payload', () {
+      final suite = _suite([
+        _entry('wire', 13, 100.0),
+        _entry('wire', _oneMiB, 46000.0),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('ignores a volume spread too narrow to read as a signal', () {
+      final suite = _suite([
+        _entry('narrow', _oneMiB, 1000.0),
+        _entry('narrow', 2 * _oneMiB, 1000.0),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('never compares two different benchmarks', () {
+      final suite = _suite([
+        _entry('hash_small', 13, _neverReadLatencyNs),
+        _entry('parse_large', _oneMiB, _neverReadLatencyNs),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('never compares across targets', () {
+      final suite = _suite([
+        _entry('same_name', 13, _neverReadLatencyNs),
+        _entry('same_name', _oneMiB, _neverReadLatencyNs, target: 'wasm'),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('orders findings by widest volume spread first', () {
+      final suite = _suite([
+        _entry('narrower', 1024, _neverReadLatencyNs),
+        _entry('narrower', 64 * 1024, _neverReadLatencyNs),
+        _entry('wider', 13, _neverReadLatencyNs),
+        _entry('wider', _oneMiB, _neverReadLatencyNs),
+      ]);
+
+      check(
+        ThroughputPlausibility.screenInvariance(suite)
+            .map((f) => f.benchmarkName),
+      ).deepEquals(['wider', 'narrower']);
+    });
+  });
+
   group('MarkdownReporter.renderSuite', () {
     test('banners implausible throughput above the tables', () {
       final report = MarkdownReporter.renderSuite(
@@ -132,12 +203,32 @@ void main() {
       check(report).contains('2 benchmarks report faster than 100 GiB/s');
     });
 
+    test('banners latency that does not track payload size', () {
+      final report = MarkdownReporter.renderSuite(
+        _suite([
+          _entry('blackhole', 13, _neverReadLatencyNs),
+          _entry('blackhole', 256 * 1024, _neverReadLatencyNs),
+        ]),
+      );
+
+      check(report).contains('🚩 **Latency does not track payload size**');
+      check(report).contains('1 benchmark costs the same');
+      check(report).contains('13 B at 1.15 µs');
+      check(report).contains('256.0 KiB at 1.15 µs');
+      check(report).contains('**1.00x** the time');
+      check(report).contains('Confirm the bytes are read');
+      // This suite never trips the bandwidth ceiling — 256 KiB is under the
+      // size floor — so invariance is the only thing that catches it.
+      check(report).not((it) => it.contains('Implausible throughput'));
+    });
+
     test('stays silent when every rate is believable', () {
       final report = MarkdownReporter.renderSuite(
         _suite([_entry('copy_1m', _oneMiB, 100000.0)]),
       );
 
       check(report).not((it) => it.contains('Implausible throughput'));
+      check(report).not((it) => it.contains('does not track payload size'));
     });
   });
 }
@@ -153,9 +244,14 @@ BenchmarkSuiteResult _suite(List<BenchmarkEntry> benchmarks) =>
       benchmarks: benchmarks,
     );
 
-BenchmarkEntry _entry(String name, int? bytes, double meanNs) => BenchmarkEntry(
+BenchmarkEntry _entry(
+  String name,
+  int? bytes,
+  double meanNs, {
+  String target = 'exe',
+}) => BenchmarkEntry(
   name: name,
-  target: 'exe',
+  target: target,
   mode: 'sync',
   samples: 15,
   metrics: BenchmarkMetrics(
