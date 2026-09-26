@@ -147,11 +147,17 @@ void main() {
       );
       check(reason).isNotNull();
       check(reason!).contains('Windows');
-      check(reason).contains('start /affinity');
+      check(reason).contains('ProcessorAffinity');
       check(
         because: 'a Windows user must not be told to install util-linux',
         reason,
       ).not((s) => s.contains('util-linux'));
+      check(
+        because:
+            'no Windows command here has been run on Windows, so the '
+            'message must not hand over one to paste',
+        reason,
+      ).not((s) => s.contains('start /affinity'));
     });
 
     test('tells macOS there is no workaround, not a taskset hint', () {
@@ -165,7 +171,7 @@ void main() {
       check(
         because: 'Darwin has no affinity interface, so offer no false hope',
         reason,
-      ).not((s) => s.contains('start /affinity'));
+      ).not((s) => s.contains('ProcessorAffinity'));
     });
 
     test('names an unrecognized platform rather than guessing', () {

@@ -16,9 +16,11 @@
     distinguishes a run that still has spawned targets to pin from a JIT-only
     run, where nothing is pinned at all.
   - **Windows and macOS are unsupported for different reasons**, and the warning
-    says which. Windows has processor affinity but takes a hex bitmask rather
-    than a CPU list, so the message gives the `start /affinity` equivalent;
-    macOS has no affinity interface at all, so it points at `--trials` instead.
+    says which. Windows has processor affinity but as a bitmask rather than a
+    CPU list, so it points at setting affinity on the process directly; macOS
+    has no affinity interface at all, so it points at `--trials` instead.
+    Neither message offers a command to paste, because none has been exercised
+    on those platforms — CI runs Linux only today.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name

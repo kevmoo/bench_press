@@ -425,7 +425,9 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         because: 'jit-only isolate run has no other target to pin',
         err,
       ).contains('no other targets, so nothing is pinned');
-    });
+      // Linux-only: elsewhere the unsupported-host branch returns first, so
+      // this warning is never reached and the assertions above cannot hold.
+    }, skip: Platform.isLinux ? null : 'pinning is only supported on Linux');
 
     test(
       'run and validate reject non-existent --d8-path with exit code 64',

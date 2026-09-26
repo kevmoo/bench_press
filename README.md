@@ -270,11 +270,11 @@ Caveats worth knowing:
   CPU count is deliberately not used as a bound, because a process confined to a
   narrower cpuset would then be told valid CPUs are invalid.
 - **Linux only. Windows and macOS are both unsupported**, for different reasons:
-  - **Windows** _does_ have processor affinity, but it takes a hex bitmask
-    rather than a CPU list, so `--pin-cpu` does not map onto it. Pin the whole
-    command instead — `start /affinity 4 dart run bench_press run ...` pins to
-    CPU 2 (bit 2 = `0x4`), or in PowerShell set `ProcessorAffinity` on the
-    process from `Start-Process -PassThru`.
+  - **Windows** _does_ have processor affinity, but it is a bitmask rather than
+    a CPU list, so `--pin-cpu` does not map onto it. Set affinity on the
+    `bench_press` process yourself — the `ProcessorAffinity` property on a
+    launched process — and run without the flag. No specific incantation is
+    given here because none has been exercised on Windows.
   - **macOS** has no equivalent at all: the Darwin kernel exposes no POSIX CPU
     affinity interface, so there is no `taskset` and no per-process workaround.
     Reduce variance by closing other work and raising `--trials`.

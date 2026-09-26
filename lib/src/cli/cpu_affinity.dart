@@ -104,12 +104,15 @@ String? cpuPinningUnsupportedReason({String? os, bool Function()? hasTaskset}) {
       // Windows is the common Dart/Flutter development host, and unlike macOS
       // it does have affinity control — it is simply not wired up here, since
       // the mask is a hex bitmap rather than a taskset CPU list.
+      //
+      // Deliberately no copy-paste command: nothing here has been exercised on
+      // Windows, and an incantation that does not do what it claims is worse
+      // than none at the moment someone is already blocked.
       return 'CPU pinning is not supported on Windows. Windows does have '
-          'processor affinity, but it takes a hex bitmask rather than a CPU '
-          'list, so --pin-cpu does not map onto it. Pin the whole command '
-          'instead: "start /affinity 4 dart run bench_press run ..." pins to '
-          'CPU 2 (bit 2 = 0x4), or in PowerShell set ProcessorAffinity on the '
-          'process returned by Start-Process -PassThru.';
+          'processor affinity, but it is a bitmask rather than a CPU list, so '
+          '--pin-cpu does not map onto it. Set affinity on the bench_press '
+          'process yourself (the ProcessorAffinity property on a launched '
+          'process) and run without --pin-cpu.';
     }
     if (host == 'macos') {
       return 'CPU pinning is unavailable on macOS: the Darwin kernel exposes '
