@@ -12,6 +12,7 @@ import '../telemetry/git_diff.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
+import 'cpu_affinity.dart';
 import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
@@ -113,6 +114,15 @@ final class RunCommand({
         help: 'Extra flags forwarded to Dart VM or Node/D8 runner.',
       )
       ..addOption(
+        'pin-cpu',
+        valueHelp: 'cpu-list',
+        help:
+            'Pin benchmark processes to these CPUs via taskset. Linux only: '
+            'on Windows and macOS this warns and runs unpinned. Accepts '
+            'taskset -c syntax: "2", "0,2,4", "0-3", "0-7:2". Use '
+            '"lscpu -e=CPU,CORE" to find CPUs that are not SMT siblings.',
+      )
+      ..addOption(
         'format',
         defaultsTo: 'markdown',
         allowed: ['markdown', 'table', 'json'],
@@ -141,6 +151,20 @@ final class RunCommand({
     if (nodePath != null && !File(nodePath).existsSync()) {
       stderr.writeln('Custom Node.js executable "$nodePath" does not exist.');
       return ExitCode.usage.code;
+    }
+
+    // A malformed CPU list is a usage error, not a host limitation: fail here
+    // rather than warning and measuring unpinned, which would hand back numbers
+    // that look pinned. Matches --d8-path and --node-path above.
+    final pinCpuSpec = argResults!.option('pin-cpu');
+    CpuAffinity? pinCpu;
+    if (pinCpuSpec != null) {
+      try {
+        pinCpu = CpuAffinity.parse(pinCpuSpec);
+      } on FormatException catch (e) {
+        stderr.writeln('Invalid --pin-cpu value "$pinCpuSpec": ${e.message}');
+        return ExitCode.usage.code;
+      }
     }
 
     final effectiveSdk = DartSdk(
@@ -172,7 +196,48 @@ final class RunCommand({
       config: config,
       targets: targets,
       effectiveSdk: effectiveSdk,
+      pinCpu: pinCpu,
     );
+  }
+
+  /// Narrows an already-parsed [pinCpu] to what this host and run can actually
+  /// honour, returning `null` to run unpinned.
+  ///
+  /// A malformed value is rejected earlier, in [run], as a usage error. What
+  /// remains here are host and mode limitations, which warn and continue — and
+  /// every one of them says so on stderr, because a suite that was asked to pin
+  /// and quietly did not is worse than one that never asked: the resulting
+  /// numbers look like pinned numbers.
+  CpuAffinity? _applyCpuPinningLimits(
+    CpuAffinity? pinCpu, {
+    required bool isolateMode,
+    required List<TargetRuntime> targets,
+  }) {
+    if (pinCpu == null) return null;
+
+    final reason = cpuPinningUnsupportedReason();
+    if (reason != null) {
+      stderr.writeln('Warning: --pin-cpu ignored. $reason');
+      return null;
+    }
+
+    if (isolateMode) {
+      // Only claim the other targets are pinned when there are some. `--target`
+      // defaults to jit alone, so the common invocation pins nothing.
+      final hasSpawnedTargets = targets.any((t) => t != TargetRuntime.jit);
+      final scope = hasSpawnedTargets
+          ? 'Non-JIT targets in this run are still pinned.'
+          : 'This run has no other targets, so nothing is pinned.';
+      stderr.writeln(
+        'Warning: --pin-cpu does not apply to --isolate-mode, which runs JIT '
+        'benchmarks in-process rather than spawning a command taskset could '
+        'wrap. $scope To pin isolate mode, pin bench_press itself: '
+        'taskset -c ${pinCpu.cpuList} dart run bench_press run ...',
+      );
+      if (!hasSpawnedTargets) return null;
+    }
+
+    return pinCpu;
   }
 
   BenchPressConfig _resolveRunConfig() {
@@ -254,6 +319,7 @@ final class RunCommand({
     required BenchPressConfig config,
     required List<TargetRuntime> targets,
     required DartSdk effectiveSdk,
+    required CpuAffinity? pinCpu,
   }) async {
     try {
       ConfigValidator.validateConfig(config);
@@ -269,6 +335,7 @@ final class RunCommand({
       config,
       targets,
       effectiveSdk,
+      pinCpu,
     );
     if (suite == null || suite.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
@@ -319,6 +386,7 @@ final class RunCommand({
     BenchPressConfig config,
     List<TargetRuntime> defaultTargets,
     DartSdk effectiveSdk,
+    CpuAffinity? pinCpu,
   ) async {
     final trialsStr = argResults!.option('trials');
     final trials = trialsStr != null
@@ -333,6 +401,11 @@ final class RunCommand({
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
     final compilerFlags = argResults!.multiOption('compiler-flag');
     final vmFlags = argResults!.multiOption('vm-flag');
+    final cpuAffinity = _applyCpuPinningLimits(
+      pinCpu,
+      isolateMode: isolateMode,
+      targets: _effectiveMatrixTargets(coords, defaultTargets),
+    );
 
     BenchmarkSuiteResult? accumulated;
     var hasFailures = false;
@@ -348,6 +421,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
         effectiveSdk: effectiveSdk,
       );
       if (result.hasFailures) {
@@ -358,6 +432,29 @@ final class RunCommand({
       }
     }
     return (suite: accumulated, hasFailures: hasFailures);
+  }
+
+  static List<TargetRuntime> _resolveCoordinateTargets(
+    MatrixCoordinate coord,
+    List<TargetRuntime> defaultTargets,
+  ) {
+    final coordRuntime =
+        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
+        coord.resolvedValues[BenchmarkCoordinates.targetKey];
+    return (coordRuntime != null && coordRuntime.isNotEmpty)
+        ? TargetRuntime.parseTargets([coordRuntime])
+        : defaultTargets;
+  }
+
+  static List<TargetRuntime> _effectiveMatrixTargets(
+    List<MatrixCoordinate> coords,
+    List<TargetRuntime> defaultTargets,
+  ) {
+    if (coords.isEmpty) return defaultTargets;
+    return {
+      for (final coord in coords)
+        ..._resolveCoordinateTargets(coord, defaultTargets),
+    }.toList();
   }
 
   Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
@@ -371,6 +468,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
     BenchmarkSuiteResult? fileAccumulated;
@@ -387,6 +485,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
         effectiveSdk: effectiveSdk,
       );
       if (result.hasFailures) {
@@ -415,14 +514,10 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
-    final coordRuntime =
-        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
-        coord.resolvedValues[BenchmarkCoordinates.targetKey];
-    final runtimes = (coordRuntime != null && coordRuntime.isNotEmpty)
-        ? TargetRuntime.parseTargets([coordRuntime])
-        : defaultTargets;
+    final runtimes = _resolveCoordinateTargets(coord, defaultTargets);
 
     BenchmarkSuiteResult? coordAccumulated;
     var hasFailures = false;
@@ -437,6 +532,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
         effectiveSdk: effectiveSdk,
       );
       if (result.hasFailures) {
@@ -460,6 +556,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
     final currentSdk = resolveSdkFromCoordinate(coord, effectiveSdk);
@@ -468,9 +565,10 @@ final class RunCommand({
     final currentCompiler = currentSdk == sdk
         ? compiler
         : TargetCompiler(sdk: currentSdk);
-    final currentProcessRunner = currentSdk == sdk
+    final currentProcessRunner =
+        currentSdk == sdk && cpuAffinity == processRunner.cpuAffinity
         ? processRunner
-        : BenchmarkProcessRunner(sdk: currentSdk);
+        : BenchmarkProcessRunner(sdk: currentSdk, cpuAffinity: cpuAffinity);
 
     return await _executeMatrixSingleTarget(
       discovered: discovered,

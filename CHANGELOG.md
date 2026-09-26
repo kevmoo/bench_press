@@ -1,5 +1,7 @@
 ## 0.3.2-wip
 
+- Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
+  subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
   by decimal `1000` (`KB/s`, `MB/s`, `GB/s`) instead of `1024`, matching
   hardware memory bandwidth, network I/O conventions, and `ElementThroughput`.
