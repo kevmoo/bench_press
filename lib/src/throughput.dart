@@ -50,8 +50,10 @@ sealed class const Throughput() {
 
 /// Throughput based on raw byte volume.
 ///
-/// Uses standard 1024-based binary scaling (`KB/s`, `MB/s`, `GB/s`) matching
-/// standard operating system and I/O benchmarking conventions.
+/// Rates use decimal prefixes (`GB/s` = `1e9` B/s), matching how hardware
+/// quotes bandwidth; payload sizes in reports use binary prefixes (`KiB`,
+/// `MiB`, `GiB`), matching how buffers are allocated. A report line such as
+/// `912 GB/s on a 1.0 MiB payload` mixes the two by design.
 final class const ByteThroughput(
   /// Number of bytes processed per benchmark invocation.
   final int bytes,
@@ -67,15 +69,12 @@ final class const ByteThroughput(
     final secondsPerOp = meanLatencyNs / 1e9;
     final bytesPerSecond = bytes / secondsPerOp;
 
-    if (bytesPerSecond >= 1024 * 1024 * 1024) {
-      final gbPerSec = bytesPerSecond / (1024 * 1024 * 1024);
-      return '${gbPerSec.toStringAsFixed(2)} GB/s';
-    } else if (bytesPerSecond >= 1024 * 1024) {
-      final mbPerSec = bytesPerSecond / (1024 * 1024);
-      return '${mbPerSec.toStringAsFixed(1)} MB/s';
-    } else if (bytesPerSecond >= 1024) {
-      final kbPerSec = bytesPerSecond / 1024;
-      return '${kbPerSec.toStringAsFixed(1)} KB/s';
+    if (bytesPerSecond >= 1e9) {
+      return '${(bytesPerSecond / 1e9).toStringAsFixed(2)} GB/s';
+    } else if (bytesPerSecond >= 1e6) {
+      return '${(bytesPerSecond / 1e6).toStringAsFixed(1)} MB/s';
+    } else if (bytesPerSecond >= 1e3) {
+      return '${(bytesPerSecond / 1e3).toStringAsFixed(1)} KB/s';
     } else {
       return '${bytesPerSecond.toStringAsFixed(0)} B/s';
     }

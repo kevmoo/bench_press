@@ -11,21 +11,30 @@ void main() {
     });
 
     test('formats kilobytes per second', () {
-      const tp = Throughput.bytes(1024 * 10);
+      const tp = Throughput.bytes(1000 * 10);
       // 10 KB in 1 second = 10.0 KB/s
       check(tp.formatRate(1e9)).equals('10.0 KB/s');
     });
 
     test('formats megabytes per second', () {
-      const tp = Throughput.bytes(1024 * 1024 * 50);
+      const tp = Throughput.bytes(1000 * 1000 * 50);
       // 50 MB in 100 ms (1e8 ns) = 500.0 MB/s
       check(tp.formatRate(1e8)).equals('500.0 MB/s');
     });
 
     test('formats gigabytes per second', () {
-      const tp = Throughput.bytes(1024 * 1024 * 1024);
+      const tp = Throughput.bytes(1000 * 1000 * 1000);
       // 1 GB in 500 ms (5e8 ns) = 2.00 GB/s
       check(tp.formatRate(5e8)).equals('2.00 GB/s');
+    });
+
+    test('scales by 1000, not 1024', () {
+      // 1,000,000 B/s is 1.0 MB/s (1024-based scaling would print 976.6 KiB/s),
+      // and 100 MiB (104,857,600 B)/s is 104.9 MB/s (binary: 100.0 MiB/s).
+      const tp = Throughput.bytes(1000 * 1000);
+      check(tp.formatRate(1e9)).equals('1.0 MB/s');
+      const tpMiB = Throughput.bytes(1024 * 1024 * 100);
+      check(tpMiB.formatRate(1e9)).equals('104.9 MB/s');
     });
 
     test('handles edge cases gracefully', () {
