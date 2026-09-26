@@ -429,6 +429,50 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       // this warning is never reached and the assertions above cannot hold.
     }, skip: Platform.isLinux ? null : 'pinning is only supported on Linux');
 
+    test('--pin-cpu on an --isolate-mode run with non-JIT matrix coordinates '
+        'still pins spawned targets', () async {
+      final benchFile = writeSyncBenchmark(
+        fileName: 'pin_matrix_bench.dart',
+        className: 'PinMatrixBenchmark',
+        name: 'pin_matrix',
+        body: 'Blackhole.consume(1);',
+      );
+      final configFile = File(d.path('pin_matrix.yaml'))
+        ..writeAsStringSync('''
+defaults:
+  targets: [jit]
+matrix:
+  baseline:
+    runtime: jit
+  axes:
+    runtime: [jit, aot]
+''');
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        'run',
+        '-c',
+        configFile.path,
+        '--isolate-mode',
+        '--pin-cpu',
+        '0',
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        benchFile.path,
+      ]);
+      check(result.exitCode).equals(0);
+      final err = result.stderr.toString();
+      check(err).contains('--pin-cpu does not apply to --isolate-mode');
+      check(
+        because:
+            'matrix defines an aot coordinate even though CLI --target '
+            'defaulted to jit',
+        err,
+      ).contains('Non-JIT targets in this run are still pinned.');
+    }, skip: Platform.isLinux ? null : 'pinning is only supported on Linux');
+
     test(
       'run and validate reject non-existent --d8-path with exit code 64',
       () async {

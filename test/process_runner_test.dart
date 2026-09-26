@@ -275,5 +275,33 @@ void main(List<String> args) {
       check(result.errorMessage).isNotNull();
       check(result.errorMessage!).contains(invalidSdkPath);
     });
+
+    test(
+      'executes subprocess with constructor-configured cpuAffinity',
+      () async {
+        final sourceFile = writeSyncBenchmark(
+          fileName: 'pinned_bench.dart',
+          className: 'PinnedBench',
+          name: 'pinned_bench',
+        );
+        final compilation = await const TargetCompiler().compile(
+          sourceFile: sourceFile,
+          runtime: TargetRuntime.jit,
+        );
+        final runner = BenchmarkProcessRunner(
+          cpuAffinity: CpuAffinity.parse('0'),
+        );
+        final result = await runner.execute(
+          compilationResult: compilation,
+          trials: 1,
+          forceRun: true,
+        );
+
+        check(result.success).isTrue();
+        check(result.suiteResult).isNotNull();
+        check(result.suiteResult!.benchmarks.first.name).equals('pinned_bench');
+      },
+      skip: Platform.isLinux ? null : 'pinning is only supported on Linux',
+    );
   });
 }

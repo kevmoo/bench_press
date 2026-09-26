@@ -47,6 +47,7 @@ final class const ProcessExecutionResult({
 /// Node.js, and D8, streaming telemetry back to the orchestrator.
 final class const BenchmarkProcessRunner({
   final DartSdk sdk = const DartSdk(),
+  final CpuAffinity? cpuAffinity,
 }) {
   /// Executes a compiled or JIT benchmark [compilationResult].
   Future<ProcessExecutionResult> execute({
@@ -112,8 +113,9 @@ final class const BenchmarkProcessRunner({
 
       // Pinning wraps the fully resolved command, so it applies identically to
       // the Dart VM, an AOT executable, Node.js, and D8.
+      final effectiveAffinity = cpuAffinity ?? this.cpuAffinity;
       final (executable, processArgs) =
-          cpuAffinity?.wrap(resolved.$1, resolved.$2) ?? resolved;
+          effectiveAffinity?.wrap(resolved.$1, resolved.$2) ?? resolved;
 
       final processResult = await Process.run(
         executable,

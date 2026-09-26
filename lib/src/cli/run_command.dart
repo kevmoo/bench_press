@@ -404,7 +404,7 @@ final class RunCommand({
     final cpuAffinity = _applyCpuPinningLimits(
       pinCpu,
       isolateMode: isolateMode,
-      targets: defaultTargets,
+      targets: _effectiveMatrixTargets(coords, defaultTargets),
     );
 
     BenchmarkSuiteResult? accumulated;
@@ -432,6 +432,29 @@ final class RunCommand({
       }
     }
     return (suite: accumulated, hasFailures: hasFailures);
+  }
+
+  static List<TargetRuntime> _resolveCoordinateTargets(
+    MatrixCoordinate coord,
+    List<TargetRuntime> defaultTargets,
+  ) {
+    final coordRuntime =
+        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
+        coord.resolvedValues[BenchmarkCoordinates.targetKey];
+    return (coordRuntime != null && coordRuntime.isNotEmpty)
+        ? TargetRuntime.parseTargets([coordRuntime])
+        : defaultTargets;
+  }
+
+  static List<TargetRuntime> _effectiveMatrixTargets(
+    List<MatrixCoordinate> coords,
+    List<TargetRuntime> defaultTargets,
+  ) {
+    if (coords.isEmpty) return defaultTargets;
+    return {
+      for (final coord in coords)
+        ..._resolveCoordinateTargets(coord, defaultTargets),
+    }.toList();
   }
 
   Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
@@ -494,12 +517,7 @@ final class RunCommand({
     required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
-    final coordRuntime =
-        coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
-        coord.resolvedValues[BenchmarkCoordinates.targetKey];
-    final runtimes = (coordRuntime != null && coordRuntime.isNotEmpty)
-        ? TargetRuntime.parseTargets([coordRuntime])
-        : defaultTargets;
+    final runtimes = _resolveCoordinateTargets(coord, defaultTargets);
 
     BenchmarkSuiteResult? coordAccumulated;
     var hasFailures = false;
@@ -547,9 +565,10 @@ final class RunCommand({
     final currentCompiler = currentSdk == sdk
         ? compiler
         : TargetCompiler(sdk: currentSdk);
-    final currentProcessRunner = currentSdk == sdk
+    final currentProcessRunner =
+        currentSdk == sdk && cpuAffinity == processRunner.cpuAffinity
         ? processRunner
-        : BenchmarkProcessRunner(sdk: currentSdk);
+        : BenchmarkProcessRunner(sdk: currentSdk, cpuAffinity: cpuAffinity);
 
     return await _executeMatrixSingleTarget(
       discovered: discovered,
@@ -560,7 +579,6 @@ final class RunCommand({
       isolateMode: isolateMode,
       compilerFlags: execFlags,
       vmFlags: vmFlags,
-      cpuAffinity: cpuAffinity,
       compiler: currentCompiler,
       processRunner: currentProcessRunner,
       coordinate: coord,
@@ -589,7 +607,6 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
-    required CpuAffinity? cpuAffinity,
     required TargetCompiler compiler,
     required BenchmarkProcessRunner processRunner,
     required MatrixCoordinate coordinate,
@@ -622,7 +639,6 @@ final class RunCommand({
       maxTrials: maxTrials,
       forceRun: forceRun,
       vmFlags: vmFlags,
-      cpuAffinity: cpuAffinity,
     );
 
     if (!execResult.success || execResult.suiteResult == null) {

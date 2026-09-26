@@ -11,6 +11,7 @@ export 'src/cli/command_runner.dart'
         ValidateCommand,
         benchPressVersion;
 export 'src/cli/compiler.dart' show CompilationResult, TargetCompiler;
+export 'src/cli/cpu_affinity.dart' show CpuAffinity;
 export 'src/cli/discovery.dart'
     show BenchmarkDiscovery, DiscoveredBenchmarkFile;
 export 'src/cli/process_runner.dart'
