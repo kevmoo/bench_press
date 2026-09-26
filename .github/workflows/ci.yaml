@@ -8,7 +8,17 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Windows and macOS are advisory for now: this is the first time the suite
+    # has run on either, so a failure there should be visible without blocking
+    # unrelated PRs. Drop this once both are green.
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+    strategy:
+      # Report every platform; one red result must not hide the others.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -26,10 +36,15 @@ jobs:
       - name: Install dependencies
         run: dart pub get
 
+      # Formatting and analysis are platform-independent, so they run once.
+      # `dart format --set-exit-if-changed` would also be a false alarm on
+      # Windows, where git may check files out with CRLF endings.
       - name: Verify formatting
+        if: matrix.os == 'ubuntu-latest'
         run: dart format --output=none --set-exit-if-changed .
 
       - name: Analyze project
+        if: matrix.os == 'ubuntu-latest'
         run: dart analyze --fatal-infos
 
       - name: Run test suite
