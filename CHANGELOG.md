@@ -29,11 +29,11 @@
   rates above a memory-bandwidth ceiling; `screenInvariance` catches a benchmark
   whose latency does not move when its payload does, which works at payload
   sizes small enough to stay under that ceiling.
-- Stopped `MarkdownReporter` from wrapping tables in
-  `<!-- mdformat off(prevent table wrapping) -->` / `<!-- mdformat on -->`.
-  Those guards are a Google3/Piper convention; on GitHub they are inert comments
-  that every consumer then has to strip out of committed reports. Every table
-  row is already emitted on a single physical line, so nothing relied on them.
+- Stopped `MarkdownReporter` from wrapping tables in `mdformat off` / `mdformat
+  on` HTML-comment guards. Those guards are a Google3/Piper convention; on
+  GitHub they are inert comments that every consumer then has to strip out of
+  committed reports. Every table row is already emitted on a single physical
+  line, so nothing relied on them.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now
   authoritative. When `customSdkPath` (the `sdk` matrix axis) is set but does
   not resolve to a usable SDK, `DartSdk.dartExecutable` returns `null` instead
