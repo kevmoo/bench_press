@@ -1,5 +1,13 @@
 ## 0.3.2-wip
 
+- **Breaking (report text):** `Throughput.bytes` now labels its rates with
+  binary prefixes — `KiB/s`, `MiB/s`, `GiB/s` — instead of `KB/s`, `MB/s`,
+  `GB/s`. The divisor was already 1024, so no reported value changes, only the
+  unit it is printed with. Previously a single report could show `52.58 GB/s` in
+  a throughput column and `849.18 GiB/s` in a plausibility banner for the same
+  kind of quantity. The gap between the two conventions is 7.4% at gigabyte
+  scale, which is enough to change how a rate reads next to a hardware bandwidth
+  figure.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name
@@ -21,11 +29,11 @@
   rates above a memory-bandwidth ceiling; `screenInvariance` catches a benchmark
   whose latency does not move when its payload does, which works at payload
   sizes small enough to stay under that ceiling.
-- Stopped `MarkdownReporter` from wrapping tables in
-  `<!-- mdformat off(prevent table wrapping) -->` / `<!-- mdformat on -->`.
-  Those guards are a Google3/Piper convention; on GitHub they are inert comments
-  that every consumer then has to strip out of committed reports. Every table
-  row is already emitted on a single physical line, so nothing relied on them.
+- Stopped `MarkdownReporter` from wrapping tables in `mdformat off` /
+  `mdformat on` HTML-comment guards. Those guards are a Google3/Piper
+  convention; on GitHub they are inert comments that every consumer then has to
+  strip out of committed reports. Every table row is already emitted on a single
+  physical line, so nothing relied on them.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now
   authoritative. When `customSdkPath` (the `sdk` matrix axis) is set but does
   not resolve to a usable SDK, `DartSdk.dartExecutable` returns `null` instead
