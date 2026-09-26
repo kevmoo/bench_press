@@ -1,5 +1,20 @@
 ## 0.3.2-wip
 
+- Added `--pin-cpu` to `bench_press run`, which prefixes every benchmark command
+  with `taskset -c` so pinning applies uniformly to the Dart VM, AOT
+  executables, Node.js, and D8. Accepts `taskset -c` list syntax (`2`, `0,2,4`,
+  `0-3`, `0-7:2`).
+  - A malformed CPU list is a **usage error**: `run` exits `64` without
+    measuring, matching `--d8-path` and `--node-path`. Only the syntax is
+    checked, so a CPU that does not exist on the host is still reported by
+    `taskset` after compilation; the host CPU count is deliberately not used as
+    a bound, since a process confined to a narrower cpuset would then be told
+    valid CPUs are invalid.
+  - Host and mode limitations warn on stderr and continue unpinned: a non-Linux
+    host, `taskset` absent from `PATH`, and `--isolate-mode`, which runs
+    in-process and so has no command to wrap. Under `--isolate-mode` the warning
+    distinguishes a run that still has spawned targets to pin from a JIT-only
+    run, where nothing is pinned at all.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name
@@ -21,11 +36,11 @@
   rates above a memory-bandwidth ceiling; `screenInvariance` catches a benchmark
   whose latency does not move when its payload does, which works at payload
   sizes small enough to stay under that ceiling.
-- Stopped `MarkdownReporter` from wrapping tables in
-  `<!-- mdformat off(prevent table wrapping) -->` / `<!-- mdformat on -->`.
-  Those guards are a Google3/Piper convention; on GitHub they are inert comments
-  that every consumer then has to strip out of committed reports. Every table
-  row is already emitted on a single physical line, so nothing relied on them.
+- Stopped `MarkdownReporter` from wrapping tables in `mdformat off` /
+  `mdformat on` HTML-comment guards. Those guards are a Google3/Piper
+  convention; on GitHub they are inert comments that every consumer then has to
+  strip out of committed reports. Every table row is already emitted on a single
+  physical line, so nothing relied on them.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now
   authoritative. When `customSdkPath` (the `sdk` matrix axis) is set but does
   not resolve to a usable SDK, `DartSdk.dartExecutable` returns `null` instead
