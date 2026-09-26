@@ -241,6 +241,114 @@ void main() {
     });
   });
 
+  group('ThroughputPlausibility group-scoped invariance', () {
+    // The shape the 849 GiB/s artifact actually lived in: one comparison group
+    // with a distinct benchmark name per payload size, which the name-keyed
+    // pass cannot pair.
+    test('pairs sizes that carry different names inside one group', () {
+      final suite = _suite([
+        _entry('write_13b', 13, _neverReadLatencyNs, coordinates: _g('w7')),
+        _entry(
+          'write_1mb',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+
+      check(findings).length.equals(1);
+      check(findings.single)
+        ..has((f) => f.groupScoped, 'groupScoped').isTrue()
+        ..has((f) => f.benchmarkName, 'benchmarkName').equals('w7')
+        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
+        ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
+    });
+
+    test('accepts a group whose latency scales with payload', () {
+      final suite = _suite([
+        _entry('write_13b', 13, 1020.0, coordinates: _g('w7')),
+        _entry('write_1mb', _oneMiB, 18190.0, coordinates: _g('w7')),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('does not flag a slow small arm against a fast large arm', () {
+      // Competing implementations measured at different sizes. The slow 13 B
+      // arm is within noise of the 1 MiB arm, but a fast 13 B arm exists, so
+      // the group did scale and must not be reported.
+      final suite = _suite([
+        _entry('slow_impl_13b', 13, 10000.0, coordinates: _g('mixed')),
+        _entry('fast_impl_13b', 13, 900.0, coordinates: _g('mixed')),
+        _entry('impl_1mb', _oneMiB, 11000.0, coordinates: _g('mixed')),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('one scaling arm at the large size clears the group', () {
+      final suite = _suite([
+        _entry('a_13b', 13, 1000.0, coordinates: _g('mixed')),
+        _entry('flat_1mb', _oneMiB, 1050.0, coordinates: _g('mixed')),
+        _entry('scaling_1mb', _oneMiB, 19000.0, coordinates: _g('mixed')),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('does not double-report what the name-keyed pass already found', () {
+      final suite = _suite([
+        _entry('same_arm', 13, _neverReadLatencyNs, coordinates: _g('g1')),
+        _entry('same_arm', _oneMiB, _neverReadLatencyNs, coordinates: _g('g2')),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+
+      check(findings).length.equals(1);
+      check(findings.single.groupScoped).isFalse();
+    });
+
+    test('does not flag a large payload that came out faster', () {
+      // Real case from `w5_w6_request_body`: 1 KiB at 3306 ns vs 64 KiB at
+      // 2374 ns. 64x the data in 0.72x the time is not invariance — the arms
+      // are different body-handling strategies, not one sweep.
+      final suite = _suite([
+        _entry('fixed_1kb', 1024, 3306.0, coordinates: _g('w5_w6')),
+        _entry('chunked_64kb', 65536, 2374.0, coordinates: _g('w5_w6')),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('ignores benchmarks with no comparison group', () {
+      final suite = _suite([
+        _entry('lonely_13b', 13, _neverReadLatencyNs),
+        _entry('lonely_1mb', _oneMiB, _neverReadLatencyNs),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('banners a group-scoped finding as a group', () {
+      final report = MarkdownReporter.renderSuite(
+        _suite([
+          _entry('write_13b', 13, _neverReadLatencyNs, coordinates: _g('w7')),
+          _entry(
+            'write_1mb',
+            _oneMiB,
+            _neverReadLatencyNs,
+            coordinates: _g('w7'),
+          ),
+        ]),
+      );
+
+      check(report).contains('group `w7`');
+      check(report).contains("across the group's arms");
+    });
+  });
+
   group('MarkdownReporter.renderSuite', () {
     test('banners implausible throughput above the tables', () {
       final report = MarkdownReporter.renderSuite(
@@ -297,6 +405,8 @@ void main() {
     });
   });
 }
+
+BenchmarkCoordinates _g(String group) => BenchmarkCoordinates({'group': group});
 
 BenchmarkSuiteResult _suite(List<BenchmarkEntry> benchmarks) =>
     BenchmarkSuiteResult(
