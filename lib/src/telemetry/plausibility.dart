@@ -16,8 +16,8 @@ final class const ImplausibleThroughput({
   /// Rate implied by the declared volume and the measured mean latency.
   required final double bytesPerSecond,
 }) {
-  /// [bytesPerSecond] expressed in GiB/s.
-  double get gibPerSecond => bytesPerSecond / (1024 * 1024 * 1024);
+  /// [bytesPerSecond] expressed in decimal GB/s (`1e9` B/s).
+  double get gbPerSecond => bytesPerSecond / 1e9;
 
   /// How far past [ThroughputPlausibility.maxPlausibleBytesPerSecond] this
   /// rate sits.
@@ -49,13 +49,13 @@ abstract final class ThroughputPlausibility() {
   /// so raise it if a genuinely tight copy loop trips the ceiling.
   static const int minCheckedBytes = 1024 * 1024;
 
-  /// Highest single-threaded rate treated as physically plausible.
+  /// Highest single-threaded rate treated as physically plausible (`100 GB/s`).
   ///
   /// Deliberately generous: roughly the ceiling of a large server's DRAM
   /// bandwidth, so anything flagged is over the limit of the fastest hardware
   /// the benchmark could plausibly be running on, not merely over this one
   /// machine's.
-  static const double maxPlausibleBytesPerSecond = 100 * 1024 * 1024 * 1024;
+  static const double maxPlausibleBytesPerSecond = 100e9;
 
   /// Returns every entry in [suite] whose declared byte throughput exceeds
   /// [maxPlausibleBytesPerSecond], ordered fastest first.
