@@ -142,7 +142,9 @@ abstract final class ThroughputPlausibility() {
   /// comparison group — `write_200_fixed_13b` and `write_200_fixed_1mb`, say —
   /// the name-keyed pass cannot pair them. A second, deliberately conservative
   /// pass covers that shape; see `_screenGroupInvariance`. Findings from it set
-  /// [InvariantLatency.groupScoped].
+  /// [InvariantLatency.groupScoped]. That pass pairs only arms sharing a name
+  /// stem once the size token is stripped, because a group's arms are otherwise
+  /// competing implementations rather than one mechanism resized.
   ///
   /// Unlike [screenSuite] this has no size floor, so it catches a payload small
   /// enough to hide under the bandwidth ceiling.
@@ -212,12 +214,37 @@ abstract final class ThroughputPlausibility() {
     return findings;
   }
 
+  /// Trailing payload-size token in a benchmark name (`_13b`, `_256kb`,
+  /// `_1mb`, `_64kib`), which is how one mechanism names its size variants.
+  ///
+  /// A byte unit is required rather than any trailing number, so a name like
+  /// `shelf_router_param_user_42` keeps its suffix instead of being folded in
+  /// with unrelated arms.
+  static final RegExp _payloadSizeSuffix = RegExp(
+    r'_\d+(b|kb|mb|gb|kib|mib|gib)$',
+    caseSensitive: false,
+  );
+
+  /// The benchmark name with its payload-size token removed, identifying *which
+  /// mechanism* an arm measures independently of the size it ran at.
+  static String _nameStem(String name) =>
+      name.replaceFirst(_payloadSizeSuffix, '');
+
   /// Collapses each comparison group to, per declared byte volume, the fastest
   /// and slowest arm measured at that volume.
-  static Map<(String, String, String), _GroupPoints> _collectGroupPoints(
-    BenchmarkSuiteResult suite,
-  ) {
-    final groups = <(String, String, String), _GroupPoints>{};
+  ///
+  /// Arms are additionally keyed by [_nameStem], so only size variants of the
+  /// same mechanism are ever compared. A `BenchmarkGroup` holds *competing
+  /// implementations* by construction — that is what it is for — so pairing two
+  /// differently-named arms compares different code paths and reads their
+  /// difference as invariance. Real example this guards:
+  /// `direct_uint8list_body_1kb` at `3.54 µs` against
+  /// `chunked_body_controller_64kb` at `3.28 µs` is not a payload that went
+  /// unread, it is a direct write measured against a chunked controller, where
+  /// per-call overhead dominates at both sizes.
+  static Map<(String, String, String, String), _GroupPoints>
+  _collectGroupPoints(BenchmarkSuiteResult suite) {
+    final groups = <(String, String, String, String), _GroupPoints>{};
     for (final benchmark in suite.benchmarks) {
       final group = benchmark.coordinates.group;
       final throughput = benchmark.throughput;
@@ -230,6 +257,7 @@ abstract final class ThroughputPlausibility() {
         group,
         benchmark.target,
         _nonGroupCoordKey(benchmark.coordinates),
+        _nameStem(benchmark.name),
       );
       groups
           .putIfAbsent(key, _GroupPoints.new)

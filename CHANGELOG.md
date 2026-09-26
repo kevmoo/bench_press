@@ -1,5 +1,17 @@
 ## 0.3.2-wip
 
+- `ThroughputPlausibility.screenInvariance`'s group pass now compares only arms
+  that share a name stem once a trailing payload-size token is stripped
+  (`write_200_fixed_13b` and `write_200_fixed_1mb` pair;
+  `direct_uint8list_body_1kb` and `chunked_body_controller_64kb` do not). A
+  `BenchmarkGroup` holds competing implementations by construction, so pairing
+  differently-named arms compared unrelated code paths and read their difference
+  as invariance. On real output it reported `64.0x` the data for `0.93x` the
+  time across a group whose arms were a direct write and a chunked controller.
+  Narrowing the ratio band in the previous entry could not fix this: `0.93` is
+  inside the band, because the error was in which points get compared, not how
+  close their latencies must be.
+
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates

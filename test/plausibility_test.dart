@@ -266,6 +266,93 @@ void main() {
         ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
     });
 
+    test('does not pair competing implementations in one group', () {
+      // Real false positive from kevmoo/gcp-http-bench
+      // results/profile/buffered_vs_streaming_postfix.json: the
+      // `w5_w6_request_body` group holds three *mechanisms*, not three sizes of
+      // one mechanism. Pairing the 1 KiB direct write against the 64 KiB
+      // chunked controller reported "64.0x the data for 0.93x the time", which
+      // is two different code paths, not an unread payload. 0.93 sits inside
+      // the invariance band, so the band alone cannot reject it.
+      final suite = _suite([
+        _entry(
+          'fixed_length_body_controller_1kb',
+          1024,
+          4062.3,
+          coordinates: _g('w5_w6_request_body'),
+        ),
+        _entry(
+          'direct_uint8list_body_1kb',
+          1024,
+          3541.3,
+          coordinates: _g('w5_w6_request_body'),
+        ),
+        _entry(
+          'chunked_body_controller_64kb',
+          64 * 1024,
+          3279.3,
+          coordinates: _g('w5_w6_request_body'),
+        ),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('still pairs size variants of one mechanism in a group', () {
+      // The stem rule must not cost us the real defect: same mechanism, two
+      // sizes, both named for their size.
+      final suite = _suite([
+        _entry(
+          'write_200_fixed_13b',
+          13,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+        _entry(
+          'write_200_fixed_1mb',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+        // A competing mechanism in the same group must neither suppress the
+        // finding above nor produce one of its own.
+        _entry(
+          'chunked_writer_1mb',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+      check(findings).length.equals(1);
+      check(findings.single)
+        ..has((f) => f.groupScoped, 'groupScoped').isTrue()
+        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
+        ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
+    });
+
+    test('keeps a trailing number that is not a payload size', () {
+      // `_42` is not a byte token, so these stay distinct arms rather than
+      // folding into one stem and being compared.
+      final suite = _suite([
+        _entry(
+          'router_param_user_42',
+          13,
+          _neverReadLatencyNs,
+          coordinates: _g('router'),
+        ),
+        _entry(
+          'router_param_user_7',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('router'),
+        ),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
     test('accepts a group whose latency scales with payload', () {
       final suite = _suite([
         _entry('write_13b', 13, 1020.0, coordinates: _g('w7')),
