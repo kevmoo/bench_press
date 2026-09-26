@@ -242,7 +242,7 @@ void main() {
   });
 
   group('ThroughputPlausibility group-scoped invariance', () {
-    // The shape the 849 GiB/s artifact actually lived in: one comparison group
+    // The shape the ~912 GB/s artifact actually lived in: one comparison group
     // with a distinct benchmark name per payload size, which the name-keyed
     // pass cannot pair.
     test('pairs sizes that carry different names inside one group', () {

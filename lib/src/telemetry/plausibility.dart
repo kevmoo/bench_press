@@ -51,10 +51,11 @@ abstract final class ThroughputPlausibility() {
 
   /// Highest single-threaded rate treated as physically plausible (`100 GB/s`).
   ///
-  /// Deliberately generous: roughly the ceiling of a large server's DRAM
-  /// bandwidth, so anything flagged is over the limit of the fastest hardware
-  /// the benchmark could plausibly be running on, not merely over this one
-  /// machine's.
+  /// Deliberately generous: at the top of what one thread can stream from
+  /// DRAM on current hardware (multi-channel server aggregates run far
+  /// higher, but a single thread cannot draw on them), so anything flagged is
+  /// over the limit of the fastest hardware the benchmark could plausibly be
+  /// running on, not merely over this one machine's.
   static const double maxPlausibleBytesPerSecond = 100e9;
 
   /// Returns every entry in [suite] whose declared byte throughput exceeds

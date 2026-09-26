@@ -741,8 +741,8 @@ abstract final class MarkdownReporter() {
       '> 🚩 **Implausible throughput** — '
       '${findings.length} benchmark${isOne ? '' : 's'} '
       'report${isOne ? 's' : ''} faster than '
-      '${ceiling.toStringAsFixed(0)} GB/s, above the memory bandwidth of '
-      'any machine this could run on.',
+      '${ceiling.toStringAsFixed(0)} GB/s, above the single-threaded memory '
+      'bandwidth of any machine this could run on.',
     );
     for (final finding in findings) {
       buffer.writeln(
@@ -803,6 +803,8 @@ abstract final class MarkdownReporter() {
   static String _formatRatio(double ratio) =>
       ratio >= 100 ? ratio.toStringAsFixed(0) : ratio.toStringAsFixed(1);
 
+  /// Payload sizes use binary prefixes (`KiB`, `MiB`, `GiB`); rates stay
+  /// decimal (see `ByteThroughput`).
   static String _formatBytes(int bytes) {
     if (bytes >= 1024 * 1024 * 1024) {
       return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';

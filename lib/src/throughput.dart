@@ -50,8 +50,10 @@ sealed class const Throughput() {
 
 /// Throughput based on raw byte volume.
 ///
-/// Uses standard SI 1000-based decimal scaling (`KB/s`, `MB/s`, `GB/s`)
-/// matching hardware memory bandwidth and network I/O conventions.
+/// Rates use decimal prefixes (`GB/s` = `1e9` B/s), matching how hardware
+/// quotes bandwidth; payload sizes in reports use binary prefixes (`KiB`,
+/// `MiB`, `GiB`), matching how buffers are allocated. A report line such as
+/// `912 GB/s on a 1.0 MiB payload` mixes the two by design.
 final class const ByteThroughput(
   /// Number of bytes processed per benchmark invocation.
   final int bytes,
