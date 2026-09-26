@@ -199,83 +199,89 @@ abstract final class ThroughputPlausibility() {
     BenchmarkSuiteResult suite, {
     required Set<String> alreadyFlagged,
   }) {
-    // (group, target, non-group coords) -> bytes -> (minLatency, maxLatency)
-    final byGroup = <(String, String, String), Map<int, (double, double)>>{};
-    final namesInGroup = <(String, String, String), Set<String>>{};
+    final groups = _collectGroupPoints(suite);
+    final findings = <InvariantLatency>[];
+    for (final MapEntry(:key, :value) in groups.entries) {
+      if (value.byBytes.length < 2) continue;
+      // The name-keyed pass already reported this group's problem.
+      if (value.names.any(alreadyFlagged.contains)) continue;
+      final finding = _findWidestGroupPair(key.$1, key.$2, value.byBytes);
+      if (finding != null) findings.add(finding);
+    }
+    return findings;
+  }
+
+  /// Collapses each comparison group to, per declared byte volume, the fastest
+  /// and slowest arm measured at that volume.
+  static Map<(String, String, String), _GroupPoints> _collectGroupPoints(
+    BenchmarkSuiteResult suite,
+  ) {
+    final groups = <(String, String, String), _GroupPoints>{};
     for (final benchmark in suite.benchmarks) {
       final group = benchmark.coordinates.group;
       final throughput = benchmark.throughput;
       final latencyNs = benchmark.metrics.meanNs;
-      if (group == null ||
-          group.isEmpty ||
-          throughput is! ByteThroughput ||
-          throughput.bytes <= 0 ||
-          latencyNs.isNaN ||
-          latencyNs.isInfinite ||
-          latencyNs <= 0.0) {
+      if (group == null || group.isEmpty || throughput is! ByteThroughput) {
         continue;
       }
+      if (throughput.bytes <= 0 || !_isMeasurable(latencyNs)) continue;
       final key = (
         group,
         benchmark.target,
         _nonGroupCoordKey(benchmark.coordinates),
       );
-      namesInGroup.putIfAbsent(key, () => {}).add(benchmark.name);
-      final byBytes = byGroup.putIfAbsent(key, () => {});
-      final existing = byBytes[throughput.bytes];
-      byBytes[throughput.bytes] = existing == null
-          ? (latencyNs, latencyNs)
-          : (
-              latencyNs < existing.$1 ? latencyNs : existing.$1,
-              latencyNs > existing.$2 ? latencyNs : existing.$2,
-            );
+      groups
+          .putIfAbsent(key, _GroupPoints.new)
+          .add(benchmark.name, throughput.bytes, latencyNs);
     }
-
-    final findings = <InvariantLatency>[];
-    for (final MapEntry(:key, :value) in byGroup.entries) {
-      if (value.length < 2) {
-        continue;
-      }
-      // The name-keyed pass already reported this group's problem.
-      if (namesInGroup[key]!.any(alreadyFlagged.contains)) {
-        continue;
-      }
-      final volumes = value.keys.toList()..sort();
-      // Fastest arm at the small size, slowest arm at the large size.
-      InvariantLatency? widest;
-      var bestVolumeRatio = 0.0;
-      for (var i = 0; i < volumes.length; i++) {
-        final smallBytes = volumes[i];
-        final smallLatencyNs = value[smallBytes]!.$1;
-        for (var j = volumes.length - 1; j > i; j--) {
-          final largeBytes = volumes[j];
-          final largeLatencyNs = value[largeBytes]!.$2;
-          final volumeRatio = largeBytes / smallBytes;
-          if (volumeRatio < minVolumeRatio || volumeRatio <= bestVolumeRatio) {
-            break;
-          }
-          final latencyRatio = largeLatencyNs / smallLatencyNs;
-          if (latencyRatio >= minInvariantLatencyRatio &&
-              latencyRatio <= maxInvariantLatencyRatio) {
-            bestVolumeRatio = volumeRatio;
-            widest = InvariantLatency(
-              benchmarkName: key.$1,
-              target: key.$2,
-              smallBytes: smallBytes,
-              largeBytes: largeBytes,
-              smallLatencyNs: smallLatencyNs,
-              largeLatencyNs: largeLatencyNs,
-              groupScoped: true,
-            );
-          }
-        }
-      }
-      if (widest != null) {
-        findings.add(widest);
-      }
-    }
-    return findings;
+    return groups;
   }
+
+  /// Widest volume spread in [byBytes] whose latency did not move, comparing
+  /// the slowest arm at the large size against the fastest at the small size.
+  static InvariantLatency? _findWidestGroupPair(
+    String group,
+    String target,
+    Map<int, (double, double)> byBytes,
+  ) {
+    final volumes = byBytes.keys.toList()..sort();
+    InvariantLatency? widest;
+    var bestVolumeRatio = 0.0;
+    for (var i = 0; i < volumes.length; i++) {
+      final smallBytes = volumes[i];
+      final smallLatencyNs = byBytes[smallBytes]!.$1;
+      for (var j = volumes.length - 1; j > i; j--) {
+        final largeBytes = volumes[j];
+        final volumeRatio = largeBytes / smallBytes;
+        if (volumeRatio < minVolumeRatio || volumeRatio <= bestVolumeRatio) {
+          break;
+        }
+        final largeLatencyNs = byBytes[largeBytes]!.$2;
+        if (!_isInvariant(smallLatencyNs, largeLatencyNs)) continue;
+        bestVolumeRatio = volumeRatio;
+        widest = InvariantLatency(
+          benchmarkName: group,
+          target: target,
+          smallBytes: smallBytes,
+          largeBytes: largeBytes,
+          smallLatencyNs: smallLatencyNs,
+          largeLatencyNs: largeLatencyNs,
+          groupScoped: true,
+        );
+      }
+    }
+    return widest;
+  }
+
+  /// Whether latency held steady between the two points.
+  static bool _isInvariant(double smallLatencyNs, double largeLatencyNs) {
+    final ratio = largeLatencyNs / smallLatencyNs;
+    return ratio >= minInvariantLatencyRatio &&
+        ratio <= maxInvariantLatencyRatio;
+  }
+
+  static bool _isMeasurable(double latencyNs) =>
+      !latencyNs.isNaN && !latencyNs.isInfinite && latencyNs > 0.0;
 
   static String _nonGroupCoordKey(BenchmarkCoordinates coordinates) {
     if (coordinates.isEmpty) return '';
@@ -358,4 +364,21 @@ final class const InvariantLatency({
   ///
   /// A value near `1.0` alongside a large [volumeRatio] is the finding.
   double get latencyRatio => largeLatencyNs / smallLatencyNs;
+}
+
+/// Per-volume fastest and slowest arm within one comparison group.
+final class _GroupPoints() {
+  final Map<int, (double, double)> byBytes = {};
+  final Set<String> names = {};
+
+  void add(String name, int bytes, double latencyNs) {
+    names.add(name);
+    final existing = byBytes[bytes];
+    byBytes[bytes] = existing == null
+        ? (latencyNs, latencyNs)
+        : (
+            latencyNs < existing.$1 ? latencyNs : existing.$1,
+            latencyNs > existing.$2 ? latencyNs : existing.$2,
+          );
+  }
 }
