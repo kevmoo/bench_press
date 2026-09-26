@@ -266,6 +266,93 @@ void main() {
         ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
     });
 
+    test('does not pair competing implementations in one group', () {
+      // Real false positive from kevmoo/gcp-http-bench
+      // results/profile/buffered_vs_streaming_postfix.json: the
+      // `w5_w6_request_body` group holds three *mechanisms*, not three sizes of
+      // one mechanism. Pairing the 1 KiB direct write against the 64 KiB
+      // chunked controller reported "64.0x the data for 0.93x the time", which
+      // is two different code paths, not an unread payload. 0.93 sits inside
+      // the invariance band, so the band alone cannot reject it.
+      final suite = _suite([
+        _entry(
+          'fixed_length_body_controller_1kb',
+          1024,
+          4062.3,
+          coordinates: _g('w5_w6_request_body'),
+        ),
+        _entry(
+          'direct_uint8list_body_1kb',
+          1024,
+          3541.3,
+          coordinates: _g('w5_w6_request_body'),
+        ),
+        _entry(
+          'chunked_body_controller_64kb',
+          64 * 1024,
+          3279.3,
+          coordinates: _g('w5_w6_request_body'),
+        ),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('still pairs size variants of one mechanism in a group', () {
+      // The stem rule must not cost us the real defect: same mechanism, two
+      // sizes, both named for their size.
+      final suite = _suite([
+        _entry(
+          'write_200_fixed_13b',
+          13,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+        _entry(
+          'write_200_fixed_1mb',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+        // A competing mechanism in the same group must neither suppress the
+        // finding above nor produce one of its own.
+        _entry(
+          'chunked_writer_1mb',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('w7'),
+        ),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+      check(findings).length.equals(1);
+      check(findings.single)
+        ..has((f) => f.groupScoped, 'groupScoped').isTrue()
+        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
+        ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
+    });
+
+    test('keeps a trailing number that is not a payload size', () {
+      // `_42` is not a byte token, so these stay distinct arms rather than
+      // folding into one stem and being compared.
+      final suite = _suite([
+        _entry(
+          'router_param_user_42',
+          13,
+          _neverReadLatencyNs,
+          coordinates: _g('router'),
+        ),
+        _entry(
+          'router_param_user_7',
+          _oneMiB,
+          _neverReadLatencyNs,
+          coordinates: _g('router'),
+        ),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
     test('accepts a group whose latency scales with payload', () {
       final suite = _suite([
         _entry('write_13b', 13, 1020.0, coordinates: _g('w7')),
@@ -276,12 +363,12 @@ void main() {
     });
 
     test('does not flag a slow small arm against a fast large arm', () {
-      // Competing implementations measured at different sizes. The slow 13 B
-      // arm is within noise of the 1 MiB arm, but a fast 13 B arm exists, so
-      // the group did scale and must not be reported.
+      // Same stem measured at two equivalent small-size spellings (`1024b` vs
+      // `1kib`) and a large size (`1mb`). The slow 1 KiB point is within noise
+      // of the 1 MiB point, but the fast 1 KiB point shows the stem scaled.
       final suite = _suite([
-        _entry('slow_impl_13b', 13, 10000.0, coordinates: _g('mixed')),
-        _entry('fast_impl_13b', 13, 900.0, coordinates: _g('mixed')),
+        _entry('impl_1024b', 1024, 10000.0, coordinates: _g('mixed')),
+        _entry('impl_1kib', 1024, 900.0, coordinates: _g('mixed')),
         _entry('impl_1mb', _oneMiB, 11000.0, coordinates: _g('mixed')),
       ]);
 
@@ -290,9 +377,9 @@ void main() {
 
     test('one scaling arm at the large size clears the group', () {
       final suite = _suite([
-        _entry('a_13b', 13, 1000.0, coordinates: _g('mixed')),
-        _entry('flat_1mb', _oneMiB, 1050.0, coordinates: _g('mixed')),
-        _entry('scaling_1mb', _oneMiB, 19000.0, coordinates: _g('mixed')),
+        _entry('impl_13b', 13, 1000.0, coordinates: _g('mixed')),
+        _entry('impl_1mb', _oneMiB, 1050.0, coordinates: _g('mixed')),
+        _entry('impl_1mib', _oneMiB, 19000.0, coordinates: _g('mixed')),
       ]);
 
       check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
@@ -311,12 +398,13 @@ void main() {
     });
 
     test('does not flag a large payload that came out faster', () {
-      // Real case from `w5_w6_request_body`: 1 KiB at 3306 ns vs 64 KiB at
-      // 2374 ns. 64x the data in 0.72x the time is not invariance — the arms
-      // are different body-handling strategies, not one sweep.
+      // Same stem at two sizes (`write_1kb` at 3306 ns vs `write_64kb` at
+      // 2374 ns): 64x the data in 0.72x the time (< minInvariantLatencyRatio)
+      // means a different code path (e.g. a bulk fast-path) kicked in, not an
+      // unread payload.
       final suite = _suite([
-        _entry('fixed_1kb', 1024, 3306.0, coordinates: _g('w5_w6')),
-        _entry('chunked_64kb', 65536, 2374.0, coordinates: _g('w5_w6')),
+        _entry('write_1kb', 1024, 3306.0, coordinates: _g('w5_w6')),
+        _entry('write_64kb', 65536, 2374.0, coordinates: _g('w5_w6')),
       ]);
 
       check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
