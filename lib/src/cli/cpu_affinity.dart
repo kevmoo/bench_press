@@ -94,22 +94,31 @@ final class const CpuAffinity._(
 /// a suite that silently ran unpinned is distinguishable in the logs from one
 /// that was pinned as asked.
 ///
-/// [isLinux] and [hasTaskset] exist so this is testable without depending on
-/// what the host running the tests happens to have installed.
-String? cpuPinningUnsupportedReason({
-  bool? isLinux,
-  bool Function()? hasTaskset,
-}) {
-  if (!(isLinux ?? Platform.isLinux)) {
-    final os = Platform.operatingSystem;
-    if (Platform.isMacOS) {
+/// [os] (a [Platform.operatingSystem] value) and [hasTaskset] exist so every
+/// branch is testable from any host, rather than only the one the tests happen
+/// to run on.
+String? cpuPinningUnsupportedReason({String? os, bool Function()? hasTaskset}) {
+  final host = os ?? Platform.operatingSystem;
+  if (host != 'linux') {
+    if (host == 'windows') {
+      // Windows is the common Dart/Flutter development host, and unlike macOS
+      // it does have affinity control — it is simply not wired up here, since
+      // the mask is a hex bitmap rather than a taskset CPU list.
+      return 'CPU pinning is not supported on Windows. Windows does have '
+          'processor affinity, but it takes a hex bitmask rather than a CPU '
+          'list, so --pin-cpu does not map onto it. Pin the whole command '
+          'instead: "start /affinity 4 dart run bench_press run ..." pins to '
+          'CPU 2 (bit 2 = 0x4), or in PowerShell set ProcessorAffinity on the '
+          'process returned by Start-Process -PassThru.';
+    }
+    if (host == 'macos') {
       return 'CPU pinning is unavailable on macOS: the Darwin kernel exposes '
           'no POSIX CPU affinity interface, so there is no equivalent of '
-          'taskset. Reduce variance by closing other work and raising '
-          '--trials instead.';
+          'taskset, and no per-process workaround either. Reduce variance by '
+          'closing other work and raising --trials instead.';
     }
-    return 'CPU pinning is only implemented on Linux (host is "$os"), where it '
-        'shells out to taskset.';
+    return 'CPU pinning is only implemented on Linux (host is "$host"), where '
+        'it shells out to taskset.';
   }
   if (!(hasTaskset ?? _tasksetOnPath)()) {
     return 'CPU pinning needs "taskset" on PATH, which was not found. It ships '

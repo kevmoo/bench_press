@@ -269,11 +269,18 @@ Caveats worth knowing:
   `failed to set pid's affinity: Invalid argument` and a non-zero exit. The host
   CPU count is deliberately not used as a bound, because a process confined to a
   narrower cpuset would then be told valid CPUs are invalid.
-- **Linux only.** macOS is not supported — the Darwin kernel exposes no POSIX
-  CPU affinity interface, so there is no `taskset` equivalent. On any
-  unsupported host, or when `taskset` is missing from `PATH` (common in minimal
-  container images; it ships in `util-linux`), the flag warns on stderr and the
-  run continues unpinned.
+- **Linux only. Windows and macOS are both unsupported**, for different reasons:
+  - **Windows** _does_ have processor affinity, but it takes a hex bitmask
+    rather than a CPU list, so `--pin-cpu` does not map onto it. Pin the whole
+    command instead — `start /affinity 4 dart run bench_press run ...` pins to
+    CPU 2 (bit 2 = `0x4`), or in PowerShell set `ProcessorAffinity` on the
+    process from `Start-Process -PassThru`.
+  - **macOS** has no equivalent at all: the Darwin kernel exposes no POSIX CPU
+    affinity interface, so there is no `taskset` and no per-process workaround.
+    Reduce variance by closing other work and raising `--trials`.
+- On any unsupported host, or when `taskset` is missing from `PATH` (common in
+  minimal container images; it ships in `util-linux`), the flag warns on stderr
+  naming the specific obstacle, and the run continues unpinned.
 - **Not compatible with `--isolate-mode`**, which runs JIT benchmarks in-process
   rather than spawning a command to wrap. Pin the whole process instead:
   `taskset -c 2 dart run bench_press run --isolate-mode ...`.

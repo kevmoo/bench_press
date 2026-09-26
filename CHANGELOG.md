@@ -15,6 +15,10 @@
     in-process and so has no command to wrap. Under `--isolate-mode` the warning
     distinguishes a run that still has spawned targets to pin from a JIT-only
     run, where nothing is pinned at all.
+  - **Windows and macOS are unsupported for different reasons**, and the warning
+    says which. Windows has processor affinity but takes a hex bitmask rather
+    than a CPU list, so the message gives the `start /affinity` equivalent;
+    macOS has no affinity interface at all, so it points at `--trials` instead.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name

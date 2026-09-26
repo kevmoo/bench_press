@@ -117,9 +117,10 @@ final class RunCommand({
         'pin-cpu',
         valueHelp: 'cpu-list',
         help:
-            'Pin benchmark processes to these CPUs via taskset (Linux only). '
-            'Accepts taskset -c syntax: "2", "0,2,4", "0-3", "0-7:2". '
-            'Use "lscpu -e" to find CPUs that are not SMT siblings.',
+            'Pin benchmark processes to these CPUs via taskset. Linux only: '
+            'on Windows and macOS this warns and runs unpinned. Accepts '
+            'taskset -c syntax: "2", "0,2,4", "0-3", "0-7:2". Use '
+            '"lscpu -e=CPU,CORE" to find CPUs that are not SMT siblings.',
       )
       ..addOption(
         'format',

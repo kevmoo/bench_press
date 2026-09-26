@@ -123,13 +123,13 @@ void main() {
 
   group('cpuPinningUnsupportedReason', () {
     test('is null on Linux with taskset present', () {
-      check(cpuPinningUnsupportedReason(isLinux: true, hasTaskset: () => true))
+      check(cpuPinningUnsupportedReason(os: 'linux', hasTaskset: () => true))
           .isNull();
     });
 
     test('names taskset and how to install it when missing', () {
       final reason = cpuPinningUnsupportedReason(
-        isLinux: true,
+        os: 'linux',
         hasTaskset: () => false,
       );
       check(reason).isNotNull();
@@ -137,15 +137,44 @@ void main() {
       check(reason).contains('util-linux');
     });
 
-    test('explains the platform when not Linux', () {
+    test('offers Windows the affinity workaround it actually has', () {
+      // Windows is the common Dart/Flutter host, so this branch matters more
+      // than its rarity in CI suggests. It must not be lumped in with macOS:
+      // Windows has affinity, it just is not a CPU list.
       final reason = cpuPinningUnsupportedReason(
-        isLinux: false,
+        os: 'windows',
         hasTaskset: () => true,
       );
       check(reason).isNotNull();
-      // The macOS branch reads Platform directly, so assert only the part that
-      // holds for whichever non-Linux message this host produces.
-      check(reason!.toLowerCase()).contains('cpu pinning');
+      check(reason!).contains('Windows');
+      check(reason).contains('start /affinity');
+      check(
+        because: 'a Windows user must not be told to install util-linux',
+        reason,
+      ).not((s) => s.contains('util-linux'));
+    });
+
+    test('tells macOS there is no workaround, not a taskset hint', () {
+      final reason = cpuPinningUnsupportedReason(
+        os: 'macos',
+        hasTaskset: () => true,
+      );
+      check(reason).isNotNull();
+      check(reason!).contains('macOS');
+      check(reason).contains('--trials');
+      check(
+        because: 'Darwin has no affinity interface, so offer no false hope',
+        reason,
+      ).not((s) => s.contains('start /affinity'));
+    });
+
+    test('names an unrecognized platform rather than guessing', () {
+      final reason = cpuPinningUnsupportedReason(
+        os: 'fuchsia',
+        hasTaskset: () => true,
+      );
+      check(reason).isNotNull();
+      check(reason!).contains('fuchsia');
     });
 
     test('reports available when the real host has taskset', () {
