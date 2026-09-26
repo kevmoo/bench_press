@@ -332,6 +332,11 @@ void main() {
 }
 
 Future<void> _createMockSdkInSandbox() async {
-  await d.dir('bin', [d.file('dart', '')]).create();
+  // The executable must carry the name the platform actually looks for:
+  // `DartSdk.dartExecutable` probes `dart.exe` on Windows, so a fixture that
+  // only ever writes `bin/dart` makes a valid SDK look invalid there.
+  await d.dir('bin', [
+    d.file(Platform.isWindows ? 'dart.exe' : 'dart', ''),
+  ]).create();
   await d.file('version', '3.14.0\n').create();
 }
