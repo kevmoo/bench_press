@@ -375,6 +375,104 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       },
     );
 
+    test('run rejects a malformed --pin-cpu with exit code 64', () async {
+      // A malformed CPU list must not degrade to an unpinned run: that would
+      // exit 0 and emit a full report of numbers that look pinned, with the
+      // only trace on stderr — the stream discarded when capturing the report.
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        'run',
+        '--pin-cpu',
+        '0..3',
+      ]);
+      check(result.exitCode).equals(64);
+      check(result.stderr.toString()).contains('Invalid --pin-cpu value');
+      check(
+        because: 'a rejected run must not emit a benchmark report',
+        result.stdout.toString(),
+      ).not((s) => s.contains('| Benchmark |'));
+    });
+
+    test('--pin-cpu on a jit-only --isolate-mode run pins nothing', () async {
+      final benchFile = writeSyncBenchmark(
+        fileName: 'pin_isolate_bench.dart',
+        className: 'PinIsolateBenchmark',
+        name: 'pin_isolate',
+        body: 'Blackhole.consume(1);',
+      );
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        'run',
+        '-t',
+        'jit',
+        '--isolate-mode',
+        '--pin-cpu',
+        '0',
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        benchFile.path,
+      ]);
+      final err = result.stderr.toString();
+      check(err).contains('--pin-cpu does not apply to --isolate-mode');
+      // The run is jit-only, so there is no spawned target left to pin. Saying
+      // "Non-JIT targets are still pinned" here would be vacuously true and
+      // read as reassurance.
+      check(
+        because: 'jit-only isolate run has no other target to pin',
+        err,
+      ).contains('no other targets, so nothing is pinned');
+      // Linux-only: elsewhere the unsupported-host branch returns first, so
+      // this warning is never reached and the assertions above cannot hold.
+    }, skip: Platform.isLinux ? null : 'pinning is only supported on Linux');
+
+    test('--pin-cpu on an --isolate-mode run with non-JIT matrix coordinates '
+        'still pins spawned targets', () async {
+      final benchFile = writeSyncBenchmark(
+        fileName: 'pin_matrix_bench.dart',
+        className: 'PinMatrixBenchmark',
+        name: 'pin_matrix',
+        body: 'Blackhole.consume(1);',
+      );
+      final configFile = File(d.path('pin_matrix.yaml'))
+        ..writeAsStringSync('''
+defaults:
+  targets: [jit]
+matrix:
+  baseline:
+    runtime: jit
+  axes:
+    runtime: [jit, aot]
+''');
+      final result = await Process.run('dart', [
+        'run',
+        'bin/bench_press.dart',
+        'run',
+        '-c',
+        configFile.path,
+        '--isolate-mode',
+        '--pin-cpu',
+        '0',
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        benchFile.path,
+      ]);
+      check(result.exitCode).equals(0);
+      final err = result.stderr.toString();
+      check(err).contains('--pin-cpu does not apply to --isolate-mode');
+      check(
+        because:
+            'matrix defines an aot coordinate even though CLI --target '
+            'defaulted to jit',
+        err,
+      ).contains('Non-JIT targets in this run are still pinned.');
+    }, skip: Platform.isLinux ? null : 'pinning is only supported on Linux');
+
     test(
       'run and validate reject non-existent --d8-path with exit code 64',
       () async {
