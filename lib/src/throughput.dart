@@ -5,7 +5,7 @@
 ///
 /// Use `Throughput.bytes` for data processing, serializers, codecs,
 /// compression, cryptography, and network I/O to automatically compute and
-/// format data rates (`B/s`, `KiB/s`, `MiB/s`, `GiB/s`).
+/// format data rates (`B/s`, `KB/s`, `MB/s`, `GB/s`).
 ///
 /// Use `Throughput.elements` for discrete items, records, AST nodes, or event
 /// counts to compute item processing rates (`items/s`, `records/s`,
@@ -50,14 +50,8 @@ sealed class const Throughput() {
 
 /// Throughput based on raw byte volume.
 ///
-/// Uses 1024-based binary scaling, labelled with the binary prefixes that
-/// divisor implies (`KiB/s`, `MiB/s`, `GiB/s`), matching operating system and
-/// I/O benchmarking conventions.
-///
-/// The prefixes are deliberately binary rather than `KB/s`/`MB/s`/`GB/s`. The
-/// two differ by 7.4% at the gigabyte scale, which is enough to change how a
-/// rate reads against a hardware bandwidth figure, and [ElementThroughput]
-/// already spends `k`/`M`/`G` on genuinely 1000-based scaling.
+/// Uses standard SI 1000-based decimal scaling (`KB/s`, `MB/s`, `GB/s`)
+/// matching hardware memory bandwidth and network I/O conventions.
 final class const ByteThroughput(
   /// Number of bytes processed per benchmark invocation.
   final int bytes,
@@ -73,15 +67,12 @@ final class const ByteThroughput(
     final secondsPerOp = meanLatencyNs / 1e9;
     final bytesPerSecond = bytes / secondsPerOp;
 
-    if (bytesPerSecond >= 1024 * 1024 * 1024) {
-      final gibPerSec = bytesPerSecond / (1024 * 1024 * 1024);
-      return '${gibPerSec.toStringAsFixed(2)} GiB/s';
-    } else if (bytesPerSecond >= 1024 * 1024) {
-      final mibPerSec = bytesPerSecond / (1024 * 1024);
-      return '${mibPerSec.toStringAsFixed(1)} MiB/s';
-    } else if (bytesPerSecond >= 1024) {
-      final kibPerSec = bytesPerSecond / 1024;
-      return '${kibPerSec.toStringAsFixed(1)} KiB/s';
+    if (bytesPerSecond >= 1e9) {
+      return '${(bytesPerSecond / 1e9).toStringAsFixed(2)} GB/s';
+    } else if (bytesPerSecond >= 1e6) {
+      return '${(bytesPerSecond / 1e6).toStringAsFixed(1)} MB/s';
+    } else if (bytesPerSecond >= 1e3) {
+      return '${(bytesPerSecond / 1e3).toStringAsFixed(1)} KB/s';
     } else {
       return '${bytesPerSecond.toStringAsFixed(0)} B/s';
     }

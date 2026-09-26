@@ -3,7 +3,7 @@ import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
 // The real defect this guard exists for: a 1 MiB payload handed to a sink that
-// stored the reference without reading it, timed at 1.15 µs — ~849 GiB/s.
+// stored the reference without reading it, timed at 1.15 µs — ~912 GB/s.
 const _oneMiB = 1024 * 1024;
 const _neverReadLatencyNs = 1150.0;
 
@@ -21,12 +21,12 @@ void main() {
         ..has((f) => f.benchmarkName, 'benchmarkName').equals('blackhole_1m')
         ..has((f) => f.target, 'target').equals('exe')
         ..has((f) => f.bytes, 'bytes').equals(_oneMiB)
-        ..has((f) => f.gibPerSecond, 'gibPerSecond').isGreaterThan(800)
-        ..has((f) => f.overCeilingFactor, 'overCeilingFactor').isGreaterThan(8);
+        ..has((f) => f.gbPerSecond, 'gbPerSecond').isGreaterThan(900)
+        ..has((f) => f.overCeilingFactor, 'overCeilingFactor').isGreaterThan(9);
     });
 
     test('accepts a rate under the ceiling', () {
-      // 1 MiB in 100 µs is ~10 GiB/s: fast, but a real memcpy can do it.
+      // 1 MiB in 100 µs is ~10.5 GB/s: fast, but a real memcpy can do it.
       check(
         ThroughputPlausibility.screen(
           benchmarkName: 'copy_1m',
@@ -356,7 +356,7 @@ void main() {
       );
 
       check(report).contains('🚩 **Implausible throughput**');
-      check(report).contains('1 benchmark reports faster than 100 GiB/s');
+      check(report).contains('1 benchmark reports faster than 100 GB/s');
       check(report).contains('`never_read_1m`');
       check(report).contains('1.0 MiB payload');
       check(report).contains('Confirm the bytes are consumed');
@@ -373,7 +373,7 @@ void main() {
         ]),
       );
 
-      check(report).contains('2 benchmarks report faster than 100 GiB/s');
+      check(report).contains('2 benchmarks report faster than 100 GB/s');
     });
 
     test('banners latency that does not track payload size', () {

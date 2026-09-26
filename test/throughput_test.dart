@@ -10,30 +10,32 @@ void main() {
       check(tp.formatRate(1e9)).equals('100 B/s');
     });
 
-    test('formats kibibytes per second', () {
-      const tp = Throughput.bytes(1024 * 10);
-      // 10 KiB in 1 second = 10.0 KiB/s
-      check(tp.formatRate(1e9)).equals('10.0 KiB/s');
+    test('formats kilobytes per second', () {
+      const tp = Throughput.bytes(1000 * 10);
+      // 10 KB in 1 second = 10.0 KB/s
+      check(tp.formatRate(1e9)).equals('10.0 KB/s');
     });
 
-    test('formats mebibytes per second', () {
-      const tp = Throughput.bytes(1024 * 1024 * 50);
-      // 50 MiB in 100 ms (1e8 ns) = 500.0 MiB/s
-      check(tp.formatRate(1e8)).equals('500.0 MiB/s');
+    test('formats megabytes per second', () {
+      const tp = Throughput.bytes(1000 * 1000 * 50);
+      // 50 MB in 100 ms (1e8 ns) = 500.0 MB/s
+      check(tp.formatRate(1e8)).equals('500.0 MB/s');
     });
 
-    test('formats gibibytes per second', () {
-      const tp = Throughput.bytes(1024 * 1024 * 1024);
-      // 1 GiB in 500 ms (5e8 ns) = 2.00 GiB/s
-      check(tp.formatRate(5e8)).equals('2.00 GiB/s');
-    });
-
-    test('scales by 1024, not 1000', () {
-      // The label and the divisor have to agree, so pick a rate that the two
-      // conventions disagree about: exactly 1e9 B/s is `1.00 GB/s` decimal but
-      // only 0.93 GiB/s, which falls in the mebibyte branch.
+    test('formats gigabytes per second', () {
       const tp = Throughput.bytes(1000 * 1000 * 1000);
-      check(tp.formatRate(1e9)).equals('953.7 MiB/s');
+      // 1 GB in 500 ms (5e8 ns) = 2.00 GB/s
+      check(tp.formatRate(5e8)).equals('2.00 GB/s');
+    });
+
+    test('scales by 1000, not 1024', () {
+      // 1 MiB (1,048,576 B) in 1 second (1e9 ns) is 1.0 MB/s in decimal
+      // scaling (whereas 1024-based scaling would be 1.0 MiB/s, and 1,000,000 B
+      // in 1 second is 1.0 MB/s rather than 976.6 KB/s).
+      const tp = Throughput.bytes(1000 * 1000);
+      check(tp.formatRate(1e9)).equals('1.0 MB/s');
+      const tpMiB = Throughput.bytes(1024 * 1024 * 100);
+      check(tpMiB.formatRate(1e9)).equals('104.9 MB/s');
     });
 
     test('handles edge cases gracefully', () {

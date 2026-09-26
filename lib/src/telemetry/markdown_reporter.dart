@@ -735,21 +735,19 @@ abstract final class MarkdownReporter() {
     if (findings.isEmpty) {
       return;
     }
-    final ceiling =
-        ThroughputPlausibility.maxPlausibleBytesPerSecond /
-        (1024 * 1024 * 1024);
+    final ceiling = ThroughputPlausibility.maxPlausibleBytesPerSecond / 1e9;
     final isOne = findings.length == 1;
     buffer.writeln(
       '> 🚩 **Implausible throughput** — '
       '${findings.length} benchmark${isOne ? '' : 's'} '
       'report${isOne ? 's' : ''} faster than '
-      '${ceiling.toStringAsFixed(0)} GiB/s, above the memory bandwidth of '
+      '${ceiling.toStringAsFixed(0)} GB/s, above the memory bandwidth of '
       'any machine this could run on.',
     );
     for (final finding in findings) {
       buffer.writeln(
         '> - `${finding.benchmarkName}` (`${finding.target}`): '
-        '**${finding.gibPerSecond.toStringAsFixed(2)} GiB/s** on a '
+        '**${finding.gbPerSecond.toStringAsFixed(2)} GB/s** on a '
         '${_formatBytes(finding.bytes)} payload, '
         '${finding.overCeilingFactor.toStringAsFixed(1)}x over.',
       );
