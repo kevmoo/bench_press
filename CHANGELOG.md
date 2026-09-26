@@ -1,39 +1,16 @@
 ## 0.3.2-wip
 
-- **Breaking (report text):** `Throughput.bytes` now labels its rates with
-  binary prefixes — `KiB/s`, `MiB/s`, `GiB/s` — instead of `KB/s`, `MB/s`,
-  `GB/s`. The divisor was already 1024, so no reported value changes, only the
-  unit it is printed with. Previously a single report could show `52.58 GB/s` in
-  a throughput column and `849.18 GiB/s` in a plausibility banner for the same
-  kind of quantity. The gap between the two conventions is 7.4% at gigabyte
-  scale, which is enough to change how a rate reads next to a hardware bandwidth
-  figure.
-- `ThroughputPlausibility.screenInvariance` now also compares across the arms of
-  a comparison group, so it catches the defect when each payload size carries
-  its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name
-  recurring across groups. The previous release note claimed it caught a 256 KiB
-  case the bandwidth ceiling misses; that was only true for the recurring-name
-  shape, and the original defect was in the other one. Group-scoped findings set
-  `InvariantLatency.groupScoped` and are worded as such in the report.
-- Narrowed the invariance test from a ceiling to a band
-  (`minInvariantLatencyRatio` 0.9 to `maxInvariantLatencyRatio` 1.25). A payload
-  that is never read gives a latency ratio of ~1.0, so a large payload coming
-  out materially _faster_ is not invariance — it means the two points are doing
-  different work. Without the floor, a group holding unrelated arms read as a
-  finding on real output.
-- Added `ThroughputPlausibility`, which screens benchmarks that declare
-  `Throughput.bytes` for two signs of a payload that is never actually read, and
-  `MarkdownReporter.renderSuite` banners naming what it finds. Such a benchmark
-  reports a rate bounded by loop overhead rather than data movement, which can
-  be an order of magnitude past what the hardware can do. `screenSuite` catches
-  rates above a memory-bandwidth ceiling; `screenInvariance` catches a benchmark
-  whose latency does not move when its payload does, which works at payload
-  sizes small enough to stay under that ceiling.
+- **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
+  by decimal `1000` (`KB/s`, `MB/s`, `GB/s`) instead of `1024`, matching
+  hardware memory bandwidth, network I/O conventions, and `ElementThroughput`.
+- Added `ThroughputPlausibility` (`screenSuite` and `screenInvariance`) and
+  `MarkdownReporter.renderSuite` warning banners to flag benchmarks whose
+  declared `Throughput.bytes` rate exceeds physical memory bandwidth
+  (`100 GB/s`) or whose latency remains invariant (`0.9x–1.25x`) across `>=8x`
+  payload size spreads (both across matrix coordinates and across comparison
+  group arms).
 - Stopped `MarkdownReporter` from wrapping tables in `mdformat off` /
-  `mdformat on` HTML-comment guards. Those guards are a Google3/Piper
-  convention; on GitHub they are inert comments that every consumer then has to
-  strip out of committed reports. Every table row is already emitted on a single
-  physical line, so nothing relied on them.
+  `mdformat on` HTML-comment guards.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now
   authoritative. When `customSdkPath` (the `sdk` matrix axis) is set but does
   not resolve to a usable SDK, `DartSdk.dartExecutable` returns `null` instead

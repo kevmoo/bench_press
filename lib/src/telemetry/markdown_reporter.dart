@@ -735,21 +735,19 @@ abstract final class MarkdownReporter() {
     if (findings.isEmpty) {
       return;
     }
-    final ceiling =
-        ThroughputPlausibility.maxPlausibleBytesPerSecond /
-        (1024 * 1024 * 1024);
+    final ceiling = ThroughputPlausibility.maxPlausibleBytesPerSecond / 1e9;
     final isOne = findings.length == 1;
     buffer.writeln(
       '> 🚩 **Implausible throughput** — '
       '${findings.length} benchmark${isOne ? '' : 's'} '
       'report${isOne ? 's' : ''} faster than '
-      '${ceiling.toStringAsFixed(0)} GiB/s, above the memory bandwidth of '
-      'any machine this could run on.',
+      '${ceiling.toStringAsFixed(0)} GB/s, above the single-threaded memory '
+      'bandwidth of any machine this could run on.',
     );
     for (final finding in findings) {
       buffer.writeln(
         '> - `${finding.benchmarkName}` (`${finding.target}`): '
-        '**${finding.gibPerSecond.toStringAsFixed(2)} GiB/s** on a '
+        '**${finding.gbPerSecond.toStringAsFixed(2)} GB/s** on a '
         '${_formatBytes(finding.bytes)} payload, '
         '${finding.overCeilingFactor.toStringAsFixed(1)}x over.',
       );
@@ -805,6 +803,8 @@ abstract final class MarkdownReporter() {
   static String _formatRatio(double ratio) =>
       ratio >= 100 ? ratio.toStringAsFixed(0) : ratio.toStringAsFixed(1);
 
+  /// Payload sizes use binary prefixes (`KiB`, `MiB`, `GiB`); rates stay
+  /// decimal (see `ByteThroughput`).
   static String _formatBytes(int bytes) {
     if (bytes >= 1024 * 1024 * 1024) {
       return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
