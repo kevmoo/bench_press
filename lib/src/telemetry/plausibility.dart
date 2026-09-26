@@ -116,9 +116,8 @@ abstract final class ThroughputPlausibility() {
   ///
   /// A payload that is never read gives a ratio of ~1.0 by construction, so a
   /// large payload coming out materially *faster* is not invariance — it means
-  /// the two points are doing different work. Without this floor a comparison
-  /// group holding unrelated arms (different body-handling strategies, say)
-  /// reads as a finding.
+  /// the two points are doing different work (for example, a bulk fast-path
+  /// that kicks in above a size threshold).
   static const double minInvariantLatencyRatio = 0.9;
 
   /// Largest latency ratio still treated as "did not move".
@@ -192,12 +191,12 @@ abstract final class ThroughputPlausibility() {
   /// pass cannot pair.
   ///
   /// Arms in a group are usually competing implementations of the same payload,
-  /// so a naive pairing could compare a slow small-payload arm against a fast
-  /// large-payload one and call the difference invariance. To rule that out,
-  /// each payload size is collapsed to its fastest and slowest arm, and the
-  /// comparison uses the **slowest** arm at the large size against the
-  /// **fastest** arm at the small size — the pairing most likely to show
-  /// growth. If even that shows none, no arm in the group scaled with payload.
+  /// so [_collectGroupPoints] partitions each group by [_nameStem] first,
+  /// comparing only size variants of the same mechanism. Within a stem, each
+  /// payload size is collapsed to its fastest and slowest point, and the
+  /// comparison uses the **slowest** point at the large size against the
+  /// **fastest** point at the small size — the pairing most likely to show
+  /// growth.
   static List<InvariantLatency> _screenGroupInvariance(
     BenchmarkSuiteResult suite, {
     required Set<String> alreadyFlagged,
@@ -230,18 +229,17 @@ abstract final class ThroughputPlausibility() {
   static String _nameStem(String name) =>
       name.replaceFirst(_payloadSizeSuffix, '');
 
-  /// Collapses each comparison group to, per declared byte volume, the fastest
-  /// and slowest arm measured at that volume.
+  /// Collapses each `(group, target, coordinates, stem)` bucket to, per
+  /// declared byte volume, the fastest and slowest arm measured at that volume.
   ///
-  /// Arms are additionally keyed by [_nameStem], so only size variants of the
-  /// same mechanism are ever compared. A `BenchmarkGroup` holds *competing
-  /// implementations* by construction — that is what it is for — so pairing two
-  /// differently-named arms compares different code paths and reads their
-  /// difference as invariance. Real example this guards:
-  /// `direct_uint8list_body_1kb` at `3.54 µs` against
-  /// `chunked_body_controller_64kb` at `3.28 µs` is not a payload that went
-  /// unread, it is a direct write measured against a chunked controller, where
-  /// per-call overhead dominates at both sizes.
+  /// Arms are keyed by [_nameStem] so only size variants of the same mechanism
+  /// are ever compared. A `BenchmarkGroup` holds *competing implementations* by
+  /// construction — that is what it is for — so pairing two differently-named
+  /// arms compares different code paths and reads their difference as
+  /// invariance. Real example this guards: `direct_uint8list_body_1kb` at
+  /// `3.54 µs` against `chunked_body_controller_64kb` at `3.28 µs` is not a
+  /// payload that went unread, it is a direct write measured against a chunked
+  /// controller, where per-call overhead dominates at both sizes.
   static Map<(String, String, String, String), _GroupPoints>
   _collectGroupPoints(BenchmarkSuiteResult suite) {
     final groups = <(String, String, String, String), _GroupPoints>{};

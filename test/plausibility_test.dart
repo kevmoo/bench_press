@@ -363,12 +363,12 @@ void main() {
     });
 
     test('does not flag a slow small arm against a fast large arm', () {
-      // Competing implementations measured at different sizes. The slow 13 B
-      // arm is within noise of the 1 MiB arm, but a fast 13 B arm exists, so
-      // the group did scale and must not be reported.
+      // Same stem measured at two equivalent small-size spellings (`1024b` vs
+      // `1kib`) and a large size (`1mb`). The slow 1 KiB point is within noise
+      // of the 1 MiB point, but the fast 1 KiB point shows the stem scaled.
       final suite = _suite([
-        _entry('slow_impl_13b', 13, 10000.0, coordinates: _g('mixed')),
-        _entry('fast_impl_13b', 13, 900.0, coordinates: _g('mixed')),
+        _entry('impl_1024b', 1024, 10000.0, coordinates: _g('mixed')),
+        _entry('impl_1kib', 1024, 900.0, coordinates: _g('mixed')),
         _entry('impl_1mb', _oneMiB, 11000.0, coordinates: _g('mixed')),
       ]);
 
@@ -377,9 +377,9 @@ void main() {
 
     test('one scaling arm at the large size clears the group', () {
       final suite = _suite([
-        _entry('a_13b', 13, 1000.0, coordinates: _g('mixed')),
-        _entry('flat_1mb', _oneMiB, 1050.0, coordinates: _g('mixed')),
-        _entry('scaling_1mb', _oneMiB, 19000.0, coordinates: _g('mixed')),
+        _entry('impl_13b', 13, 1000.0, coordinates: _g('mixed')),
+        _entry('impl_1mb', _oneMiB, 1050.0, coordinates: _g('mixed')),
+        _entry('impl_1mib', _oneMiB, 19000.0, coordinates: _g('mixed')),
       ]);
 
       check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
@@ -398,12 +398,13 @@ void main() {
     });
 
     test('does not flag a large payload that came out faster', () {
-      // Real case from `w5_w6_request_body`: 1 KiB at 3306 ns vs 64 KiB at
-      // 2374 ns. 64x the data in 0.72x the time is not invariance — the arms
-      // are different body-handling strategies, not one sweep.
+      // Same stem at two sizes (`write_1kb` at 3306 ns vs `write_64kb` at
+      // 2374 ns): 64x the data in 0.72x the time (< minInvariantLatencyRatio)
+      // means a different code path (e.g. a bulk fast-path) kicked in, not an
+      // unread payload.
       final suite = _suite([
-        _entry('fixed_1kb', 1024, 3306.0, coordinates: _g('w5_w6')),
-        _entry('chunked_64kb', 65536, 2374.0, coordinates: _g('w5_w6')),
+        _entry('write_1kb', 1024, 3306.0, coordinates: _g('w5_w6')),
+        _entry('write_64kb', 65536, 2374.0, coordinates: _g('w5_w6')),
       ]);
 
       check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
