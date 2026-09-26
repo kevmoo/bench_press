@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../telemetry/schema.dart';
 import 'compiler.dart';
+import 'cpu_affinity.dart';
 import 'sdk.dart';
 import 'suite_runner.dart';
 
@@ -56,6 +57,7 @@ final class const BenchmarkProcessRunner({
     bool forceRun = false,
     bool validate = false,
     List<String> vmFlags = const [],
+    CpuAffinity? cpuAffinity,
     String? workingDirectory,
   }) async {
     final runtime = compilationResult.runtime;
@@ -100,13 +102,18 @@ final class const BenchmarkProcessRunner({
         );
       }
 
-      final (executable, processArgs) = _resolveExecutionCommand(
+      final resolved = _resolveExecutionCommand(
         runtime: runtime,
         artifactPath: artifactPath,
         runnerScriptPath: runnerScriptPath,
         vmFlags: vmFlags,
         benchArgs: benchArgs,
       );
+
+      // Pinning wraps the fully resolved command, so it applies identically to
+      // the Dart VM, an AOT executable, Node.js, and D8.
+      final (executable, processArgs) =
+          cpuAffinity?.wrap(resolved.$1, resolved.$2) ?? resolved;
 
       final processResult = await Process.run(
         executable,

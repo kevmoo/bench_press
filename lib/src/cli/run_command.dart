@@ -12,6 +12,7 @@ import '../telemetry/git_diff.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
+import 'cpu_affinity.dart';
 import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
@@ -113,6 +114,14 @@ final class RunCommand({
         help: 'Extra flags forwarded to Dart VM or Node/D8 runner.',
       )
       ..addOption(
+        'pin-cpu',
+        valueHelp: 'cpu-list',
+        help:
+            'Pin benchmark processes to these CPUs via taskset (Linux only). '
+            'Accepts taskset -c syntax: "2", "0,2,4", "0-3", "0-7:2". '
+            'Use "lscpu -e" to find CPUs that are not SMT siblings.',
+      )
+      ..addOption(
         'format',
         defaultsTo: 'markdown',
         allowed: ['markdown', 'table', 'json'],
@@ -173,6 +182,42 @@ final class RunCommand({
       targets: targets,
       effectiveSdk: effectiveSdk,
     );
+  }
+
+  /// Resolves `--pin-cpu` into a [CpuAffinity], or `null` to run unpinned.
+  ///
+  /// Every path that declines to pin says so on stderr. A suite that was asked
+  /// to pin and quietly did not is worse than one that never asked, because the
+  /// resulting numbers look like pinned numbers.
+  CpuAffinity? _resolveCpuAffinity({required bool isolateMode}) {
+    final spec = argResults!.option('pin-cpu');
+    if (spec == null) return null;
+
+    final CpuAffinity affinity;
+    try {
+      affinity = CpuAffinity.parse(spec);
+    } on FormatException catch (e) {
+      stderr.writeln('Invalid --pin-cpu value "$spec": ${e.message}');
+      return null;
+    }
+
+    final reason = cpuPinningUnsupportedReason();
+    if (reason != null) {
+      stderr.writeln('Warning: --pin-cpu ignored. $reason');
+      return null;
+    }
+
+    if (isolateMode) {
+      stderr.writeln(
+        'Warning: --pin-cpu does not apply to --isolate-mode, which runs JIT '
+        'benchmarks in-process rather than spawning a command taskset could '
+        'wrap. Non-JIT targets in this run are still pinned. To pin isolate '
+        'mode, pin bench_press itself: '
+        'taskset -c ${affinity.cpuList} dart run bench_press run ...',
+      );
+    }
+
+    return affinity;
   }
 
   BenchPressConfig _resolveRunConfig() {
@@ -333,6 +378,7 @@ final class RunCommand({
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
     final compilerFlags = argResults!.multiOption('compiler-flag');
     final vmFlags = argResults!.multiOption('vm-flag');
+    final cpuAffinity = _resolveCpuAffinity(isolateMode: isolateMode);
 
     BenchmarkSuiteResult? accumulated;
     var hasFailures = false;
@@ -348,6 +394,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
         effectiveSdk: effectiveSdk,
       );
       if (result.hasFailures) {
@@ -371,6 +418,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
     BenchmarkSuiteResult? fileAccumulated;
@@ -387,6 +435,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
         effectiveSdk: effectiveSdk,
       );
       if (result.hasFailures) {
@@ -415,6 +464,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
     final coordRuntime =
@@ -437,6 +487,7 @@ final class RunCommand({
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
         vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
         effectiveSdk: effectiveSdk,
       );
       if (result.hasFailures) {
@@ -460,6 +511,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
     final currentSdk = resolveSdkFromCoordinate(coord, effectiveSdk);
@@ -481,6 +533,7 @@ final class RunCommand({
       isolateMode: isolateMode,
       compilerFlags: execFlags,
       vmFlags: vmFlags,
+      cpuAffinity: cpuAffinity,
       compiler: currentCompiler,
       processRunner: currentProcessRunner,
       coordinate: coord,
@@ -509,6 +562,7 @@ final class RunCommand({
     required bool isolateMode,
     required List<String> compilerFlags,
     required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
     required TargetCompiler compiler,
     required BenchmarkProcessRunner processRunner,
     required MatrixCoordinate coordinate,
@@ -541,6 +595,7 @@ final class RunCommand({
       maxTrials: maxTrials,
       forceRun: forceRun,
       vmFlags: vmFlags,
+      cpuAffinity: cpuAffinity,
     );
 
     if (!execResult.success || execResult.suiteResult == null) {

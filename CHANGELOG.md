@@ -1,5 +1,13 @@
 ## 0.3.2-wip
 
+- Added `--pin-cpu` to `bench_press run`, which prefixes every benchmark command
+  with `taskset -c` so pinning applies uniformly to the Dart VM, AOT
+  executables, Node.js, and D8. Accepts `taskset -c` list syntax (`2`, `0,2,4`,
+  `0-3`, `0-7:2`), validated up front so a typo is reported against the flag
+  rather than surfacing as a `taskset` error after compilation. On a non-Linux
+  host, when `taskset` is absent from `PATH`, or under `--isolate-mode` (which
+  runs in-process and so has no command to wrap), it warns on stderr and
+  continues unpinned rather than failing.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name
