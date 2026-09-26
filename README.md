@@ -244,25 +244,31 @@ uniformly to the Dart VM, AOT executables, Node.js, and D8.
 core share its execution units, so pinning to both is close to not pinning at
 all. `lscpu -e=CPU,CORE` maps them:
 
+Any two CPUs with the same `CORE` are siblings, and they are usually **not**
+adjacent. This groups the CPUs by the physical core they sit on:
+
 ```console
-$ lscpu -e=CPU,CORE | head -4
-CPU CORE
-  0    0
-  1    1
-  2    2
+$ lscpu -e=CPU,CORE | awk 'NR>1 {a[$2]=a[$2]" "$1} END {for (c in a) print "core "c":"a[c]}' | sort -V
+core 0: 0 8
+core 1: 1 9
+core 2: 2 10
+core 3: 3 11
 ```
 
-Any two CPUs with the same `CORE` are siblings. They are usually **not**
-adjacent — on a 16-CPU/8-core host the siblings of `0,1,2,3` are typically
-`8,9,10,11`, so `--pin-cpu 0-3` gets four distinct cores while `--pin-cpu 0,8`
-gets one core twice. Confirm on your own host rather than assuming the stride:
-
-```bash
-lscpu -e=CPU,CORE | awk 'NR>1 {print $2}' | sort -n | uniq -c
-```
+On this 16-CPU/8-core host the sibling of CPU 0 is CPU 8, so `--pin-cpu 0-3`
+gets four distinct cores while `--pin-cpu 0,8` gets one core twice. The stride
+is not always 8 — run the command rather than assuming it.
 
 Caveats worth knowing:
 
+- **A malformed CPU list is a usage error** — `bench_press` exits `64` without
+  running, rather than measuring unpinned and handing back numbers that look
+  pinned.
+- **A CPU that does not exist is not caught up front.** Only the _syntax_ is
+  validated; `taskset` reports an unsatisfiable set, after compilation, with
+  `failed to set pid's affinity: Invalid argument` and a non-zero exit. The host
+  CPU count is deliberately not used as a bound, because a process confined to a
+  narrower cpuset would then be told valid CPUs are invalid.
 - **Linux only.** macOS is not supported — the Darwin kernel exposes no POSIX
   CPU affinity interface, so there is no `taskset` equivalent. On any
   unsupported host, or when `taskset` is missing from `PATH` (common in minimal

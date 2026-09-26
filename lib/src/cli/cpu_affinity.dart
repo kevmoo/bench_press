@@ -18,8 +18,11 @@ final class const CpuAffinity._(
 ) {
   /// Matches a `taskset -c` CPU list: comma-separated single CPUs or ranges,
   /// where a range may carry a `:stride` suffix (`0-7:2` is every other CPU).
+  ///
+  /// The stride is `[1-9]\d*`, not `\d+`: `taskset` rejects a zero stride, and
+  /// `:0` is a plausible mistype of `:1`.
   static final RegExp _cpuListPattern = RegExp(
-    r'^\d+(-\d+(:\d+)?)?(,\d+(-\d+(:\d+)?)?)*$',
+    r'^\d+(-\d+(:[1-9]\d*)?)?(,\d+(-\d+(:[1-9]\d*)?)?)*$',
   );
 
   /// Parses a `--pin-cpu` value in `taskset -c` list syntax.
@@ -27,10 +30,17 @@ final class const CpuAffinity._(
   /// Accepts a single CPU (`2`), a comma-separated list (`0,2,4`), a range
   /// (`0-3`), a strided range (`0-7:2`), and any combination (`0-3,8`).
   ///
-  /// Throws [FormatException] if [spec] is not that syntax, or if a range runs
-  /// backwards. Validating here rather than letting `taskset` reject it keeps
-  /// the error attached to the flag the user typed, and catches the mistake
-  /// before a multi-minute suite has compiled anything.
+  /// Throws [FormatException] if [spec] is not that syntax, if a range runs
+  /// backwards, or if a CPU index does not fit in an `int`. Validating here
+  /// keeps a malformed value attached to the flag the user typed instead of
+  /// surfacing later as a `taskset` error.
+  ///
+  /// This checks *syntax* only. Whether the named CPUs exist on this host is
+  /// left to `taskset`, because the process may be confined to a cpuset
+  /// narrower than the machine, so a bound taken from
+  /// `Platform.numberOfProcessors` would reject sets that are in fact valid.
+  /// A nonexistent CPU therefore still fails after compilation, with
+  /// `taskset: failed to set pid's affinity: Invalid argument`.
   factory parse(String spec) {
     final trimmed = spec.trim();
     if (trimmed.isEmpty) {
@@ -44,16 +54,20 @@ final class const CpuAffinity._(
       );
     }
     for (final part in trimmed.split(',')) {
-      final bounds = part.split(':').first.split('-');
-      if (bounds.length == 2) {
-        final start = int.parse(bounds[0]);
-        final end = int.parse(bounds[1]);
-        if (end < start) {
-          throw FormatException(
-            'CPU range "$part" runs backwards; expected low-high.',
-            spec,
-          );
+      // Bound every numeric token, including the stride and a bare CPU index.
+      // Checking only range endpoints lets a value wider than an int through to
+      // taskset, and lets Dart's own overflow wording leak into the flag error.
+      for (final token in part.split(RegExp('[-:]'))) {
+        if (int.tryParse(token) == null) {
+          throw FormatException('CPU index "$token" is too large.', spec);
         }
+      }
+      final bounds = part.split(':').first.split('-');
+      if (bounds.length == 2 && int.parse(bounds[1]) < int.parse(bounds[0])) {
+        throw FormatException(
+          'CPU range "$part" runs backwards; expected low-high.',
+          spec,
+        );
       }
     }
     return CpuAffinity._(trimmed);
@@ -108,7 +122,12 @@ String? cpuPinningUnsupportedReason({
 
 bool _tasksetOnPath() {
   try {
-    return Process.runSync('taskset', const ['--version']).exitCode == 0;
+    // Only whether the binary launched matters, never its exit status.
+    // BusyBox's taskset supports `-c` but has no `--version` and exits 1, so
+    // testing the exit code reports a working taskset as missing — and does it
+    // precisely in the minimal container images where pinning is most wanted.
+    Process.runSync('taskset', const ['--version']);
+    return true;
   } on ProcessException {
     return false;
   }

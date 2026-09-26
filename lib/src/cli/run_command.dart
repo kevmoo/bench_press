@@ -152,6 +152,20 @@ final class RunCommand({
       return ExitCode.usage.code;
     }
 
+    // A malformed CPU list is a usage error, not a host limitation: fail here
+    // rather than warning and measuring unpinned, which would hand back numbers
+    // that look pinned. Matches --d8-path and --node-path above.
+    final pinCpuSpec = argResults!.option('pin-cpu');
+    CpuAffinity? pinCpu;
+    if (pinCpuSpec != null) {
+      try {
+        pinCpu = CpuAffinity.parse(pinCpuSpec);
+      } on FormatException catch (e) {
+        stderr.writeln('Invalid --pin-cpu value "$pinCpuSpec": ${e.message}');
+        return ExitCode.usage.code;
+      }
+    }
+
     final effectiveSdk = DartSdk(
       customSdkPath: sdk.customSdkPath,
       customD8Path: d8Path != null
@@ -181,25 +195,24 @@ final class RunCommand({
       config: config,
       targets: targets,
       effectiveSdk: effectiveSdk,
+      pinCpu: pinCpu,
     );
   }
 
-  /// Resolves `--pin-cpu` into a [CpuAffinity], or `null` to run unpinned.
+  /// Narrows an already-parsed [pinCpu] to what this host and run can actually
+  /// honour, returning `null` to run unpinned.
   ///
-  /// Every path that declines to pin says so on stderr. A suite that was asked
-  /// to pin and quietly did not is worse than one that never asked, because the
-  /// resulting numbers look like pinned numbers.
-  CpuAffinity? _resolveCpuAffinity({required bool isolateMode}) {
-    final spec = argResults!.option('pin-cpu');
-    if (spec == null) return null;
-
-    final CpuAffinity affinity;
-    try {
-      affinity = CpuAffinity.parse(spec);
-    } on FormatException catch (e) {
-      stderr.writeln('Invalid --pin-cpu value "$spec": ${e.message}');
-      return null;
-    }
+  /// A malformed value is rejected earlier, in [run], as a usage error. What
+  /// remains here are host and mode limitations, which warn and continue — and
+  /// every one of them says so on stderr, because a suite that was asked to pin
+  /// and quietly did not is worse than one that never asked: the resulting
+  /// numbers look like pinned numbers.
+  CpuAffinity? _applyCpuPinningLimits(
+    CpuAffinity? pinCpu, {
+    required bool isolateMode,
+    required List<TargetRuntime> targets,
+  }) {
+    if (pinCpu == null) return null;
 
     final reason = cpuPinningUnsupportedReason();
     if (reason != null) {
@@ -208,16 +221,22 @@ final class RunCommand({
     }
 
     if (isolateMode) {
+      // Only claim the other targets are pinned when there are some. `--target`
+      // defaults to jit alone, so the common invocation pins nothing.
+      final hasSpawnedTargets = targets.any((t) => t != TargetRuntime.jit);
+      final scope = hasSpawnedTargets
+          ? 'Non-JIT targets in this run are still pinned.'
+          : 'This run has no other targets, so nothing is pinned.';
       stderr.writeln(
         'Warning: --pin-cpu does not apply to --isolate-mode, which runs JIT '
         'benchmarks in-process rather than spawning a command taskset could '
-        'wrap. Non-JIT targets in this run are still pinned. To pin isolate '
-        'mode, pin bench_press itself: '
-        'taskset -c ${affinity.cpuList} dart run bench_press run ...',
+        'wrap. $scope To pin isolate mode, pin bench_press itself: '
+        'taskset -c ${pinCpu.cpuList} dart run bench_press run ...',
       );
+      if (!hasSpawnedTargets) return null;
     }
 
-    return affinity;
+    return pinCpu;
   }
 
   BenchPressConfig _resolveRunConfig() {
@@ -299,6 +318,7 @@ final class RunCommand({
     required BenchPressConfig config,
     required List<TargetRuntime> targets,
     required DartSdk effectiveSdk,
+    required CpuAffinity? pinCpu,
   }) async {
     try {
       ConfigValidator.validateConfig(config);
@@ -314,6 +334,7 @@ final class RunCommand({
       config,
       targets,
       effectiveSdk,
+      pinCpu,
     );
     if (suite == null || suite.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
@@ -364,6 +385,7 @@ final class RunCommand({
     BenchPressConfig config,
     List<TargetRuntime> defaultTargets,
     DartSdk effectiveSdk,
+    CpuAffinity? pinCpu,
   ) async {
     final trialsStr = argResults!.option('trials');
     final trials = trialsStr != null
@@ -378,7 +400,11 @@ final class RunCommand({
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
     final compilerFlags = argResults!.multiOption('compiler-flag');
     final vmFlags = argResults!.multiOption('vm-flag');
-    final cpuAffinity = _resolveCpuAffinity(isolateMode: isolateMode);
+    final cpuAffinity = _applyCpuPinningLimits(
+      pinCpu,
+      isolateMode: isolateMode,
+      targets: defaultTargets,
+    );
 
     BenchmarkSuiteResult? accumulated;
     var hasFailures = false;

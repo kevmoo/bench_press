@@ -3,11 +3,18 @@
 - Added `--pin-cpu` to `bench_press run`, which prefixes every benchmark command
   with `taskset -c` so pinning applies uniformly to the Dart VM, AOT
   executables, Node.js, and D8. Accepts `taskset -c` list syntax (`2`, `0,2,4`,
-  `0-3`, `0-7:2`), validated up front so a typo is reported against the flag
-  rather than surfacing as a `taskset` error after compilation. On a non-Linux
-  host, when `taskset` is absent from `PATH`, or under `--isolate-mode` (which
-  runs in-process and so has no command to wrap), it warns on stderr and
-  continues unpinned rather than failing.
+  `0-3`, `0-7:2`).
+  - A malformed CPU list is a **usage error**: `run` exits `64` without
+    measuring, matching `--d8-path` and `--node-path`. Only the syntax is
+    checked, so a CPU that does not exist on the host is still reported by
+    `taskset` after compilation; the host CPU count is deliberately not used as
+    a bound, since a process confined to a narrower cpuset would then be told
+    valid CPUs are invalid.
+  - Host and mode limitations warn on stderr and continue unpinned: a non-Linux
+    host, `taskset` absent from `PATH`, and `--isolate-mode`, which runs
+    in-process and so has no command to wrap. Under `--isolate-mode` the warning
+    distinguishes a run that still has spawned targets to pin from a JIT-only
+    run, where nothing is pinned at all.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name

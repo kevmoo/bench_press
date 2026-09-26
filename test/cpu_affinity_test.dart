@@ -44,12 +44,55 @@ void main() {
     });
 
     test('rejects a backwards range', () {
-      // taskset accepts this silently as an empty set on some versions, which
-      // would pin to nothing rather than reporting the typo.
+      // `taskset -c 3-1` fails with "failed to parse CPU list" on util-linux
+      // 2.41.5, so rejecting here only moves the error earlier and attaches it
+      // to the flag.
       check(() => CpuAffinity.parse('3-1'))
           .throws<FormatException>()
           .has((e) => e.message, 'message')
           .contains('backwards');
+    });
+
+    test('rejects a zero stride', () {
+      // `:0` is a plausible mistype of `:1`, and taskset rejects it.
+      check(() => CpuAffinity.parse('0-7:0')).throws<FormatException>();
+      check(CpuAffinity.parse('0-7:1').cpuList).equals('0-7:1');
+    });
+
+    test('rejects a CPU index too large for an int', () {
+      // taskset rejects these too. Without an explicit bound the failure
+      // surfaced as Dart's own "Positive input exceeds the limit of integer".
+      for (final spec in [
+        '99999999999999999999',
+        '18446744073709551616',
+        '1-99999999999999999999',
+        '0-7:99999999999999999999',
+      ]) {
+        check(because: 'should reject "$spec"', () => CpuAffinity.parse(spec))
+            .throws<FormatException>()
+            .has((e) => e.message, 'message')
+            .contains('too large');
+      }
+    });
+
+    test('accepts forms taskset accepts that look odd', () {
+      // Verified against taskset from util-linux 2.41.5: out-of-order lists,
+      // duplicates, leading zeros, degenerate ranges, and a stride wider than
+      // the range are all valid, so the parser must not tighten past taskset.
+      for (final spec in [
+        '1,0',
+        '0-3,0-3',
+        '007',
+        '0-03',
+        '0-0',
+        '1-1',
+        '0-7:99',
+      ]) {
+        check(
+          because: 'should accept "$spec"',
+          CpuAffinity.parse(spec).cpuList,
+        ).equals(spec);
+      }
     });
   });
 
@@ -105,14 +148,29 @@ void main() {
       check(reason!.toLowerCase()).contains('cpu pinning');
     });
 
-    test('agrees with the real host when given no overrides', () {
-      final reason = cpuPinningUnsupportedReason();
+    test('reports available when the real host has taskset', () {
+      // The probe is the one part that must agree with reality, so assert
+      // against the host rather than skipping the check: resolve taskset
+      // independently of the code under test and require the same answer.
       if (!Platform.isLinux) {
-        check(reason).isNotNull();
+        check(cpuPinningUnsupportedReason()).isNotNull();
+        return;
       }
-      // On Linux the answer depends on whether taskset is installed, which is
-      // exactly what the probe is for; asserting either way would be asserting
-      // the test machine's package list.
+      final found = Platform.environment['PATH']!
+          .split(':')
+          .any((dir) => File('$dir/taskset').existsSync());
+      final reason = cpuPinningUnsupportedReason();
+      if (found) {
+        check(
+          because: 'taskset is on PATH, so pinning must report available',
+          reason,
+        ).isNull();
+      } else {
+        check(
+          because: 'taskset is absent, so pinning must say so',
+          reason,
+        ).isNotNull();
+      }
     });
   });
 }
