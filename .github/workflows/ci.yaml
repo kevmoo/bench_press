@@ -10,10 +10,6 @@ jobs:
   build:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows and macOS are advisory for now: this is the first time the suite
-    # has run on either, so a failure there should be visible without blocking
-    # unrelated PRs. Drop this once both are green.
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
     strategy:
       # Report every platform; one red result must not hide the others.
       fail-fast: false
