@@ -781,14 +781,18 @@ abstract final class MarkdownReporter() {
       'bytes.',
     );
     for (final finding in findings) {
+      final label = finding.groupScoped
+          ? 'group `${finding.benchmarkName}`'
+          : '`${finding.benchmarkName}`';
       buffer.writeln(
-        '> - `${finding.benchmarkName}` (`${finding.target}`): '
+        '> - $label (`${finding.target}`): '
         '${_formatBytes(finding.smallBytes)} at '
         '${_formatLatency(finding.smallLatencyNs)} vs '
         '${_formatBytes(finding.largeBytes)} at '
         '${_formatLatency(finding.largeLatencyNs)} — '
         '**${_formatRatio(finding.volumeRatio)}x** the data for '
-        '**${finding.latencyRatio.toStringAsFixed(2)}x** the time.',
+        '**${finding.latencyRatio.toStringAsFixed(2)}x** the time'
+        '${finding.groupScoped ? ', across the group\'s arms' : ''}.',
       );
     }
     buffer.writeln(

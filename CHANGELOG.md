@@ -1,5 +1,18 @@
 ## 0.3.2-wip
 
+- `ThroughputPlausibility.screenInvariance` now also compares across the arms of
+  a comparison group, so it catches the defect when each payload size carries
+  its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name
+  recurring across groups. The previous release note claimed it caught a 256 KiB
+  case the bandwidth ceiling misses; that was only true for the recurring-name
+  shape, and the original defect was in the other one. Group-scoped findings set
+  `InvariantLatency.groupScoped` and are worded as such in the report.
+- Narrowed the invariance test from a ceiling to a band
+  (`minInvariantLatencyRatio` 0.9 to `maxInvariantLatencyRatio` 1.25). A payload
+  that is never read gives a latency ratio of ~1.0, so a large payload coming
+  out materially _faster_ is not invariance — it means the two points are doing
+  different work. Without the floor, a group holding unrelated arms read as a
+  finding on real output.
 - Added `ThroughputPlausibility`, which screens benchmarks that declare
   `Throughput.bytes` for two signs of a payload that is never actually read, and
   `MarkdownReporter.renderSuite` banners naming what it finds. Such a benchmark
