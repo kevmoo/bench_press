@@ -13,8 +13,8 @@ framework for Dart and Flutter.
   Kernel MMD + SEM Relative Error) determines true steady-state execution so you
   never have to guess warmup iteration counts.
 - **Payload-Aware Throughput**: Sealed `Throughput.bytes` and
-  `Throughput.elements` automatically calculate and format rates (`MB/s`,
-  `GB/s`, `items/s`). Any byte rate above memory bandwidth — or any benchmark
+  `Throughput.elements` automatically calculate and format rates (`MiB/s`,
+  `GiB/s`, `items/s`). Any byte rate above memory bandwidth — or any benchmark
   whose latency does not move when its payload does — is flagged in the report
   before you can quote it.
 - **Implementation Comparisons**: `BenchmarkGroup` compares multiple

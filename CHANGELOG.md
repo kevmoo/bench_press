@@ -1,5 +1,13 @@
 ## 0.3.2-wip
 
+- **Breaking (report text):** `Throughput.bytes` now labels its rates with
+  binary prefixes — `KiB/s`, `MiB/s`, `GiB/s` — instead of `KB/s`, `MB/s`,
+  `GB/s`. The divisor was already 1024, so no reported value changes, only the
+  unit it is printed with. Previously a single report could show `52.58 GB/s` in
+  a throughput column and `849.18 GiB/s` in a plausibility banner for the same
+  kind of quantity. The gap between the two conventions is 7.4% at gigabyte
+  scale, which is enough to change how a rate reads next to a hardware bandwidth
+  figure.
 - `ThroughputPlausibility.screenInvariance` now also compares across the arms of
   a comparison group, so it catches the defect when each payload size carries
   its own benchmark name (`write_200_fixed_13b` / `_1mb`) instead of one name

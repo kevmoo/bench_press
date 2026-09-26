@@ -10,22 +10,30 @@ void main() {
       check(tp.formatRate(1e9)).equals('100 B/s');
     });
 
-    test('formats kilobytes per second', () {
+    test('formats kibibytes per second', () {
       const tp = Throughput.bytes(1024 * 10);
-      // 10 KB in 1 second = 10.0 KB/s
-      check(tp.formatRate(1e9)).equals('10.0 KB/s');
+      // 10 KiB in 1 second = 10.0 KiB/s
+      check(tp.formatRate(1e9)).equals('10.0 KiB/s');
     });
 
-    test('formats megabytes per second', () {
+    test('formats mebibytes per second', () {
       const tp = Throughput.bytes(1024 * 1024 * 50);
-      // 50 MB in 100 ms (1e8 ns) = 500.0 MB/s
-      check(tp.formatRate(1e8)).equals('500.0 MB/s');
+      // 50 MiB in 100 ms (1e8 ns) = 500.0 MiB/s
+      check(tp.formatRate(1e8)).equals('500.0 MiB/s');
     });
 
-    test('formats gigabytes per second', () {
+    test('formats gibibytes per second', () {
       const tp = Throughput.bytes(1024 * 1024 * 1024);
-      // 1 GB in 500 ms (5e8 ns) = 2.00 GB/s
-      check(tp.formatRate(5e8)).equals('2.00 GB/s');
+      // 1 GiB in 500 ms (5e8 ns) = 2.00 GiB/s
+      check(tp.formatRate(5e8)).equals('2.00 GiB/s');
+    });
+
+    test('scales by 1024, not 1000', () {
+      // The label and the divisor have to agree, so pick a rate that the two
+      // conventions disagree about: exactly 1e9 B/s is `1.00 GB/s` decimal but
+      // only 0.93 GiB/s, which falls in the mebibyte branch.
+      const tp = Throughput.bytes(1000 * 1000 * 1000);
+      check(tp.formatRate(1e9)).equals('953.7 MiB/s');
     });
 
     test('handles edge cases gracefully', () {

@@ -5,7 +5,7 @@
 ///
 /// Use `Throughput.bytes` for data processing, serializers, codecs,
 /// compression, cryptography, and network I/O to automatically compute and
-/// format data rates (`B/s`, `KB/s`, `MB/s`, `GB/s`).
+/// format data rates (`B/s`, `KiB/s`, `MiB/s`, `GiB/s`).
 ///
 /// Use `Throughput.elements` for discrete items, records, AST nodes, or event
 /// counts to compute item processing rates (`items/s`, `records/s`,
@@ -50,8 +50,14 @@ sealed class const Throughput() {
 
 /// Throughput based on raw byte volume.
 ///
-/// Uses standard 1024-based binary scaling (`KB/s`, `MB/s`, `GB/s`) matching
-/// standard operating system and I/O benchmarking conventions.
+/// Uses 1024-based binary scaling, labelled with the binary prefixes that
+/// divisor implies (`KiB/s`, `MiB/s`, `GiB/s`), matching operating system and
+/// I/O benchmarking conventions.
+///
+/// The prefixes are deliberately binary rather than `KB/s`/`MB/s`/`GB/s`. The
+/// two differ by 7.4% at the gigabyte scale, which is enough to change how a
+/// rate reads against a hardware bandwidth figure, and [ElementThroughput]
+/// already spends `k`/`M`/`G` on genuinely 1000-based scaling.
 final class const ByteThroughput(
   /// Number of bytes processed per benchmark invocation.
   final int bytes,
@@ -68,14 +74,14 @@ final class const ByteThroughput(
     final bytesPerSecond = bytes / secondsPerOp;
 
     if (bytesPerSecond >= 1024 * 1024 * 1024) {
-      final gbPerSec = bytesPerSecond / (1024 * 1024 * 1024);
-      return '${gbPerSec.toStringAsFixed(2)} GB/s';
+      final gibPerSec = bytesPerSecond / (1024 * 1024 * 1024);
+      return '${gibPerSec.toStringAsFixed(2)} GiB/s';
     } else if (bytesPerSecond >= 1024 * 1024) {
-      final mbPerSec = bytesPerSecond / (1024 * 1024);
-      return '${mbPerSec.toStringAsFixed(1)} MB/s';
+      final mibPerSec = bytesPerSecond / (1024 * 1024);
+      return '${mibPerSec.toStringAsFixed(1)} MiB/s';
     } else if (bytesPerSecond >= 1024) {
-      final kbPerSec = bytesPerSecond / 1024;
-      return '${kbPerSec.toStringAsFixed(1)} KB/s';
+      final kibPerSec = bytesPerSecond / 1024;
+      return '${kibPerSec.toStringAsFixed(1)} KiB/s';
     } else {
       return '${bytesPerSecond.toStringAsFixed(0)} B/s';
     }
