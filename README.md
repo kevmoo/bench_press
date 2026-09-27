@@ -192,6 +192,68 @@ dart run bench_press run benchmark/json_benchmark.dart
 dart run bench_press validate
 ```
 
+### Matrix Configuration & Cross-SDK Comparisons (`bench_press.yaml`)
+
+`bench_press` automatically loads `bench_press.yaml` from the current directory
+(or a custom path via `-c` / `--config`) to configure default run options and
+Cartesian benchmark matrices across Dart SDKs, compiler flags, and runtimes:
+
+```yaml
+defaults:
+  targets:
+    - jit
+    - aot
+    - js
+    - wasm
+  trials: 15
+  max_trials: 30
+  isolate_mode: false
+
+matrix:
+  baseline:
+    sdk: stock
+    flags: baseline
+  axes:
+    sdk:
+      # 'stock' resolves to the active ambient Dart SDK.
+      stock: stock
+      # Custom paths support `~` expansion to test local Dart SDK builds.
+      patched: ~/github/dart-sdk/out/ReleaseX64/dart-sdk
+    flags:
+      baseline: ''
+      asserts: '--enable-asserts'
+```
+
+#### How Matrix Axes Work
+
+- **`axes.sdk` & SDK Precedence**: `'stock'` resolves to the ambient Dart SDK,
+  while any other value is resolved as a `customSdkPath` (with leading `~`
+  expanded to `HOME` / `USERPROFILE`) across all targets (`jit`, `aot`, `wasm`,
+  `js`). In `DartSdk.sdkPath`, an explicit `axes.sdk` path (`customSdkPath`)
+  takes highest precedence—outranking the `DART_SDK` environment variable, the
+  running executable, `PATH`, and `FLUTTER_ROOT`—and fails closed if the SDK
+  root or `bin/dart` binary is missing rather than silently falling back to
+  `PATH`.
+- **`axes.flags`**: Space-separated flags appended to `dart compile` for that
+  coordinate.
+- **`axes.runtime` (or `axes.target`)**: Overrides `defaults.targets` per
+  coordinate (validated against `jit`, `aot`, `wasm`, `js`).
+- **`baseline`**: Matches coordinate labels across axes to mark the baseline
+  reference. If omitted, the first entry of each axis is selected as the
+  implicit baseline.
+
+Preview the Cartesian execution plan without compiling or running benchmarks via
+`--dry-run`:
+
+```console
+$ dart run bench_press run --dry-run -c bench_press.yaml benchmark/
+Resolved Matrix Plan (12 total executions across 3 benchmark file(s)):
+  [1] sdk=stock | flags=baseline (BASELINE REFERENCE)
+  [2] sdk=stock | flags=asserts
+  [3] sdk=patched | flags=baseline
+  [4] sdk=patched | flags=asserts
+```
+
 ### Benchmark Discovery
 
 `bench_press` discovers benchmarks using standard Dart conventions:
