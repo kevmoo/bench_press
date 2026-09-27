@@ -192,18 +192,58 @@ dart run bench_press run benchmark/json_benchmark.dart
 dart run bench_press validate
 ```
 
+### Matrix Configuration & Cross-SDK Comparisons (`bench_press.yaml`)
+
+`bench_press` supports a declarative configuration file to automate benchmark
+matrices, custom SDK paths, and compilation flags. Drop a `bench_press.yaml` in
+your project root:
+
+```yaml
+defaults:
+  targets:
+    - jit
+    - aot
+    - js
+    - wasm
+  trials: 15
+  max_trials: 30
+  output: benchmark_results.json
+  isolate_mode: false
+
+matrix:
+  baseline:
+    sdk: stock
+  axes:
+    sdk:
+      # 'stock' resolves to the active ambient Dart SDK on your PATH.
+      stock: stock
+      # Custom string payloads support `~` expansion to test local engine/SDK builds.
+      patched: ~/github/dart-sdk/out/ReleaseX64/dart-sdk
+    flags:
+      baseline: ''
+      asserts: '--enable-asserts'
+    entrypoints:
+      main: bin/main.dart
+```
+
+When comparing against a local Dart SDK build (`axes.sdk`), `customSdkPath`
+outranks the `DART_SDK` environment variable, ensuring that custom SDK
+compilation flows end-to-end across all targets (`jit`, `aot`, `wasm`, `js`).
+
+Running `dart run bench_press run --dry-run -c bench_press.yaml` parses the
+configuration and previews the Cartesian execution plan across all axes without
+running benchmarks:
+
+```console
+$ dart run bench_press run --dry-run -c bench_press.yaml benchmark/
+Resolved Matrix Plan (4 total executions across 1 benchmark file(s)):
+  [1] sdk=stock | flags=baseline (BASELINE REFERENCE)
+  [2] sdk=stock | flags=asserts (BASELINE REFERENCE)
+  [3] sdk=patched | flags=baseline
+  [4] sdk=patched | flags=asserts
+```
+
 ### Benchmark Discovery
-
-`bench_press` discovers benchmarks using standard Dart conventions:
-
-- **File Suffixes**: When scanning a directory (defaulting to `benchmark/`), it
-  discovers all files ending in `*_benchmark.dart` or `*_bench.dart`. Helper
-  files (e.g. `utils.dart`, `fixtures.dart`) are cleanly ignored.
-- **Direct File Targets**: You can also target any individual `.dart` file
-  directly (e.g. `dart run bench_press run benchmark/my_custom_run.dart`).
-- **Entrypoints**: Every benchmark file must be an executable script declaring a
-  `main` entrypoint (such as
-  `void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);`).
 
 ### Comparing Against Git Baselines (`--diff`)
 
