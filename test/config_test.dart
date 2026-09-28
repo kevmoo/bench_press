@@ -56,6 +56,12 @@ matrix:
         BenchPressConfig.fromYaml('defaults:\n  trials: 5\n').defaults.output,
         equals('benchmark_results.json'),
       );
+      expect(
+        BenchPressConfig.fromYaml('matrix:\n  axes:\n    sdk: [stock]\n')
+            .defaults
+            .output,
+        equals('benchmark_results.json'),
+      );
     });
 
     test('rejects a defaults.output that is not a non-empty string', () {

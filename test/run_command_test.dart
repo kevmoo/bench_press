@@ -464,6 +464,15 @@ matrix:
       check(expandedSdk.customSdkPath!).not((it) => it.startsWith('~'));
     });
 
+    test('expandHomeDirectory expands only a leading tilde', () {
+      check(expandHomeDirectory('results.json')).equals('results.json');
+      check(expandHomeDirectory('out/~/results.json'))
+          .equals('out/~/results.json');
+      check(expandHomeDirectory('~/bench/results.json'))
+        ..not((it) => it.startsWith('~'))
+        ..endsWith('/bench/results.json');
+    });
+
     test(
       'run subcommand executes all positional benchmark files in order',
       () async {

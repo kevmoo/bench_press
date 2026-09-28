@@ -208,7 +208,8 @@ defaults:
   trials: 15
   max_trials: 30
   isolate_mode: false
-  # Results file; `--output` / `--save` take precedence.
+  # Where `bench_press run` saves results (`--output` / `--save` take
+  # precedence). `report` and `diff` don't read this; pass them the path.
   output: benchmark_results.json
 
 matrix:

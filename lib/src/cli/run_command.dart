@@ -67,7 +67,7 @@ final class RunCommand({
       ..addOption(
         'save',
         abbr: 's',
-        help: 'File path to save/merge benchmark suite results JSON.',
+        help: 'Same as --output; takes precedence over it.',
       )
       ..addFlag(
         'no-save',
@@ -250,7 +250,6 @@ final class RunCommand({
             targets: ['jit'],
             trials: 15,
             maxTrials: null,
-            output: defaultTelemetryFileName,
             isolateMode: false,
           ),
           matrix: MatrixConfig(explicitBaseline: {}, axes: {}),
@@ -360,7 +359,7 @@ final class RunCommand({
     final outputPath =
         argResults!.option('save') ??
         argResults!.option('output') ??
-        configuredOutput;
+        expandHomeDirectory(configuredOutput);
     final finalSuite = !noSave ? suite.mergeAndSave(File(outputPath)) : suite;
 
     _outputSuiteReport(
@@ -768,14 +767,21 @@ DartSdk resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
   final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
   var cleanedPath = sdkPath ?? '';
   if (cleanedPath == 'stock') cleanedPath = '';
-  if (cleanedPath.startsWith('~')) {
-    final home =
-        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-    if (home != null) {
-      cleanedPath = cleanedPath.replaceFirst('~', home);
-    }
-  }
+  cleanedPath = expandHomeDirectory(cleanedPath);
   return cleanedPath.isNotEmpty
       ? baseSdk.copyWith(customSdkPath: cleanedPath)
       : baseSdk;
+}
+
+/// Replaces a leading `~` in [path] with the user's home directory, as a shell
+/// does for an unquoted argument.
+///
+/// Returns [path] unchanged when it has no leading `~` or when neither `HOME`
+/// nor `USERPROFILE` is set.
+@internal
+String expandHomeDirectory(String path) {
+  if (!path.startsWith('~')) return path;
+  final home =
+      Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+  return home == null ? path : path.replaceFirst('~', home);
 }

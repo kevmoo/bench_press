@@ -128,33 +128,29 @@ abstract final class ThroughputPlausibility() {
   /// not being touched.
   static const double maxInvariantLatencyRatio = 1.25;
 
-  /// Smallest larger payload an invariance pair is judged at.
-  ///
-  /// Below this, reading the whole payload from cache costs tens of
-  /// nanoseconds, which fixed per-invocation overhead (a call, an allocation,
-  /// a header write) can hide entirely, so flat latency is not evidence that
-  /// the bytes went unread. The floor sits far below [minCheckedBytes], so
-  /// [screenInvariance] still covers payloads the bandwidth ceiling cannot.
-  static const int minInvarianceBytes = 4096;
-
   /// Returns every benchmark in [suite] measured at byte volumes spanning at
   /// least [minVolumeRatio] whose mean latency grew by no more than
   /// [maxInvariantLatencyRatio], ordered by widest volume spread first.
   ///
   /// Entries are matched by name, target, and any non-`group` matrix
-  /// coordinates, so the comparison is one benchmark arm across the payload
-  /// sizes it was run at — typically the groups of a `BenchmarkMatrix` — never
-  /// two unrelated benchmarks or two different SDK/flag arms.
+  /// coordinates, so the comparison is one benchmark name across the groups
+  /// it ran in — typically the groups of a `BenchmarkMatrix` — never across
+  /// targets or SDK/flag arms. Arms that share a name across unrelated groups
+  /// are paired too, so give unrelated arms distinct names.
   ///
   /// An arm that carries its payload size in its name (`write_13b` beside
   /// `write_1mb`) counts as two benchmarks here, so its sizes are never
   /// compared. To have a size sweep screened, keep one arm name across sizes
   /// and vary the size by group, as `BenchmarkGroup.matrix` does.
   ///
-  /// Pairs whose larger payload is under [minInvarianceBytes] are skipped.
-  /// That floor sits far below the [minCheckedBytes] that [screenSuite]
-  /// needs, so this still catches a payload small enough to hide under the
-  /// bandwidth ceiling.
+  /// A pair is judged only when reading the extra bytes, even at
+  /// [maxPlausibleBytesPerSecond], would push the larger payload's latency
+  /// past [maxInvariantLatencyRatio]. Below that, fixed per-invocation
+  /// overhead can hide an honest read, so flat latency is not evidence that
+  /// the bytes went unread. Every finding therefore means the extra bytes cost
+  /// less time than the fastest plausible read. The bound scales with latency
+  /// rather than payload size, so fast benchmarks are still screened far below
+  /// the [minCheckedBytes] that [screenSuite] needs.
   static List<InvariantLatency> screenInvariance(BenchmarkSuiteResult suite) {
     final byBenchmark = <(String, String, String), List<(int, double)>>{};
     for (final benchmark in suite.benchmarks) {
@@ -213,7 +209,12 @@ abstract final class ThroughputPlausibility() {
       for (var j = points.length - 1; j > i; j--) {
         final (largeBytes, largeLatencyNs) = points[j];
         final volumeRatio = largeBytes / smallBytes;
-        if (largeBytes < minInvarianceBytes ||
+        // Fastest plausible cost of reading the extra bytes. If even that fits
+        // inside the band, an honest read could look flat. It only shrinks as
+        // j descends, so no smaller pair for this point can qualify either.
+        final minExtraNs =
+            (largeBytes - smallBytes) / maxPlausibleBytesPerSecond * 1e9;
+        if (minExtraNs <= (maxInvariantLatencyRatio - 1) * smallLatencyNs ||
             volumeRatio < minVolumeRatio ||
             volumeRatio <= bestVolumeRatio) {
           break;

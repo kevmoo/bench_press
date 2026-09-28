@@ -46,7 +46,7 @@ class DefaultsConfig({
   required final List<String> targets,
   required final int trials,
   final int? maxTrials,
-  required final String output,
+  final String output = defaultTelemetryFileName,
   required final bool isolateMode,
 }) {
   static DefaultsConfig fromYaml(YamlMap? map) {
@@ -55,7 +55,6 @@ class DefaultsConfig({
         targets: ['jit', 'aot'],
         trials: 15,
         maxTrials: null,
-        output: defaultTelemetryFileName,
         isolateMode: false,
       );
     }
@@ -92,19 +91,6 @@ class DefaultsConfig({
       maxTrials = maxTrialsNode.value as int;
     }
 
-    final outputNode = map.nodes['output'];
-    var output = defaultTelemetryFileName;
-    if (outputNode != null) {
-      final value = outputNode.value;
-      if (value is! String || value.isEmpty) {
-        throw SourceSpanException(
-          'output must be a non-empty string.',
-          outputNode.span,
-        );
-      }
-      output = value;
-    }
-
     final isolateNode = map.nodes['isolate_mode'];
     var isolateMode = false;
     if (isolateNode != null) {
@@ -115,9 +101,16 @@ class DefaultsConfig({
       targets: targets,
       trials: trials,
       maxTrials: maxTrials,
-      output: output,
+      output: _parseOutput(map.nodes['output']),
       isolateMode: isolateMode,
     );
+  }
+
+  static String _parseOutput(YamlNode? node) {
+    if (node == null) return defaultTelemetryFileName;
+    final value = node.value;
+    if (value is String && value.isNotEmpty) return value;
+    throw SourceSpanException('output must be a non-empty string.', node.span);
   }
 }
 
