@@ -1,17 +1,13 @@
-## 0.3.2-wip
+## 0.4.0-wip
 
-- `ThroughputPlausibility.screenInvariance`'s group pass now compares only arms
-  that share a name stem once a trailing payload-size token is stripped
-  (`write_200_fixed_13b` and `write_200_fixed_1mb` pair;
-  `direct_uint8list_body_1kb` and `chunked_body_controller_64kb` do not). A
-  `BenchmarkGroup` holds competing implementations by construction, so pairing
-  differently-named arms compared unrelated code paths and read their difference
-  as invariance. On real output it reported `64.0x` the data for `0.93x` the
-  time across a group whose arms were a direct write and a chunked controller.
-  Narrowing the ratio band in the previous entry could not fix this: `0.93` is
-  inside the band, because the error was in which points get compared, not how
-  close their latencies must be.
-
+- **Breaking (config)**: removed the `matrix.entrypoints` key from
+  `bench_press.yaml`. It never chose which file ran: each value re-ran the same
+  discovered benchmark files under a made-up `entrypoint` coordinate, so the
+  matrix table compared identical runs. Pass benchmark files as positional paths
+  to `bench_press run` instead. A leftover `entrypoints:` key is ignored.
+- `bench_press run` now honors `defaults.output` in `bench_press.yaml`. An
+  explicit `--output` or `--save` still takes precedence, and
+  `benchmark_results.json` remains the fallback.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
@@ -21,8 +17,10 @@
   `MarkdownReporter.renderSuite` warning banners to flag benchmarks whose
   declared `Throughput.bytes` rate exceeds physical memory bandwidth
   (`100 GB/s`) or whose latency remains invariant (`0.9x–1.25x`) across `>=8x`
-  payload size spreads (both across matrix coordinates and across comparison
-  group arms).
+  payload size spreads. The invariance check pairs one benchmark name across the
+  matrix coordinates it ran at, and skips pairs whose larger payload is under 4
+  KiB. To have a size sweep checked, keep one benchmark name across sizes (as
+  `BenchmarkGroup.matrix` does) rather than putting the size in the name.
 - Stopped `MarkdownReporter` from wrapping tables in `mdformat off` /
   `mdformat on` HTML-comment guards.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now

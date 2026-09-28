@@ -208,6 +208,8 @@ defaults:
   trials: 15
   max_trials: 30
   isolate_mode: false
+  # Results file; `--output` / `--save` take precedence.
+  output: benchmark_results.json
 
 matrix:
   baseline:

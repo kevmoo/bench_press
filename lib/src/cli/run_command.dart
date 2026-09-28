@@ -59,8 +59,10 @@ final class RunCommand({
       ..addOption(
         'output',
         abbr: 'o',
-        defaultsTo: defaultTelemetryFileName,
-        help: 'File path to save/merge benchmark suite results JSON.',
+        help:
+            'File path to save/merge benchmark suite results JSON. Falls back '
+            'to defaults.output in bench_press.yaml, then '
+            '$defaultTelemetryFileName.',
       )
       ..addOption(
         'save',
@@ -248,7 +250,7 @@ final class RunCommand({
             targets: ['jit'],
             trials: 15,
             maxTrials: null,
-            output: '',
+            output: defaultTelemetryFileName,
             isolateMode: false,
           ),
           matrix: MatrixConfig(explicitBaseline: {}, axes: {}),
@@ -342,16 +344,23 @@ final class RunCommand({
       return ExitCode.software.code;
     }
 
-    return _finishSuiteExecution(suite, hasFailures: hasFailures);
+    return _finishSuiteExecution(
+      suite,
+      hasFailures: hasFailures,
+      configuredOutput: config.defaults.output,
+    );
   }
 
   int _finishSuiteExecution(
     BenchmarkSuiteResult suite, {
     required bool hasFailures,
+    required String configuredOutput,
   }) {
     final noSave = argResults!.flag('no-save');
     final outputPath =
-        argResults!.option('save') ?? argResults!.option('output')!;
+        argResults!.option('save') ??
+        argResults!.option('output') ??
+        configuredOutput;
     final finalSuite = !noSave ? suite.mergeAndSave(File(outputPath)) : suite;
 
     _outputSuiteReport(

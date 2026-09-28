@@ -39,7 +39,7 @@ final class const ImplausibleThroughput({
 /// The ceiling only catches payloads large enough that no cache could explain
 /// the rate. [screenInvariance] catches the same defect from the other side,
 /// by looking for a benchmark whose latency does not move when its payload
-/// does, and it works at any size.
+/// does, and it works far below [minCheckedBytes].
 abstract final class ThroughputPlausibility() {
   /// Smallest declared volume worth screening.
   ///
@@ -128,6 +128,15 @@ abstract final class ThroughputPlausibility() {
   /// not being touched.
   static const double maxInvariantLatencyRatio = 1.25;
 
+  /// Smallest larger payload an invariance pair is judged at.
+  ///
+  /// Below this, reading the whole payload from cache costs tens of
+  /// nanoseconds, which fixed per-invocation overhead (a call, an allocation,
+  /// a header write) can hide entirely, so flat latency is not evidence that
+  /// the bytes went unread. The floor sits far below [minCheckedBytes], so
+  /// [screenInvariance] still covers payloads the bandwidth ceiling cannot.
+  static const int minInvarianceBytes = 4096;
+
   /// Returns every benchmark in [suite] measured at byte volumes spanning at
   /// least [minVolumeRatio] whose mean latency grew by no more than
   /// [maxInvariantLatencyRatio], ordered by widest volume spread first.
@@ -137,16 +146,15 @@ abstract final class ThroughputPlausibility() {
   /// sizes it was run at — typically the groups of a `BenchmarkMatrix` — never
   /// two unrelated benchmarks or two different SDK/flag arms.
   ///
-  /// When each payload size carries its own benchmark name inside one
-  /// comparison group — `write_200_fixed_13b` and `write_200_fixed_1mb`, say —
-  /// the name-keyed pass cannot pair them. A second, deliberately conservative
-  /// pass covers that shape; see `_screenGroupInvariance`. Findings from it set
-  /// [InvariantLatency.groupScoped]. That pass pairs only arms sharing a name
-  /// stem once the size token is stripped, because a group's arms are otherwise
-  /// competing implementations rather than one mechanism resized.
+  /// An arm that carries its payload size in its name (`write_13b` beside
+  /// `write_1mb`) counts as two benchmarks here, so its sizes are never
+  /// compared. To have a size sweep screened, keep one arm name across sizes
+  /// and vary the size by group, as `BenchmarkGroup.matrix` does.
   ///
-  /// Unlike [screenSuite] this has no size floor, so it catches a payload small
-  /// enough to hide under the bandwidth ceiling.
+  /// Pairs whose larger payload is under [minInvarianceBytes] are skipped.
+  /// That floor sits far below the [minCheckedBytes] that [screenSuite]
+  /// needs, so this still catches a payload small enough to hide under the
+  /// bandwidth ceiling.
   static List<InvariantLatency> screenInvariance(BenchmarkSuiteResult suite) {
     final byBenchmark = <(String, String, String), List<(int, double)>>{};
     for (final benchmark in suite.benchmarks) {
@@ -168,7 +176,6 @@ abstract final class ThroughputPlausibility() {
     }
 
     final findings = <InvariantLatency>[];
-    final flagged = <String>{};
     for (final MapEntry(:key, :value) in byBenchmark.entries) {
       if (value.length < 2) {
         continue;
@@ -177,138 +184,12 @@ abstract final class ThroughputPlausibility() {
       final widest = _findWidestInvariantPair(key.$1, key.$2, points);
       if (widest != null) {
         findings.add(widest);
-        flagged.add(key.$1);
       }
     }
 
-    findings.addAll(_screenGroupInvariance(suite, alreadyFlagged: flagged));
     findings.sort((a, b) => b.volumeRatio.compareTo(a.volumeRatio));
     return findings;
   }
-
-  /// Catches the same defect when each payload size was given its own benchmark
-  /// name inside one comparison group, which [screenInvariance]'s name-keyed
-  /// pass cannot pair.
-  ///
-  /// Arms in a group are usually competing implementations of the same payload,
-  /// so [_collectGroupPoints] partitions each group by [_nameStem] first,
-  /// comparing only size variants of the same mechanism. Within a stem, each
-  /// payload size is collapsed to its fastest and slowest point, and the
-  /// comparison uses the **slowest** point at the large size against the
-  /// **fastest** point at the small size — the pairing most likely to show
-  /// growth.
-  static List<InvariantLatency> _screenGroupInvariance(
-    BenchmarkSuiteResult suite, {
-    required Set<String> alreadyFlagged,
-  }) {
-    final groups = _collectGroupPoints(suite);
-    final findings = <InvariantLatency>[];
-    for (final MapEntry(:key, :value) in groups.entries) {
-      if (value.byBytes.length < 2) continue;
-      // The name-keyed pass already reported this group's problem.
-      if (value.names.any(alreadyFlagged.contains)) continue;
-      final finding = _findWidestGroupPair(key.$1, key.$2, value.byBytes);
-      if (finding != null) findings.add(finding);
-    }
-    return findings;
-  }
-
-  /// Trailing payload-size token in a benchmark name (`_13b`, `_256kb`,
-  /// `_1mb`, `_64kib`), which is how one mechanism names its size variants.
-  ///
-  /// A byte unit is required rather than any trailing number, so a name like
-  /// `shelf_router_param_user_42` keeps its suffix instead of being folded in
-  /// with unrelated arms.
-  static final RegExp _payloadSizeSuffix = RegExp(
-    r'_\d+(b|kb|mb|gb|kib|mib|gib)$',
-    caseSensitive: false,
-  );
-
-  /// The benchmark name with its payload-size token removed, identifying *which
-  /// mechanism* an arm measures independently of the size it ran at.
-  static String _nameStem(String name) =>
-      name.replaceFirst(_payloadSizeSuffix, '');
-
-  /// Collapses each `(group, target, coordinates, stem)` bucket to, per
-  /// declared byte volume, the fastest and slowest arm measured at that volume.
-  ///
-  /// Arms are keyed by [_nameStem] so only size variants of the same mechanism
-  /// are ever compared. A `BenchmarkGroup` holds *competing implementations* by
-  /// construction — that is what it is for — so pairing two differently-named
-  /// arms compares different code paths and reads their difference as
-  /// invariance. Real example this guards: `direct_uint8list_body_1kb` at
-  /// `3.54 µs` against `chunked_body_controller_64kb` at `3.28 µs` is not a
-  /// payload that went unread, it is a direct write measured against a chunked
-  /// controller, where per-call overhead dominates at both sizes.
-  static Map<(String, String, String, String), _GroupPoints>
-  _collectGroupPoints(BenchmarkSuiteResult suite) {
-    final groups = <(String, String, String, String), _GroupPoints>{};
-    for (final benchmark in suite.benchmarks) {
-      final group = benchmark.coordinates.group;
-      final throughput = benchmark.throughput;
-      final latencyNs = benchmark.metrics.meanNs;
-      if (group == null || group.isEmpty || throughput is! ByteThroughput) {
-        continue;
-      }
-      if (throughput.bytes <= 0 || !_isMeasurable(latencyNs)) continue;
-      final key = (
-        group,
-        benchmark.target,
-        _nonGroupCoordKey(benchmark.coordinates),
-        _nameStem(benchmark.name),
-      );
-      groups
-          .putIfAbsent(key, _GroupPoints.new)
-          .add(benchmark.name, throughput.bytes, latencyNs);
-    }
-    return groups;
-  }
-
-  /// Widest volume spread in [byBytes] whose latency did not move, comparing
-  /// the slowest arm at the large size against the fastest at the small size.
-  static InvariantLatency? _findWidestGroupPair(
-    String group,
-    String target,
-    Map<int, (double, double)> byBytes,
-  ) {
-    final volumes = byBytes.keys.toList()..sort();
-    InvariantLatency? widest;
-    var bestVolumeRatio = 0.0;
-    for (var i = 0; i < volumes.length; i++) {
-      final smallBytes = volumes[i];
-      final smallLatencyNs = byBytes[smallBytes]!.$1;
-      for (var j = volumes.length - 1; j > i; j--) {
-        final largeBytes = volumes[j];
-        final volumeRatio = largeBytes / smallBytes;
-        if (volumeRatio < minVolumeRatio || volumeRatio <= bestVolumeRatio) {
-          break;
-        }
-        final largeLatencyNs = byBytes[largeBytes]!.$2;
-        if (!_isInvariant(smallLatencyNs, largeLatencyNs)) continue;
-        bestVolumeRatio = volumeRatio;
-        widest = InvariantLatency(
-          benchmarkName: group,
-          target: target,
-          smallBytes: smallBytes,
-          largeBytes: largeBytes,
-          smallLatencyNs: smallLatencyNs,
-          largeLatencyNs: largeLatencyNs,
-          groupScoped: true,
-        );
-      }
-    }
-    return widest;
-  }
-
-  /// Whether latency held steady between the two points.
-  static bool _isInvariant(double smallLatencyNs, double largeLatencyNs) {
-    final ratio = largeLatencyNs / smallLatencyNs;
-    return ratio >= minInvariantLatencyRatio &&
-        ratio <= maxInvariantLatencyRatio;
-  }
-
-  static bool _isMeasurable(double latencyNs) =>
-      !latencyNs.isNaN && !latencyNs.isInfinite && latencyNs > 0.0;
 
   static String _nonGroupCoordKey(BenchmarkCoordinates coordinates) {
     if (coordinates.isEmpty) return '';
@@ -332,7 +213,9 @@ abstract final class ThroughputPlausibility() {
       for (var j = points.length - 1; j > i; j--) {
         final (largeBytes, largeLatencyNs) = points[j];
         final volumeRatio = largeBytes / smallBytes;
-        if (volumeRatio < minVolumeRatio || volumeRatio <= bestVolumeRatio) {
+        if (largeBytes < minInvarianceBytes ||
+            volumeRatio < minVolumeRatio ||
+            volumeRatio <= bestVolumeRatio) {
           break;
         }
         final latencyRatio = largeLatencyNs / smallLatencyNs;
@@ -375,14 +258,6 @@ final class const InvariantLatency({
 
   /// Mean latency measured at [largeBytes].
   required final double largeLatencyNs,
-
-  /// Whether [benchmarkName] names a comparison group rather than one
-  /// benchmark.
-  ///
-  /// Set when the payload sizes were measured under different benchmark names
-  /// inside one group, so the comparison is across the group's arms rather than
-  /// one arm across sizes.
-  final bool groupScoped = false,
 }) {
   /// How many times larger [largeBytes] is than [smallBytes].
   double get volumeRatio => largeBytes / smallBytes;
@@ -391,21 +266,4 @@ final class const InvariantLatency({
   ///
   /// A value near `1.0` alongside a large [volumeRatio] is the finding.
   double get latencyRatio => largeLatencyNs / smallLatencyNs;
-}
-
-/// Per-volume fastest and slowest arm within one comparison group.
-final class _GroupPoints() {
-  final Map<int, (double, double)> byBytes = {};
-  final Set<String> names = {};
-
-  void add(String name, int bytes, double latencyNs) {
-    names.add(name);
-    final existing = byBytes[bytes];
-    byBytes[bytes] = existing == null
-        ? (latencyNs, latencyNs)
-        : (
-            latencyNs < existing.$1 ? latencyNs : existing.$1,
-            latencyNs > existing.$2 ? latencyNs : existing.$2,
-          );
-  }
 }

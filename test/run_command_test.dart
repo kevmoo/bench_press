@@ -309,6 +309,37 @@ matrix:
       check(exitCode).equals(ExitCode.success.code);
     });
 
+    test('run saves to defaults.output unless -o overrides it', () async {
+      final configured = File(d.path('configured.json'));
+      final explicit = File(d.path('explicit.json'));
+      final configFile = writeBenchPressYaml('''
+defaults:
+  output: ${configured.path}
+''');
+      final benchFile = writeSyncBenchmark();
+      List<String> runArgs(List<String> extra) => [
+        'run',
+        '-c',
+        configFile.path,
+        '-t',
+        'jit',
+        '--trials',
+        '2',
+        '--force-run',
+        ...extra,
+        benchFile.path,
+      ];
+
+      check(await BenchPressCommandRunner().run(runArgs([]))).equals(0);
+      check(configured.existsSync()).isTrue();
+
+      configured.deleteSync();
+      check(await BenchPressCommandRunner().run(runArgs(['-o', explicit.path])))
+          .equals(0);
+      check(explicit.existsSync()).isTrue();
+      check(configured.existsSync()).isFalse();
+    });
+
     test('run handles empty directory, invalid config targets, and invalid '
         'matrix config', () async {
       final runner = BenchPressCommandRunner();

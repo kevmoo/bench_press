@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:source_span/source_span.dart';
 import 'package:yaml/yaml.dart';
 
+import '../telemetry/schema.dart' show defaultTelemetryFileName;
+
 class BenchPressConfig({
   required final DefaultsConfig defaults,
   required final MatrixConfig matrix,
@@ -53,7 +55,7 @@ class DefaultsConfig({
         targets: ['jit', 'aot'],
         trials: 15,
         maxTrials: null,
-        output: 'benchmark_results.json',
+        output: defaultTelemetryFileName,
         isolateMode: false,
       );
     }
@@ -91,9 +93,16 @@ class DefaultsConfig({
     }
 
     final outputNode = map.nodes['output'];
-    var output = 'benchmark_results.json';
+    var output = defaultTelemetryFileName;
     if (outputNode != null) {
-      output = outputNode.value.toString();
+      final value = outputNode.value;
+      if (value is! String || value.isEmpty) {
+        throw SourceSpanException(
+          'output must be a non-empty string.',
+          outputNode.span,
+        );
+      }
+      output = value;
     }
 
     final isolateNode = map.nodes['isolate_mode'];
@@ -115,7 +124,6 @@ class DefaultsConfig({
 class MatrixConfig({
   required final Map<String, String> explicitBaseline,
   required final Map<String, Map<String, dynamic>> axes,
-  final Map<String, String>? entrypoints,
 }) {
   static MatrixConfig fromYaml(YamlMap? map) {
     if (map == null) {
@@ -124,13 +132,8 @@ class MatrixConfig({
 
     final baseline = _parseBaseline(map.nodes['baseline']);
     final axes = _parseAxes(map.nodes['axes']);
-    final entrypoints = _parseEntrypoints(map.nodes['entrypoints']);
 
-    return MatrixConfig(
-      explicitBaseline: baseline,
-      axes: axes,
-      entrypoints: entrypoints,
-    );
+    return MatrixConfig(explicitBaseline: baseline, axes: axes);
   }
 
   static Map<String, String> _parseBaseline(YamlNode? node) {
@@ -172,34 +175,18 @@ class MatrixConfig({
     );
   }
 
-  static Map<String, String>? _parseEntrypoints(YamlNode? node) {
-    if (node == null) return null;
-    if (node is! YamlMap) {
-      throw SourceSpanException('entrypoints must be a map.', node.span);
-    }
-    return {for (final key in node.keys) key.toString(): node[key].toString()};
-  }
-
   List<MatrixCoordinate> generateCoordinates() {
-    if (axes.isEmpty && entrypoints == null) {
+    if (axes.isEmpty) {
       return [MatrixCoordinate({}, true)];
     }
 
-    final allAxes = _buildAllAxes();
+    final allAxes = axes.entries.toList();
     final (:combinations, :resolvedValues) = _computeCartesian(allAxes);
     final baselineToMatch = explicitBaseline.isNotEmpty
         ? explicitBaseline
         : _computeImplicitBaseline(allAxes);
 
     return _buildCoordinates(combinations, resolvedValues, baselineToMatch);
-  }
-
-  List<MapEntry<String, Map<String, dynamic>>> _buildAllAxes() {
-    final allAxes = axes.entries.toList();
-    if (entrypoints != null && entrypoints!.isNotEmpty) {
-      allAxes.add(MapEntry('entrypoint', entrypoints!));
-    }
-    return allAxes;
   }
 
   static ({
