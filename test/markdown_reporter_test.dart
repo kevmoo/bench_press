@@ -793,6 +793,39 @@ void main() {
       check(delta).not((it) => it.contains('`parse (group=g), aot, Before`'));
     });
 
+    test('legacy grouped suite footnotes drift on ungrouped cells', () {
+      BenchmarkEntry cell(String name, String? group, double estimate) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: 100.0,
+            samples: [99.0, 100.0, 101.0],
+            group: group,
+            isBaseline: name == 'g_base',
+            warmup: {'estimated_op_ns': estimate},
+          );
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: const EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        ),
+        benchmarks: [
+          cell('g_base', 'g', 100.0),
+          cell('g_cand', 'g', 100.0),
+          cell('solo', null, 50.0),
+        ],
+      );
+
+      final report = MarkdownReporter.renderSuite(suite);
+      check(report).contains('### All Benchmarks');
+      check(report).contains('⚠️ **Calibration drift**');
+      check(report)
+          .contains('> - `solo`: warmup 50.0 ns → trials 100.0 ns (+100.0%)');
+      check(report).not((it) => it.contains('> - `g_'));
+    });
+
     group('delta pairing (#63)', () {
       const env = EnvironmentInfo(
         dartVersion: '3.14.0',
@@ -1150,7 +1183,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
   required String target,
   required double meanNs,
   required List<double> samples,
-  required String group,
+  required String? group,
   required bool isBaseline,
   int? calibratedBatchIterations,
   Map<String, Object?>? warmup,
@@ -1178,7 +1211,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     rawTrialsNs: samples,
     warmup: warmup,
     calibratedBatchIterations: calibratedBatchIterations,
-    coordinates: BenchmarkCoordinates({'group': group}),
+    coordinates: BenchmarkCoordinates({'group': ?group}),
     isBaseline: isBaseline,
   );
 }

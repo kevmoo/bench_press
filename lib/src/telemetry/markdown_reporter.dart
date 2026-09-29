@@ -85,7 +85,24 @@ abstract final class MarkdownReporter() {
     }
     final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
     buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
+    _writeUngroupedDriftNotes(buffer, suite);
     return buffer.toString();
+  }
+
+  /// Footnotes drift for cells with no `group` coordinate.
+  ///
+  /// In the legacy grouped layout these cells appear only in the summary
+  /// table, which has no advisory footer of its own.
+  static void _writeUngroupedDriftNotes(
+    StringBuffer buffer,
+    BenchmarkSuiteResult suite,
+  ) {
+    final notes = <String>[];
+    for (final entry in suite.benchmarks) {
+      if (entry.coordinates.group != null) continue;
+      _recordDrift(notes, entry.name, entry);
+    }
+    _writeDriftNotes(buffer, notes);
   }
 
   /// Renders a top-level Suite Summary table rolling up candidate performance
@@ -277,7 +294,7 @@ abstract final class MarkdownReporter() {
         ),
       );
       _recordDrift(
-        stats,
+        stats.driftNotes,
         _formatBaselineLabel(entry, axesList, includeNameCol: includeNameCol),
         entry,
       );
@@ -337,13 +354,14 @@ abstract final class MarkdownReporter() {
   /// estimate above which the cell is footnoted as drifted.
   static const _driftThreshold = 0.25;
 
-  /// Records a drift note for [entry] when its trial median moved more than
-  /// [_driftThreshold] from the warmup estimate that sized its batch.
+  /// Appends a drift note for [entry] to [notes] when its trial median moved
+  /// more than [_driftThreshold] from the warmup estimate that sized its
+  /// batch.
   ///
   /// Skipped when the estimate is absent (older JSON) or non-positive (the
   /// batch came from the fallback calibrator, not from warmup).
   static void _recordDrift(
-    _DeltaStats stats,
+    List<String> notes,
     String label,
     BenchmarkEntry entry,
   ) {
@@ -352,7 +370,7 @@ abstract final class MarkdownReporter() {
     final median = entry.metrics.medianNs;
     final drift = (median - estimate) / estimate;
     if (drift.abs() <= _driftThreshold) return;
-    stats.driftNotes.add(
+    notes.add(
       '`$label`: warmup ${_formatLatency(estimate.toDouble())} → '
       'trials ${_formatLatency(median)} (${_formatPercent(drift * 100)})',
     );
@@ -714,8 +732,8 @@ abstract final class MarkdownReporter() {
     for (final (base, cur) in matched) {
       _processDeltaRow(buffer, base, cur, hasThroughput, gate, stats);
       final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
-      _recordDrift(stats, '$rowLabel, $baselineLabel', base);
-      _recordDrift(stats, '$rowLabel, $currentLabel', cur);
+      _recordDrift(stats.driftNotes, '$rowLabel, $baselineLabel', base);
+      _recordDrift(stats.driftNotes, '$rowLabel, $currentLabel', cur);
     }
 
     _writeDeltaFooter(buffer, stats);
