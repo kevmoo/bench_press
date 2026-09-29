@@ -453,11 +453,12 @@ abstract final class MarkdownReporter() {
       if (movement.$2 == 0) stats.neutralCount++;
     }
 
+    final ratioText = speedup >= 1.0
+        ? '${speedup.toStringAsFixed(2)}x faster'
+        : '${(1.0 / speedup).toStringAsFixed(2)}x slower';
     final diffStr = isUnresolved
         ? 'unresolved'
-        : (speedup >= 1.0
-              ? '**${speedup.toStringAsFixed(2)}x faster**'
-              : '**${(1.0 / speedup).toStringAsFixed(2)}x slower**');
+        : (movement.$2 != 0 ? '**$ratioText**' : ratioText);
     final ratioStr = isUnresolved
         ? 'unresolved'
         : '${speedup.toStringAsFixed(2)}x';

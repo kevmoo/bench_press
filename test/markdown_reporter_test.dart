@@ -920,6 +920,8 @@ void main() {
       check(table).contains('➖ ⚪ Neutral');
       check(table).not((it) => it.contains('Peak'));
       check(table).not((it) => it.contains('**['));
+      check(table).contains('| 1.05x faster |');
+      check(table).not((it) => it.contains('**1.05x faster**'));
       check(table).contains('➖ **1** Neutral');
 
       const env = EnvironmentInfo(
