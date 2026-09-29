@@ -21,6 +21,12 @@
   between calibration and measurement. The estimate is saved in the new
   `warmup.estimated_op_ns` JSON field; results written before this release, or
   batches sized by the fallback calibrator, are not checked.
+- The speedup gate in comparison and `diff` tables now uses `isStable`, the same
+  test behind the `✅ Stable` badge in `### All Benchmarks`, instead of
+  `isRobustStable`. A cell that reads Stable there is no longer reported as
+  unresolved in the tables. A resolved comparison whose 95% CI contains `1.00x`
+  is now `➖ ⚪ Neutral` and its CI is not bolded, even when the point estimate
+  is outside the ±5% band.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates

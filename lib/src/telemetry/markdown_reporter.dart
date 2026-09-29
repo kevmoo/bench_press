@@ -437,7 +437,11 @@ abstract final class MarkdownReporter() {
 
     final verdict = _computeFiellerVerdict(baselineEntry, entry);
     final isUnresolved = gate && !verdict.resolved;
-    final movement = _classifyMovement(speedup, isDelta: false);
+    final movement = _classifyMovement(
+      speedup,
+      isDelta: false,
+      straddlesOne: verdict.straddlesOne,
+    );
     if (isUnresolved) {
       stats.unresolvedCount++;
       stats.reasons.addAll(verdict.reasons);
@@ -457,18 +461,15 @@ abstract final class MarkdownReporter() {
     final ratioStr = isUnresolved
         ? 'unresolved'
         : '${speedup.toStringAsFixed(2)}x';
-    final ciStr = _formatMatrixFiellerCi(speedup, verdict);
+    final ciStr = _formatMatrixFiellerCi(verdict, movement.$2);
     final statusLabel = isUnresolved ? '❓ Unresolved' : movement.$1;
 
     return [diffStr, ratioStr, ciStr, statusLabel];
   }
 
-  static String _formatMatrixFiellerCi(double speedup, _Verdict verdict) {
+  static String _formatMatrixFiellerCi(_Verdict verdict, int trend) {
     final ci = verdict.matrixCiString;
-    if (verdict.resolved && (speedup >= 1.05 || speedup <= 0.95)) {
-      return '**$ci**';
-    }
-    return ci;
+    return verdict.resolved && trend != 0 ? '**$ci**' : ci;
   }
 
   static String renderAllGroupComparisonTables(
@@ -884,7 +885,11 @@ abstract final class MarkdownReporter() {
 
     final (statusStr, trend) = isUnresolved
         ? ('❓ Unresolved', 0)
-        : _classifyMovement(speedup, isDelta: true);
+        : _classifyMovement(
+            speedup,
+            isDelta: true,
+            straddlesOne: verdict.straddlesOne,
+          );
 
     final baseStr = _formatLatency(baseMean);
     final curStr = _formatLatency(curMean);
@@ -946,10 +951,17 @@ abstract final class MarkdownReporter() {
     );
   }
 
+  /// Classifies [speedup] against the ±5% band.
+  ///
+  /// A resolved 95% CI that contains 1.00x ([straddlesOne]) is always
+  /// Neutral: the data cannot tell faster from slower, whatever the point
+  /// estimate says.
   static (String, int) _classifyMovement(
     double speedup, {
     bool isDelta = false,
+    bool straddlesOne = false,
   }) {
+    if (straddlesOne) return ('➖ ⚪ Neutral', 0);
     if (speedup >= 1.05) return (isDelta ? '🚀 Faster' : '🚀 🥇 Peak', 1);
     if (speedup <= 0.95) return (isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow', -1);
     return ('➖ ⚪ Neutral', 0);
@@ -990,11 +1002,14 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry base,
     BenchmarkEntry cur,
   ) {
-    final baseUnstable = !base.metrics.isRobustStable;
-    final curUnstable = !cur.metrics.isRobustStable;
+    // Same stability test as the "✅ Stable" badge in `### All Benchmarks`,
+    // so a cell never reads Stable there and unresolved here.
+    final baseUnstable = !base.metrics.isStable;
+    final curUnstable = !cur.metrics.isStable;
     if (baseUnstable || curUnstable) {
       return (
         resolved: false,
+        straddlesOne: false,
         ciString: '[N/A]',
         matrixCiString: '[N/A]',
         reasons: [
@@ -1004,12 +1019,7 @@ abstract final class MarkdownReporter() {
       );
     }
     if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
-      return (
-        resolved: false,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: const ['unbounded CI'],
-      );
+      return _unboundedVerdict;
     }
     final interval = FiellerInterval.compute(
       sampleA: base.rawTrialsNs,
@@ -1018,26 +1028,33 @@ abstract final class MarkdownReporter() {
     if (!interval.isValid ||
         interval.lowerBound.isNaN ||
         interval.upperBound.isNaN) {
-      return (
-        resolved: false,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: const ['unbounded CI'],
-      );
+      return _unboundedVerdict;
     }
     final low = interval.lowerBound.toStringAsFixed(2);
     final high = interval.upperBound.toStringAsFixed(2);
     return (
       resolved: true,
+      straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
       ciString: '[$low x, $high x]',
       matrixCiString: '[${low}x – ${high}x]',
       reasons: const [],
     );
   }
+
+  static const _Verdict _unboundedVerdict = (
+    resolved: false,
+    straddlesOne: false,
+    ciString: '[N/A]',
+    matrixCiString: '[N/A]',
+    reasons: ['unbounded CI'],
+  );
 }
 
 typedef _Verdict = ({
   bool resolved,
+
+  /// Whether the resolved 95% CI contains 1.00x (no detectable change).
+  bool straddlesOne,
   String ciString,
   String matrixCiString,
   List<String> reasons,
