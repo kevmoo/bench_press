@@ -690,7 +690,13 @@ void main() {
         timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
         environment: env,
         benchmarks: [
-          _createEntry('unstable_bench', 'jit', 50.0, isStable: false),
+          _createEntry(
+            'unstable_bench',
+            'jit',
+            50.0,
+            isStable: false,
+            group: 'G1',
+          ),
         ],
       );
 
@@ -781,9 +787,85 @@ void main() {
       );
       check(delta).not((it) => it.contains('Batch'));
       check(delta).contains(
-        '> - `parse, aot, After`: warmup 200.0 ns → trials 100.0 ns (-50.0%)',
+        '> - `parse (group=g), aot, After`: warmup 200.0 ns → trials 100.0 ns '
+        '(-50.0%)',
       );
-      check(delta).not((it) => it.contains('`parse, aot, Before`'));
+      check(delta).not((it) => it.contains('`parse (group=g), aot, Before`'));
+    });
+
+    group('delta pairing (#63)', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      BenchmarkEntry cell(String name, String group, double meanNs) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: meanNs,
+            samples: [meanNs - 1, meanNs, meanNs + 1],
+            group: group,
+            isBaseline: false,
+          );
+      BenchmarkSuiteResult suite(List<BenchmarkEntry> entries) =>
+          BenchmarkSuiteResult(
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: entries,
+          );
+
+      test('pairs a name reused across groups by group, not by first '
+          'match, and labels rows with their coordinates', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([
+            cell('encode', 'A', 100.0),
+            cell('encode', 'B', 1000.0),
+          ]),
+          current: suite([
+            cell('encode', 'A', 50.0),
+            cell('encode', 'B', 1000.0),
+          ]),
+        );
+        check(delta).contains(
+          '| encode (group=A) | `jit` | 100.0 ns | 50.0 ns | -50.0 ns |',
+        );
+        check(
+          delta,
+        ).contains('| encode (group=B) | `jit` | 1.00 µs | 1.00 µs | 0.0 ns |');
+        // Before #63, group B paired with group A's baseline (100 ns).
+        check(delta).not((it) => it.contains('Regression'));
+        check(delta).not((it) => it.contains('Unmatched'));
+      });
+
+      test('lists cells present in only one run', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([cell('keep', 'A', 100.0), cell('gone', 'A', 100.0)]),
+          current: suite([cell('keep', 'A', 50.0), cell('keep', 'B', 50.0)]),
+          baselineLabel: 'Before',
+          currentLabel: 'After',
+        );
+        check(delta).contains('| keep (group=A) |');
+        check(delta).contains(
+          '> ℹ️ **Unmatched**: 2 benchmarks ran in only one of the two runs '
+          'and are not compared.\n'
+          '> - Only in Before: `gone (group=A)` (`jit`)\n'
+          '> - Only in After: `keep (group=B)` (`jit`)',
+        );
+      });
+
+      test('still lists unmatched cells when nothing pairs', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([cell('encode', 'A', 100.0)]),
+          current: suite([cell('encode', 'B', 100.0)]),
+        );
+        check(delta).contains('_No matching benchmarks found');
+        check(delta).contains(
+          '> ℹ️ **Unmatched**: 2 benchmarks ran in only one of the two runs',
+        );
+        check(delta).contains('> - Only in Baseline: `encode (group=A)`');
+        check(delta).contains('> - Only in Current: `encode (group=B)`');
+      });
     });
 
     test('gate follows isStable, so a cell that is stable by CV but not '

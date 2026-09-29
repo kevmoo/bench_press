@@ -27,6 +27,14 @@
   unresolved in the tables. A resolved comparison whose 95% CI contains `1.00x`
   is now `➖ ⚪ Neutral` and its CI is not bolded, even when the point estimate
   is outside the ±5% band.
+- **Breaking (behavioral)**: `bench_press diff` and
+  `MarkdownReporter.renderDeltaTable` now pair cells by full key (name, target,
+  and every coordinate, including group) instead of by name and target alone. A
+  name reused across groups was previously compared against the first match in
+  the other run. The Benchmark column now shows coordinates, for example
+  `encode (group=A)`. Cells present in only one run are listed in an `Unmatched`
+  note, including when nothing pairs. Results that differ only in coordinates,
+  such as a benchmark moved into a group, no longer pair.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates

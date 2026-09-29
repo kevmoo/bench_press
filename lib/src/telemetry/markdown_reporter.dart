@@ -604,38 +604,95 @@ abstract final class MarkdownReporter() {
     buffer.writeln('### $heading');
     buffer.writeln();
 
-    final matched = _findMatchedEntries(baseline, current);
-    if (matched.isEmpty) {
+    final pairing = _pairByKey(baseline, current);
+    if (pairing.matched.isEmpty) {
       buffer.writeln(
         '_No matching benchmarks found between baseline and current results._',
       );
-      return buffer.toString();
+    } else {
+      buffer.write(
+        _renderDeltaRows(
+          pairing.matched,
+          baselineLabel: baselineLabel,
+          currentLabel: currentLabel,
+          gate: gate,
+        ),
+      );
     }
-
-    buffer.write(
-      _renderDeltaRows(
-        matched,
-        baselineLabel: baselineLabel,
-        currentLabel: currentLabel,
-        gate: gate,
-      ),
-    );
+    _writeUnmatchedNotes(buffer, pairing, baselineLabel, currentLabel);
 
     return buffer.toString();
   }
 
-  static List<(BenchmarkEntry, BenchmarkEntry)> _findMatchedEntries(
+  /// Pairs cells by [BenchmarkEntry.key] (name, target, and every
+  /// coordinate, including group), so a benchmark name reused across groups
+  /// or matrix cells is never compared against the wrong cell.
+  ///
+  /// On a duplicate key within one run, the first entry wins.
+  static _Pairing _pairByKey(
     BenchmarkSuiteResult baseline,
     BenchmarkSuiteResult current,
   ) {
+    final baseByKey = <String, BenchmarkEntry>{};
+    for (final base in baseline.benchmarks) {
+      baseByKey.putIfAbsent(base.key, () => base);
+    }
     final matched = <(BenchmarkEntry, BenchmarkEntry)>[];
+    final onlyCurrent = <BenchmarkEntry>[];
+    final matchedKeys = <String>{};
     for (final cur in current.benchmarks) {
-      final base = baseline.findEntry(cur.name, cur.target);
-      if (base != null) {
+      if (!matchedKeys.add(cur.key)) continue;
+      final base = baseByKey[cur.key];
+      if (base == null) {
+        onlyCurrent.add(cur);
+      } else {
         matched.add((base, cur));
       }
     }
-    return matched;
+    return (
+      matched: matched,
+      onlyBaseline: [
+        for (final MapEntry(:key, :value) in baseByKey.entries)
+          if (!matchedKeys.contains(key)) value,
+      ],
+      onlyCurrent: onlyCurrent,
+    );
+  }
+
+  static void _writeUnmatchedNotes(
+    StringBuffer buffer,
+    _Pairing pairing,
+    String baselineLabel,
+    String currentLabel,
+  ) {
+    final sides = [
+      (baselineLabel, pairing.onlyBaseline),
+      (currentLabel, pairing.onlyCurrent),
+    ].where((side) => side.$2.isNotEmpty).toList();
+    if (sides.isEmpty) return;
+    final count = sides.fold(0, (sum, side) => sum + side.$2.length);
+    buffer.writeln();
+    buffer.writeln(
+      '> ℹ️ **Unmatched**: $count benchmark${count == 1 ? '' : 's'} ran in '
+      'only one of the two runs and ${count == 1 ? 'is' : 'are'} not '
+      'compared.',
+    );
+    for (final (label, entries) in sides) {
+      final names = entries
+          .map((e) => '`${_deltaRowLabel(e)}` (`${e.target}`)')
+          .join(', ');
+      buffer.writeln('> - Only in $label: $names');
+    }
+  }
+
+  /// The delta table's Benchmark cell: the name, plus its coordinates when
+  /// it has any, so rows for one name in different groups stay distinct.
+  static String _deltaRowLabel(BenchmarkEntry entry) {
+    if (entry.coordinates.isEmpty) return entry.name;
+    final coords = entry.coordinates.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final coordStr = coords.map((e) => '${e.key}=${e.value}').join(', ');
+    return '${entry.name} ($coordStr)';
   }
 
   static String _renderDeltaRows(
@@ -655,7 +712,7 @@ abstract final class MarkdownReporter() {
 
     for (final (base, cur) in matched) {
       _processDeltaRow(buffer, base, cur, hasThroughput, gate, stats);
-      final rowLabel = '${cur.name}, ${cur.target}';
+      final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
       _recordDrift(stats, '$rowLabel, $baselineLabel', base);
       _recordDrift(stats, '$rowLabel, $currentLabel', cur);
     }
@@ -900,17 +957,18 @@ abstract final class MarkdownReporter() {
         : '${speedup.toStringAsFixed(2)}x';
     final ciStr = verdict.ciString;
 
+    final label = _deltaRowLabel(cur);
     if (hasThroughput) {
       final tp = cur.throughput ?? base.throughput;
       final tpStr = tp?.formatRate(curMean) ?? '-';
       final row =
-          '| ${cur.name} | `${cur.target}` | $tpStr | $baseStr | '
+          '| $label | `${cur.target}` | $tpStr | $baseStr | '
           '$curStr | $diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
       return (row, speedup, trend, verdict);
     }
 
     final row =
-        '| ${cur.name} | `${cur.target}` | $baseStr | $curStr | '
+        '| $label | `${cur.target}` | $baseStr | $curStr | '
         '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
 
     return (row, speedup, trend, verdict);
@@ -1049,6 +1107,12 @@ abstract final class MarkdownReporter() {
     reasons: ['unbounded CI'],
   );
 }
+
+typedef _Pairing = ({
+  List<(BenchmarkEntry, BenchmarkEntry)> matched,
+  List<BenchmarkEntry> onlyBaseline,
+  List<BenchmarkEntry> onlyCurrent,
+});
 
 typedef _Verdict = ({
   bool resolved,
