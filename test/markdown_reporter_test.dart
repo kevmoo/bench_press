@@ -101,7 +101,7 @@ void main() {
       check(deltaReport).contains('### Before vs. After Delta Comparison');
       check(deltaReport).not((it) => it.contains('mdformat'));
       check(deltaReport).contains(
-        '| Benchmark | Target | Batch | Baseline | Current | Absolute Delta | '
+        '| Benchmark | Target | Baseline | Current | Absolute Delta | '
         'Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       check(deltaReport).contains('parser_fast');
@@ -187,7 +187,7 @@ void main() {
       check<String>(table).contains('### Group: String Construction (`jit`)');
       check<String>(table).not((it) => it.contains('mdformat'));
       check<String>(table).contains(
-        '| Implementation | Batch | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
+        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
       );
       check<String>(table).contains('`concat` (Baseline)');
@@ -595,7 +595,7 @@ void main() {
         current: curSuite,
       );
       check(gated).contains(
-        '| unbounded_bench | `jit` | - | 139.0 ns | 100.0 ns | -39.0 ns | '
+        '| unbounded_bench | `jit` | 139.0 ns | 100.0 ns | -39.0 ns | '
         '-28.1% | unresolved | [N/A] | ❓ Unresolved |',
       );
       // GeoMean must be 2.00x (from valid_bench only), not contaminated
@@ -614,159 +614,387 @@ void main() {
       check(ungated).not((it) => it.contains('unresolved'));
     });
 
-    test(
-      'Change 1: !isRobustStable renders unresolved and all-unresolved table '
-      'guards against NaN GeoMean while keeping baseline 1.00x (ref)',
-      () {
-        const env = EnvironmentInfo(
+    test('Change 1: !isStable renders unresolved and all-unresolved table '
+        'guards against NaN GeoMean while keeping baseline 1.00x (ref)', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+
+      final baseEntry = _createEntry(
+        'unstable_bench',
+        'jit',
+        100.0,
+        isStable: true,
+        group: 'G1',
+        isBaseline: true,
+      );
+      final unstableCur = _createEntry(
+        'unstable_cand',
+        'jit',
+        50.0,
+        isStable: false,
+        group: 'G1',
+      );
+
+      // Matrix/Group table check: baseline renders 1.00x (ref), candidate
+      // renders unresolved with 'candidate samples unstable'
+      final groupTable = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'G1',
+        target: 'jit',
+        entries: [baseEntry, unstableCur],
+      );
+      check(groupTable).contains('1.00x (ref)');
+      check(groupTable).contains('unresolved');
+      check(groupTable).contains('❓ Unresolved');
+      check(groupTable).contains(
+        '> ❓ **Unresolved**: Speedup omitted due to '
+        'candidate samples unstable.',
+      );
+
+      // When the baseline is unstable and the candidate is stable, the
+      // footnote explicitly attributes the failure to the baseline:
+      final unstableBase = _createEntry(
+        'unstable_base',
+        'jit',
+        100.0,
+        isStable: false,
+        group: 'G1',
+        isBaseline: true,
+      );
+      final stableCur = _createEntry(
+        'stable_cand',
+        'jit',
+        50.0,
+        isStable: true,
+        group: 'G1',
+      );
+      final baselineUnstableTable = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'G1',
+        target: 'jit',
+        entries: [unstableBase, stableCur],
+      );
+      check(baselineUnstableTable).contains(
+        '> ❓ **Unresolved**: Speedup omitted due to '
+        'baseline samples unstable.',
+      );
+
+      // Delta table where EVERY row is unresolved must not emit NaN
+      final baseSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [baseEntry],
+      );
+      final curSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [
+          _createEntry(
+            'unstable_bench',
+            'jit',
+            50.0,
+            isStable: false,
+            group: 'G1',
+          ),
+        ],
+      );
+
+      final delta = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: curSuite,
+      );
+      check(delta).not((it) => it.contains('NaN'));
+      check(
+        delta,
+      ).contains('No resolved measurements to compute Geometric Mean Speedup');
+      check(delta).contains('❓ **1** Unresolved (excluded from GeoMean)');
+    });
+
+    test('matrix drops the Batch column and footnotes only cells whose trial '
+        'median drifted more than 25% from the warmup estimate', () {
+      BenchmarkEntry cell(String name, double meanNs, Object? estimate) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: meanNs,
+            samples: [meanNs - 1, meanNs, meanNs + 1],
+            group: 'DriftGroup',
+            isBaseline: name == 'v_base',
+            calibratedBatchIterations: 7,
+            warmup: {'is_stable': true, 'estimated_op_ns': ?estimate},
+          );
+
+      final table = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'DriftGroup',
+        target: 'jit',
+        entries: [
+          cell('v_base', 100.0, 100.0),
+          cell('v_drift', 50.0, 100.0),
+          cell('v_edge', 125.0, 100.0),
+          cell('v_missing', 80.0, null),
+          cell('v_fallback', 60.0, 0.0),
+          cell('v_slow', 130.0, 100.0),
+        ],
+      );
+
+      check(table).not((it) => it.contains('Batch'));
+      check(table).not((it) => it.contains('| 7 |'));
+      check(table).contains('| `v_base` (Baseline) | 10,000,000 ops/s |');
+      check(table).contains('⚠️ **Calibration drift**');
+      check(table)
+          .contains('> - `v_drift`: warmup 100.0 ns → trials 50.0 ns (-50.0%)');
+      check(table)
+          .contains('> - `v_slow`: warmup 100.0 ns → trials 130.0 ns (+30.0%)');
+      for (final quiet in ['v_base', 'v_edge', 'v_missing', 'v_fallback']) {
+        check(table).not((it) => it.contains('> - `$quiet`'));
+      }
+
+      final clean = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'DriftGroup',
+        target: 'jit',
+        entries: [cell('v_base', 100.0, 100.0), cell('v_edge', 125.0, 100.0)],
+      );
+      check(clean).not((it) => it.contains('Calibration drift'));
+    });
+
+    test('delta table footnotes drift on the baseline and current cells '
+        'separately, labeled by run', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      BenchmarkSuiteResult suite(double meanNs, double estimate) =>
+          BenchmarkSuiteResult(
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: [
+              _createGroupEntryWithSamples(
+                name: 'parse',
+                target: 'aot',
+                meanNs: meanNs,
+                samples: [meanNs - 1, meanNs, meanNs + 1],
+                group: 'g',
+                isBaseline: false,
+                warmup: {'estimated_op_ns': estimate},
+              ),
+            ],
+          );
+
+      final delta = MarkdownReporter.renderDeltaTable(
+        baseline: suite(100.0, 100.0),
+        current: suite(100.0, 200.0),
+        baselineLabel: 'Before',
+        currentLabel: 'After',
+      );
+      check(delta).not((it) => it.contains('Batch'));
+      check(delta).contains(
+        '> - `parse (group=g), aot, After`: warmup 200.0 ns → trials 100.0 ns '
+        '(-50.0%)',
+      );
+      check(delta).not((it) => it.contains('`parse (group=g), aot, Before`'));
+    });
+
+    test('legacy grouped suite footnotes drift on ungrouped cells', () {
+      BenchmarkEntry cell(String name, String? group, double estimate) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: 100.0,
+            samples: [99.0, 100.0, 101.0],
+            group: group,
+            isBaseline: name == 'g_base',
+            warmup: {'estimated_op_ns': estimate},
+          );
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: const EnvironmentInfo(
           dartVersion: '3.14.0',
           os: 'linux',
           arch: 'x64',
-        );
+        ),
+        benchmarks: [
+          cell('g_base', 'g', 100.0),
+          cell('g_cand', 'g', 100.0),
+          cell('solo', null, 50.0),
+        ],
+      );
 
-        final baseEntry = _createEntry(
-          'unstable_bench',
-          'jit',
-          100.0,
-          isStable: true,
-          group: 'G1',
-          isBaseline: true,
-        );
-        final unstableCur = _createEntry(
-          'unstable_cand',
-          'jit',
-          50.0,
-          isStable: false,
-          group: 'G1',
-        );
+      final report = MarkdownReporter.renderSuite(suite);
+      check(report).contains('### All Benchmarks');
+      check(report).contains('⚠️ **Calibration drift**');
+      check(report)
+          .contains('> - `solo`: warmup 50.0 ns → trials 100.0 ns (+100.0%)');
+      check(report).not((it) => it.contains('> - `g_'));
+    });
 
-        // Matrix/Group table check: baseline renders 1.00x (ref), candidate
-        // renders unresolved with 'candidate samples unstable'
-        final groupTable = MarkdownReporter.renderGroupComparisonTable(
-          groupName: 'G1',
-          target: 'jit',
-          entries: [baseEntry, unstableCur],
-        );
-        check(groupTable).contains('1.00x (ref)');
-        check(groupTable).contains('unresolved');
-        check(groupTable).contains('❓ Unresolved');
-        check(groupTable).contains(
-          '> ❓ **Unresolved**: Speedup omitted due to '
-          'candidate samples unstable.',
-        );
+    group('delta pairing (#63)', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      BenchmarkEntry cell(String name, String group, double meanNs) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: meanNs,
+            samples: [meanNs - 1, meanNs, meanNs + 1],
+            group: group,
+            isBaseline: false,
+          );
+      BenchmarkSuiteResult suite(List<BenchmarkEntry> entries) =>
+          BenchmarkSuiteResult(
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: entries,
+          );
 
-        // When the baseline is unstable and the candidate is stable, the
-        // footnote explicitly attributes the failure to the baseline:
-        final unstableBase = _createEntry(
-          'unstable_base',
-          'jit',
-          100.0,
-          isStable: false,
-          group: 'G1',
-          isBaseline: true,
-        );
-        final stableCur = _createEntry(
-          'stable_cand',
-          'jit',
-          50.0,
-          isStable: true,
-          group: 'G1',
-        );
-        final baselineUnstableTable =
-            MarkdownReporter.renderGroupComparisonTable(
-              groupName: 'G1',
-              target: 'jit',
-              entries: [unstableBase, stableCur],
-            );
-        check(baselineUnstableTable).contains(
-          '> ❓ **Unresolved**: Speedup omitted due to '
-          'baseline samples unstable.',
-        );
-
-        // Delta table where EVERY row is unresolved must not emit NaN
-        final baseSuite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
-          environment: env,
-          benchmarks: [baseEntry],
-        );
-        final curSuite = BenchmarkSuiteResult(
-          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
-          environment: env,
-          benchmarks: [
-            _createEntry('unstable_bench', 'jit', 50.0, isStable: false),
-          ],
-        );
-
+      test('pairs a name reused across groups by group, not by first '
+          'match, and labels rows with their coordinates', () {
         final delta = MarkdownReporter.renderDeltaTable(
-          baseline: baseSuite,
-          current: curSuite,
+          baseline: suite([
+            cell('encode', 'A', 100.0),
+            cell('encode', 'B', 1000.0),
+          ]),
+          current: suite([
+            cell('encode', 'A', 50.0),
+            cell('encode', 'B', 1000.0),
+          ]),
         );
-        check(delta).not((it) => it.contains('NaN'));
         check(delta).contains(
-          'No resolved measurements to compute Geometric Mean Speedup',
+          '| encode (group=A) | `jit` | 100.0 ns | 50.0 ns | -50.0 ns |',
         );
-        check(delta).contains('❓ **1** Unresolved (excluded from GeoMean)');
-      },
-    );
+        check(
+          delta,
+        ).contains('| encode (group=B) | `jit` | 1.00 µs | 1.00 µs | 0.0 ns |');
+        // Before #63, group B paired with group A's baseline (100 ns).
+        check(delta).not((it) => it.contains('Regression'));
+        check(delta).not((it) => it.contains('Unmatched'));
+      });
 
-    test('Change 2: Batch column renders calibratedBatch, >2x divergence emits '
-        'warning, <=2x does not, and missing calibratedBatch renders -', () {
-      final b1 = _createGroupEntryWithSamples(
-        name: 'v_base',
+      test('on duplicate keys within a run, the last entry wins', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([
+            cell('encode', 'A', 999.0),
+            cell('encode', 'A', 100.0),
+          ]),
+          current: suite([
+            cell('encode', 'A', 777.0),
+            cell('encode', 'A', 50.0),
+          ]),
+        );
+        check(delta).contains(
+          '| encode (group=A) | `jit` | 100.0 ns | 50.0 ns | -50.0 ns |',
+        );
+        check('| encode (group=A) |'.allMatches(delta).length).equals(1);
+        check(delta).not((it) => it.contains('Unmatched'));
+      });
+
+      test('lists cells present in only one run', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([cell('keep', 'A', 100.0), cell('gone', 'A', 100.0)]),
+          current: suite([cell('keep', 'A', 50.0), cell('keep', 'B', 50.0)]),
+          baselineLabel: 'Before',
+          currentLabel: 'After',
+        );
+        check(delta).contains('| keep (group=A) |');
+        check(delta).contains(
+          '> ℹ️ **Unmatched**: 2 benchmarks ran in only one of the two runs '
+          'and are not compared.\n'
+          '> - Only in Before: `gone (group=A)` (`jit`)\n'
+          '> - Only in After: `keep (group=B)` (`jit`)',
+        );
+      });
+
+      test('still lists unmatched cells when nothing pairs', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([cell('encode', 'A', 100.0)]),
+          current: suite([cell('encode', 'B', 100.0)]),
+        );
+        check(delta).contains('_No matching benchmarks found');
+        check(delta).contains(
+          '> ℹ️ **Unmatched**: 2 benchmarks ran in only one of the two runs',
+        );
+        check(delta).contains('> - Only in Baseline: `encode (group=A)`');
+        check(delta).contains('> - Only in Current: `encode (group=B)`');
+      });
+    });
+
+    test('gate follows isStable, so a cell that is stable by CV but not '
+        'robustly stable still resolves', () {
+      final base = _createGroupEntryWithSamples(
+        name: 'base',
         target: 'jit',
         meanNs: 100.0,
         samples: [99.0, 100.0, 101.0],
-        group: 'BatchGroup',
+        group: 'G',
         isBaseline: true,
-        calibratedBatchIterations: 2,
+        isRobustStable: false,
       );
-      final b2 = _createGroupEntryWithSamples(
-        name: 'v_diverged',
+      final fast = _createGroupEntryWithSamples(
+        name: 'fast',
         target: 'jit',
         meanNs: 50.0,
         samples: [49.0, 50.0, 51.0],
-        group: 'BatchGroup',
+        group: 'G',
         isBaseline: false,
-        calibratedBatchIterations: 7,
+        isRobustStable: false,
       );
-      final bMissing = _createGroupEntryWithSamples(
-        name: 'v_missing_batch',
+      final table = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'G',
         target: 'jit',
-        meanNs: 80.0,
-        samples: [79.0, 80.0, 81.0],
-        group: 'BatchGroup',
-        isBaseline: false,
+        entries: [base, fast],
       );
+      check(table).not((it) => it.contains('unresolved'));
+      check(table).contains('**2.00x faster**');
+      check(table).contains('🚀 🥇 Peak');
+    });
 
-      final divergedTable = MarkdownReporter.renderGroupComparisonTable(
-        groupName: 'BatchGroup',
-        target: 'jit',
-        entries: [b1, b2, bMissing],
-      );
-      check(divergedTable).contains('| `v_base` (Baseline) | 2 |');
-      check(divergedTable).contains('| `v_diverged` | 7 |');
-      check(divergedTable).contains('| `v_missing_batch` | - |');
-      check(divergedTable).contains(
-        'Calibrated batch sizes differ by 3.5x across compared cells (2–7).',
-      );
+    test('a resolved CI that straddles 1.00x is Neutral even past the 5% '
+        'band', () {
+      // 100 ns vs 95 ns is a 1.05x point estimate, but three noisy trials
+      // give a 95% CI that contains 1.00x.
+      BenchmarkEntry cell(String name, double meanNs, {bool base = false}) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: meanNs,
+            samples: [meanNs - 10, meanNs, meanNs + 10],
+            group: 'G',
+            isBaseline: base,
+          );
 
-      // <= 2.0x divergence (2 vs 4) must NOT emit warning
-      final bClose = _createGroupEntryWithSamples(
-        name: 'v_close',
+      final table = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'G',
         target: 'jit',
-        meanNs: 50.0,
-        samples: [49.0, 50.0, 51.0],
-        group: 'BatchGroup',
-        isBaseline: false,
-        calibratedBatchIterations: 4,
+        entries: [cell('before', 100.0, base: true), cell('after', 95.0)],
       );
-      final closeTable = MarkdownReporter.renderGroupComparisonTable(
-        groupName: 'BatchGroup',
-        target: 'jit',
-        entries: [b1, bClose],
+      check(table).contains('➖ ⚪ Neutral');
+      check(table).not((it) => it.contains('Peak'));
+      check(table).not((it) => it.contains('**['));
+      check(table).contains('| 1.05x faster |');
+      check(table).not((it) => it.contains('**1.05x faster**'));
+      check(table).contains('➖ **1** Neutral');
+
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
       );
-      check(closeTable)
-          .not((it) => it.contains('Calibrated batch sizes differ'));
+      BenchmarkSuiteResult suite(double meanNs) => BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [cell('after', meanNs)],
+      );
+      final delta = MarkdownReporter.renderDeltaTable(
+        baseline: suite(100.0),
+        current: suite(95.0),
+      );
+      check(delta).contains('1.05x');
+      check(delta).contains('➖ ⚪ Neutral');
+      check(delta).not((it) => it.contains('🚀 Faster'));
     });
 
     test(
@@ -976,9 +1204,11 @@ BenchmarkEntry _createGroupEntryWithSamples({
   required String target,
   required double meanNs,
   required List<double> samples,
-  required String group,
+  required String? group,
   required bool isBaseline,
   int? calibratedBatchIterations,
+  Map<String, Object?>? warmup,
+  bool isRobustStable = true,
 }) {
   final metrics = BenchmarkMetrics(
     meanNs: meanNs,
@@ -991,7 +1221,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     p99Ns: meanNs,
     opsPerSec: 1e9 / meanNs,
     isStable: true,
-    isRobustStable: true,
+    isRobustStable: isRobustStable,
   );
   return BenchmarkEntry(
     name: name,
@@ -1000,8 +1230,9 @@ BenchmarkEntry _createGroupEntryWithSamples({
     samples: samples.length,
     metrics: metrics,
     rawTrialsNs: samples,
+    warmup: warmup,
     calibratedBatchIterations: calibratedBatchIterations,
-    coordinates: BenchmarkCoordinates({'group': group}),
+    coordinates: BenchmarkCoordinates({'group': ?group}),
     isBaseline: isBaseline,
   );
 }

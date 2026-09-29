@@ -404,7 +404,7 @@ final class ReportCommand() extends Command<int> {
         defaultsTo: true,
         help:
             'Withhold speedup ratios whose confidence interval is unbounded '
-            'or whose samples are not robustly stable. Pass --no-gate to '
+            'or whose samples are not stable. Pass --no-gate to '
             'publish them anyway (exploration only).',
       )
       ..addOption(
@@ -479,7 +479,7 @@ final class DiffCommand() extends Command<int> {
         defaultsTo: true,
         help:
             'Withhold speedup ratios whose confidence interval is unbounded '
-            'or whose samples are not robustly stable. Pass --no-gate to '
+            'or whose samples are not stable. Pass --no-gate to '
             'publish them anyway (exploration only).',
       )
       ..addOption(

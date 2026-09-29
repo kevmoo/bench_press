@@ -85,7 +85,24 @@ abstract final class MarkdownReporter() {
     }
     final summaryTitle = groupTables.isNotEmpty ? 'All Benchmarks' : null;
     buffer.writeln(renderSummaryTable(suite, title: summaryTitle));
+    _writeUngroupedDriftNotes(buffer, suite);
     return buffer.toString();
+  }
+
+  /// Footnotes drift for cells with no `group` coordinate.
+  ///
+  /// In the legacy grouped layout these cells appear only in the summary
+  /// table, which has no advisory footer of its own.
+  static void _writeUngroupedDriftNotes(
+    StringBuffer buffer,
+    BenchmarkSuiteResult suite,
+  ) {
+    final notes = <String>[];
+    for (final entry in suite.benchmarks) {
+      if (entry.coordinates.group != null) continue;
+      _recordDrift(notes, entry.name, entry);
+    }
+    _writeDriftNotes(buffer, notes);
   }
 
   /// Renders a top-level Suite Summary table rolling up candidate performance
@@ -276,8 +293,12 @@ abstract final class MarkdownReporter() {
           includeNameCol: includeNameCol,
         ),
       );
+      _recordDrift(
+        stats.driftNotes,
+        _formatBaselineLabel(entry, axesList, includeNameCol: includeNameCol),
+        entry,
+      );
     }
-    _updateMatrixBatchDivergence(orderedEntries, stats);
     if (orderedEntries.length > 1) {
       _writeDeltaFooter(buffer, stats);
     } else {
@@ -310,7 +331,6 @@ abstract final class MarkdownReporter() {
       if (includeNameCol) 'Implementation',
       for (final axis in axesList)
         axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
-      'Batch',
       'Ops/sec',
       if (hasThroughput) 'Throughput',
       'Mean Latency',
@@ -322,7 +342,7 @@ abstract final class MarkdownReporter() {
     buffer.writeln('| ${headerRow.join(' | ')} |');
 
     final dimCount = axesList.length + (includeNameCol ? 1 : 0);
-    final metricCount = hasThroughput ? 8 : 7;
+    final metricCount = hasThroughput ? 7 : 6;
     final sepRow = <String>[
       for (var i = 0; i < dimCount; i++) ':---',
       for (var i = 0; i < metricCount; i++) ':---:',
@@ -330,23 +350,30 @@ abstract final class MarkdownReporter() {
     buffer.writeln('| ${sepRow.join(' | ')} |');
   }
 
-  static void _updateMatrixBatchDivergence(
-    List<BenchmarkEntry> entries,
-    _DeltaStats stats,
+  /// Relative gap between a cell's trial median and its warmup per-op
+  /// estimate above which the cell is footnoted as drifted.
+  static const _driftThreshold = 0.25;
+
+  /// Appends a drift note for [entry] to [notes] when its trial median moved
+  /// more than [_driftThreshold] from the warmup estimate that sized its
+  /// batch.
+  ///
+  /// Skipped when the estimate is absent (older JSON) or non-positive (the
+  /// batch came from the fallback calibrator, not from warmup).
+  static void _recordDrift(
+    List<String> notes,
+    String label,
+    BenchmarkEntry entry,
   ) {
-    var minB = 0;
-    var maxB = 0;
-    for (final e in entries) {
-      final b = e.calibratedBatchIterations;
-      if (b == null || b <= 0) continue;
-      if (minB == 0 || b < minB) minB = b;
-      if (b > maxB) maxB = b;
-    }
-    if (minB > 0 && maxB > minB) {
-      stats.maxBatchDiv = maxB / minB;
-      stats.divMinBatch = minB;
-      stats.divMaxBatch = maxB;
-    }
+    final estimate = entry.warmup?['estimated_op_ns'];
+    if (estimate is! num || estimate <= 0) return;
+    final median = entry.metrics.medianNs;
+    final drift = (median - estimate) / estimate;
+    if (drift.abs() <= _driftThreshold) return;
+    notes.add(
+      '`$label`: warmup ${_formatLatency(estimate.toDouble())} → '
+      'trials ${_formatLatency(median)} (${_formatPercent(drift * 100)})',
+    );
   }
 
   static String _formatBaselineLabel(
@@ -377,8 +404,6 @@ abstract final class MarkdownReporter() {
         ? (baseMeanNs / curMeanNs)
         : 1.0;
 
-    final batchStr = entry.calibratedBatchIterations?.toString() ?? '-';
-
     final cols = <String>[
       ..._formatDimensionCols(
         entry,
@@ -386,7 +411,6 @@ abstract final class MarkdownReporter() {
         axes,
         includeNameCol: includeNameCol,
       ),
-      batchStr,
       _formatOps(entry.metrics.opsPerSec),
       if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
       _formatLatency(curMeanNs),
@@ -431,38 +455,31 @@ abstract final class MarkdownReporter() {
 
     final verdict = _computeFiellerVerdict(baselineEntry, entry);
     final isUnresolved = gate && !verdict.resolved;
-    final movement = _classifyMovement(speedup, isDelta: false);
-    if (isUnresolved) {
-      stats.unresolvedCount++;
-      stats.reasons.addAll(verdict.reasons);
-    } else {
-      stats.logSum += math.log(speedup);
-      stats.includedInGeoMean++;
-      if (movement.$2 > 0) stats.fasterCount++;
-      if (movement.$2 < 0) stats.slowerCount++;
-      if (movement.$2 == 0) stats.neutralCount++;
-    }
+    final movement = _classifyMovement(
+      speedup,
+      isDelta: false,
+      straddlesOne: verdict.straddlesOne,
+    );
+    _tally(stats, verdict, speedup, movement.$2, unresolved: isUnresolved);
 
+    final ratioText = speedup >= 1.0
+        ? '${speedup.toStringAsFixed(2)}x faster'
+        : '${(1.0 / speedup).toStringAsFixed(2)}x slower';
     final diffStr = isUnresolved
         ? 'unresolved'
-        : (speedup >= 1.0
-              ? '**${speedup.toStringAsFixed(2)}x faster**'
-              : '**${(1.0 / speedup).toStringAsFixed(2)}x slower**');
+        : (movement.$2 != 0 ? '**$ratioText**' : ratioText);
     final ratioStr = isUnresolved
         ? 'unresolved'
         : '${speedup.toStringAsFixed(2)}x';
-    final ciStr = _formatMatrixFiellerCi(speedup, verdict);
+    final ciStr = _formatMatrixFiellerCi(verdict, movement.$2);
     final statusLabel = isUnresolved ? '❓ Unresolved' : movement.$1;
 
     return [diffStr, ratioStr, ciStr, statusLabel];
   }
 
-  static String _formatMatrixFiellerCi(double speedup, _Verdict verdict) {
+  static String _formatMatrixFiellerCi(_Verdict verdict, int trend) {
     final ci = verdict.matrixCiString;
-    if (verdict.resolved && (speedup >= 1.05 || speedup <= 0.95)) {
-      return '**$ci**';
-    }
-    return ci;
+    return verdict.resolved && trend != 0 ? '**$ci**' : ci;
   }
 
   static String renderAllGroupComparisonTables(
@@ -597,38 +614,92 @@ abstract final class MarkdownReporter() {
     buffer.writeln('### $heading');
     buffer.writeln();
 
-    final matched = _findMatchedEntries(baseline, current);
-    if (matched.isEmpty) {
+    final pairing = _pairByKey(baseline, current);
+    if (pairing.matched.isEmpty) {
       buffer.writeln(
         '_No matching benchmarks found between baseline and current results._',
       );
-      return buffer.toString();
+    } else {
+      buffer.write(
+        _renderDeltaRows(
+          pairing.matched,
+          baselineLabel: baselineLabel,
+          currentLabel: currentLabel,
+          gate: gate,
+        ),
+      );
     }
-
-    buffer.write(
-      _renderDeltaRows(
-        matched,
-        baselineLabel: baselineLabel,
-        currentLabel: currentLabel,
-        gate: gate,
-      ),
-    );
+    _writeUnmatchedNotes(buffer, pairing, baselineLabel, currentLabel);
 
     return buffer.toString();
   }
 
-  static List<(BenchmarkEntry, BenchmarkEntry)> _findMatchedEntries(
+  /// Pairs cells by [BenchmarkEntry.key] (name, target, and every
+  /// coordinate, including group), so a benchmark name reused across groups
+  /// or matrix cells is never compared against the wrong cell.
+  ///
+  /// On a duplicate key within one run, the last entry wins, matching
+  /// `deepMerge`.
+  static _Pairing _pairByKey(
     BenchmarkSuiteResult baseline,
     BenchmarkSuiteResult current,
   ) {
+    final baseByKey = {for (final e in baseline.benchmarks) e.key: e};
+    final curByKey = {for (final e in current.benchmarks) e.key: e};
     final matched = <(BenchmarkEntry, BenchmarkEntry)>[];
-    for (final cur in current.benchmarks) {
-      final base = baseline.findEntry(cur.name, cur.target);
-      if (base != null) {
+    final onlyCurrent = <BenchmarkEntry>[];
+    for (final MapEntry(:key, value: cur) in curByKey.entries) {
+      final base = baseByKey[key];
+      if (base == null) {
+        onlyCurrent.add(cur);
+      } else {
         matched.add((base, cur));
       }
     }
-    return matched;
+    return (
+      matched: matched,
+      onlyBaseline: [
+        for (final MapEntry(:key, :value) in baseByKey.entries)
+          if (!curByKey.containsKey(key)) value,
+      ],
+      onlyCurrent: onlyCurrent,
+    );
+  }
+
+  static void _writeUnmatchedNotes(
+    StringBuffer buffer,
+    _Pairing pairing,
+    String baselineLabel,
+    String currentLabel,
+  ) {
+    final sides = [
+      (baselineLabel, pairing.onlyBaseline),
+      (currentLabel, pairing.onlyCurrent),
+    ].where((side) => side.$2.isNotEmpty).toList();
+    if (sides.isEmpty) return;
+    final count = sides.fold(0, (sum, side) => sum + side.$2.length);
+    buffer.writeln();
+    buffer.writeln(
+      '> ℹ️ **Unmatched**: $count benchmark${count == 1 ? '' : 's'} ran in '
+      'only one of the two runs and ${count == 1 ? 'is' : 'are'} not '
+      'compared.',
+    );
+    for (final (label, entries) in sides) {
+      final names = entries
+          .map((e) => '`${_deltaRowLabel(e)}` (`${e.target}`)')
+          .join(', ');
+      buffer.writeln('> - Only in $label: $names');
+    }
+  }
+
+  /// The delta table's Benchmark cell: the name, plus its coordinates when
+  /// it has any, so rows for one name in different groups stay distinct.
+  static String _deltaRowLabel(BenchmarkEntry entry) {
+    if (entry.coordinates.isEmpty) return entry.name;
+    final coords = entry.coordinates.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final coordStr = coords.map((e) => '${e.key}=${e.value}').join(', ');
+    return '${entry.name} ($coordStr)';
   }
 
   static String _renderDeltaRows(
@@ -648,6 +719,9 @@ abstract final class MarkdownReporter() {
 
     for (final (base, cur) in matched) {
       _processDeltaRow(buffer, base, cur, hasThroughput, gate, stats);
+      final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
+      _recordDrift(stats.driftNotes, '$rowLabel, $baselineLabel', base);
+      _recordDrift(stats.driftNotes, '$rowLabel, $currentLabel', cur);
     }
 
     _writeDeltaFooter(buffer, stats);
@@ -663,22 +737,22 @@ abstract final class MarkdownReporter() {
   ) {
     if (hasThroughput) {
       buffer.writeln(
-        '| Benchmark | Target | Batch | Throughput | $baselineLabel | '
+        '| Benchmark | Target | Throughput | $baselineLabel | '
         '$currentLabel | Absolute Delta | Delta (%) | Speedup | '
         '95% CI (Fieller) | Status |',
       );
       buffer.writeln(
         '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: | :---: | :---: |',
+        ':---: | :---: |',
       );
     } else {
       buffer.writeln(
-        '| Benchmark | Target | Batch | $baselineLabel | $currentLabel | '
+        '| Benchmark | Target | $baselineLabel | $currentLabel | '
         'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       buffer.writeln(
         '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: | :---: |',
+        ':---: |',
       );
     }
   }
@@ -698,30 +772,35 @@ abstract final class MarkdownReporter() {
       gate: gate,
     );
     buffer.writeln(rowStr);
+    _tally(
+      stats,
+      verdict,
+      speedup,
+      trend,
+      unresolved: gate && !verdict.resolved,
+    );
+  }
 
-    if (gate && !verdict.resolved) {
+  /// Adds one comparison to [stats]: unresolved cells record their reasons;
+  /// resolved cells join the geometric mean and the faster/slower/neutral
+  /// counts by [trend].
+  static void _tally(
+    _DeltaStats stats,
+    _Verdict verdict,
+    double speedup,
+    int trend, {
+    required bool unresolved,
+  }) {
+    if (unresolved) {
       stats.unresolvedCount++;
       stats.reasons.addAll(verdict.reasons);
-    } else {
-      stats.logSum += math.log(speedup);
-      stats.includedInGeoMean++;
-      if (trend > 0) stats.fasterCount++;
-      if (trend < 0) stats.slowerCount++;
-      if (trend == 0) stats.neutralCount++;
+      return;
     }
-
-    final bBase = base.calibratedBatchIterations;
-    final bCur = cur.calibratedBatchIterations;
-    if (bBase != null && bCur != null && bBase > 0 && bCur > 0) {
-      final maxB = math.max(bBase, bCur);
-      final minB = math.min(bBase, bCur);
-      final div = maxB / minB;
-      if (div > stats.maxBatchDiv) {
-        stats.maxBatchDiv = div.toDouble();
-        stats.divMinBatch = minB;
-        stats.divMaxBatch = maxB;
-      }
-    }
+    stats.logSum += math.log(speedup);
+    stats.includedInGeoMean++;
+    if (trend > 0) stats.fasterCount++;
+    if (trend < 0) stats.slowerCount++;
+    if (trend == 0) stats.neutralCount++;
   }
 
   /// Emits a banner for any declared byte throughput that exceeds memory
@@ -815,19 +894,7 @@ abstract final class MarkdownReporter() {
   }
 
   static void _writeAdvisoryNotes(StringBuffer buffer, _DeltaStats stats) {
-    if (stats.maxBatchDiv > 2.0) {
-      final divStr = stats.maxBatchDiv.toStringAsFixed(1);
-      final rangeStr = '${stats.divMinBatch}–${stats.divMaxBatch}';
-      buffer.writeln();
-      buffer.writeln(
-        '> ⚠️ Calibrated batch sizes differ by ${divStr}x across compared '
-        'cells ($rangeStr).',
-      );
-      buffer.writeln(
-        '> Latencies may reflect different GC regimes and are not directly '
-        'comparable.',
-      );
-    }
+    _writeDriftNotes(buffer, stats.driftNotes);
     if (stats.reasons.isNotEmpty) {
       final joinedReasons = (stats.reasons.toList()..sort()).join(' and ');
       buffer.writeln();
@@ -835,6 +902,24 @@ abstract final class MarkdownReporter() {
         '> ❓ **Unresolved**: Speedup omitted due to $joinedReasons.',
       );
     }
+  }
+
+  static void _writeDriftNotes(StringBuffer buffer, List<String> notes) {
+    if (notes.isEmpty) return;
+    final pct = (_driftThreshold * 100).round();
+    buffer.writeln();
+    buffer.writeln(
+      '> ⚠️ **Calibration drift**: the trial median moved more than $pct% '
+      'from the warmup estimate that sized the batch.',
+    );
+    for (final note in notes) {
+      buffer.writeln('> - $note');
+    }
+    buffer.writeln(
+      '> The process changed state between calibration and measurement '
+      '(for example JIT tier-up or GC pressure); treat these latencies with '
+      'caution.',
+    );
   }
 
   static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
@@ -882,7 +967,11 @@ abstract final class MarkdownReporter() {
 
     final (statusStr, trend) = isUnresolved
         ? ('❓ Unresolved', 0)
-        : _classifyMovement(speedup, isDelta: true);
+        : _classifyMovement(
+            speedup,
+            isDelta: true,
+            straddlesOne: verdict.straddlesOne,
+          );
 
     final baseStr = _formatLatency(baseMean);
     final curStr = _formatLatency(curMean);
@@ -893,23 +982,18 @@ abstract final class MarkdownReporter() {
         : '${speedup.toStringAsFixed(2)}x';
     final ciStr = verdict.ciString;
 
-    final baseBatch = base.calibratedBatchIterations?.toString() ?? '-';
-    final curBatch = cur.calibratedBatchIterations?.toString() ?? '-';
-    final batchStr = identical(base, cur)
-        ? baseBatch
-        : (baseBatch == curBatch ? baseBatch : '$baseBatch → $curBatch');
-
+    final label = _deltaRowLabel(cur);
     if (hasThroughput) {
       final tp = cur.throughput ?? base.throughput;
       final tpStr = tp?.formatRate(curMean) ?? '-';
       final row =
-          '| ${cur.name} | `${cur.target}` | $batchStr | $tpStr | $baseStr | '
+          '| $label | `${cur.target}` | $tpStr | $baseStr | '
           '$curStr | $diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
       return (row, speedup, trend, verdict);
     }
 
     final row =
-        '| ${cur.name} | `${cur.target}` | $batchStr | $baseStr | $curStr | '
+        '| $label | `${cur.target}` | $baseStr | $curStr | '
         '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
 
     return (row, speedup, trend, verdict);
@@ -950,10 +1034,17 @@ abstract final class MarkdownReporter() {
     );
   }
 
+  /// Classifies [speedup] against the ±5% band.
+  ///
+  /// A resolved 95% CI that contains 1.00x ([straddlesOne]) is always
+  /// Neutral: the data cannot tell faster from slower, whatever the point
+  /// estimate says.
   static (String, int) _classifyMovement(
     double speedup, {
     bool isDelta = false,
+    bool straddlesOne = false,
   }) {
+    if (straddlesOne) return ('➖ ⚪ Neutral', 0);
     if (speedup >= 1.05) return (isDelta ? '🚀 Faster' : '🚀 🥇 Peak', 1);
     if (speedup <= 0.95) return (isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow', -1);
     return ('➖ ⚪ Neutral', 0);
@@ -994,11 +1085,14 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry base,
     BenchmarkEntry cur,
   ) {
-    final baseUnstable = !base.metrics.isRobustStable;
-    final curUnstable = !cur.metrics.isRobustStable;
+    // Same stability test as the "✅ Stable" badge in `### All Benchmarks`,
+    // so both tables judge each cell's stability the same way.
+    final baseUnstable = !base.metrics.isStable;
+    final curUnstable = !cur.metrics.isStable;
     if (baseUnstable || curUnstable) {
       return (
         resolved: false,
+        straddlesOne: false,
         ciString: '[N/A]',
         matrixCiString: '[N/A]',
         reasons: [
@@ -1008,12 +1102,7 @@ abstract final class MarkdownReporter() {
       );
     }
     if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
-      return (
-        resolved: false,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: const ['unbounded CI'],
-      );
+      return _unboundedVerdict;
     }
     final interval = FiellerInterval.compute(
       sampleA: base.rawTrialsNs,
@@ -1022,26 +1111,39 @@ abstract final class MarkdownReporter() {
     if (!interval.isValid ||
         interval.lowerBound.isNaN ||
         interval.upperBound.isNaN) {
-      return (
-        resolved: false,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: const ['unbounded CI'],
-      );
+      return _unboundedVerdict;
     }
     final low = interval.lowerBound.toStringAsFixed(2);
     final high = interval.upperBound.toStringAsFixed(2);
     return (
       resolved: true,
+      straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
       ciString: '[$low x, $high x]',
       matrixCiString: '[${low}x – ${high}x]',
       reasons: const [],
     );
   }
+
+  static const _Verdict _unboundedVerdict = (
+    resolved: false,
+    straddlesOne: false,
+    ciString: '[N/A]',
+    matrixCiString: '[N/A]',
+    reasons: ['unbounded CI'],
+  );
 }
+
+typedef _Pairing = ({
+  List<(BenchmarkEntry, BenchmarkEntry)> matched,
+  List<BenchmarkEntry> onlyBaseline,
+  List<BenchmarkEntry> onlyCurrent,
+});
 
 typedef _Verdict = ({
   bool resolved,
+
+  /// Whether the resolved 95% CI contains 1.00x (no detectable change).
+  bool straddlesOne,
   String ciString,
   String matrixCiString,
   List<String> reasons,
@@ -1054,8 +1156,6 @@ final class _DeltaStats() {
   int unresolvedCount = 0;
   double logSum = 0.0;
   int includedInGeoMean = 0;
-  double maxBatchDiv = 1.0;
-  int divMinBatch = 0;
-  int divMaxBatch = 0;
+  final List<String> driftNotes = [];
   Set<String> reasons = {};
 }

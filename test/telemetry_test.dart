@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
@@ -381,6 +382,23 @@ void main() {
         check((benchmarksJson.first as Map)['mode']).equals('async');
       },
     );
+
+    test('warmup.estimated_op_ns is emitted and round-trips', () async {
+      final result = await BenchmarkRunner.runAsync(
+        _TestAsyncBenchmark('estimate'),
+      );
+      final estimate = result.warmupResult.estimatedOpNanoseconds;
+      check(estimate).isGreaterThan(0);
+
+      final resultWarmup = result.toJson()['warmup'] as Map;
+      check(resultWarmup['estimated_op_ns']).equals(estimate);
+
+      final json = BenchmarkEntry.fromResult(result, target: 'jit').toJson();
+      check((json['warmup'] as Map)['estimated_op_ns']).equals(estimate);
+      final decoded = jsonDecode(jsonEncode(json)) as Map<String, dynamic>;
+      check(BenchmarkEntry.fromJson(decoded).warmup?['estimated_op_ns'])
+          .equals(estimate);
+    });
   });
 }
 

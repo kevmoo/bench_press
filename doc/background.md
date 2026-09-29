@@ -165,12 +165,18 @@ $$
 
 where $g = \frac{t_{\text{crit}}^2 s_B^2}{n_B \bar{x}_B^2}$. If $g \ge 1$
 (indicating the denominator variance is too high for a bounded ratio), or if
-either sample fails robust stability (`isRobustStable`), `bench_press` gates the
-published speedup ratio as `unresolved` (`❓ Unresolved`, overrideable via
-`--no-gate`). Because every candidate row in a group or matrix comparison table
-is evaluated against the table's baseline entry, a single unstable baseline
-(`baseline samples unstable`) gates all candidate speedup ratios in that table
-even when individual candidate samples are stable.
+either sample is not stable (`isStable`: warmup converged and either CV `<= 5%`
+or robust stability holds; the same test behind the `✅ Stable` badge),
+`bench_press` gates the published speedup ratio as `unresolved`
+(`❓ Unresolved`, overrideable via `--no-gate`). Because every candidate row in
+a group or matrix comparison table is evaluated against the table's baseline
+entry, a single unstable baseline (`baseline samples unstable`) gates all
+candidate speedup ratios in that table even when individual candidate samples
+are stable.
+
+A resolved interval that contains `1.00x` is reported as `➖ ⚪ Neutral`
+whatever the point estimate, because the data cannot tell a speedup from a
+slowdown.
 
 ---
 

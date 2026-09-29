@@ -12,6 +12,30 @@
   non-empty string; anything else is now a config error, where it was previously
   ignored. `bench_press report` and `bench_press diff` do not read it; pass them
   the path.
+- Markdown comparison and `diff` tables no longer show a `Batch` column, and the
+  banner warning that calibrated batch sizes differ by more than 2x across cells
+  is gone. Batch sizes are sized to each cell's cost, so they differ by design.
+  The JSON still records `calibrated_batch_iterations`. In their place, a
+  footnote now lists any cell whose trial median moved more than 25% from the
+  warmup estimate that sized its batch, which means the process changed state
+  between calibration and measurement. The estimate is saved in the new
+  `warmup.estimated_op_ns` JSON field; results written before this release, or
+  batches sized by the fallback calibrator, are not checked.
+- The speedup gate in comparison and `diff` tables now uses `isStable`, the same
+  test behind the `✅ Stable` badge in `### All Benchmarks`, instead of
+  `isRobustStable`. A cell that reads Stable there is no longer reported as
+  unresolved because of its own stability; a comparison is still unresolved when
+  either side is unstable or the CI is unbounded. A resolved comparison whose
+  95% CI contains `1.00x` is now `➖ ⚪ Neutral` and its CI is not bolded, even
+  when the point estimate is outside the ±5% band.
+- **Breaking (behavioral)**: `bench_press diff`, `bench_press run --diff`, and
+  `MarkdownReporter.renderDeltaTable` now pair cells by full key (name, target,
+  and every coordinate, including group) instead of by name and target alone. A
+  name reused across groups was previously compared against the first match in
+  the other run. The Benchmark column now shows coordinates, for example
+  `encode (group=A)`. Cells present in only one run are listed in an `Unmatched`
+  note, including when nothing pairs. Results that differ only in coordinates,
+  such as a benchmark moved into a group, no longer pair.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
