@@ -59,13 +59,15 @@ final class RunCommand({
       ..addOption(
         'output',
         abbr: 'o',
-        defaultsTo: defaultTelemetryFileName,
-        help: 'File path to save/merge benchmark suite results JSON.',
+        help:
+            'File path to save/merge benchmark suite results JSON. Falls back '
+            'to defaults.output in bench_press.yaml, then '
+            '$defaultTelemetryFileName.',
       )
       ..addOption(
         'save',
         abbr: 's',
-        help: 'File path to save/merge benchmark suite results JSON.',
+        help: 'Same as --output; takes precedence over it.',
       )
       ..addFlag(
         'no-save',
@@ -248,7 +250,6 @@ final class RunCommand({
             targets: ['jit'],
             trials: 15,
             maxTrials: null,
-            output: '',
             isolateMode: false,
           ),
           matrix: MatrixConfig(explicitBaseline: {}, axes: {}),
@@ -342,16 +343,23 @@ final class RunCommand({
       return ExitCode.software.code;
     }
 
-    return _finishSuiteExecution(suite, hasFailures: hasFailures);
+    return _finishSuiteExecution(
+      suite,
+      hasFailures: hasFailures,
+      configuredOutput: config.defaults.output,
+    );
   }
 
   int _finishSuiteExecution(
     BenchmarkSuiteResult suite, {
     required bool hasFailures,
+    required String configuredOutput,
   }) {
     final noSave = argResults!.flag('no-save');
     final outputPath =
-        argResults!.option('save') ?? argResults!.option('output')!;
+        argResults!.option('save') ??
+        argResults!.option('output') ??
+        expandHomeDirectory(configuredOutput);
     final finalSuite = !noSave ? suite.mergeAndSave(File(outputPath)) : suite;
 
     _outputSuiteReport(
@@ -759,14 +767,21 @@ DartSdk resolveSdkFromCoordinate(MatrixCoordinate coord, DartSdk baseSdk) {
   final sdkPath = coord.resolvedValues[BenchmarkCoordinates.sdkKey];
   var cleanedPath = sdkPath ?? '';
   if (cleanedPath == 'stock') cleanedPath = '';
-  if (cleanedPath.startsWith('~')) {
-    final home =
-        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-    if (home != null) {
-      cleanedPath = cleanedPath.replaceFirst('~', home);
-    }
-  }
+  cleanedPath = expandHomeDirectory(cleanedPath);
   return cleanedPath.isNotEmpty
       ? baseSdk.copyWith(customSdkPath: cleanedPath)
       : baseSdk;
+}
+
+/// Replaces a leading `~` in [path] with the user's home directory, as a shell
+/// does for an unquoted argument.
+///
+/// Returns [path] unchanged when it has no leading `~` or when neither `HOME`
+/// nor `USERPROFILE` is set.
+@internal
+String expandHomeDirectory(String path) {
+  if (!path.startsWith('~')) return path;
+  final home =
+      Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+  return home == null ? path : path.replaceFirst('~', home);
 }

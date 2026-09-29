@@ -239,13 +239,59 @@ void main() {
             .map((f) => f.benchmarkName),
       ).deepEquals(['wider', 'narrower']);
     });
-  });
 
-  group('ThroughputPlausibility group-scoped invariance', () {
-    // The shape the ~912 GB/s artifact actually lived in: one comparison group
-    // with a distinct benchmark name per payload size, which the name-keyed
-    // pass cannot pair.
-    test('pairs sizes that carry different names inside one group', () {
+    test('skips a pair an honest read could hide inside the band', () {
+      // Reading the extra 15.75 KiB takes at least 161 ns even at 100 GB/s,
+      // well inside the 287.5 ns the 1.25x band allows at 1.15 µs.
+      final suite = _suite([
+        _entry('tiny', 256, _neverReadLatencyNs),
+        _entry('tiny', 16 * 1024, _neverReadLatencyNs),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('judges a pair once an honest read would leave the band', () {
+      // The extra 63.75 KiB need at least 653 ns at 100 GB/s, past the
+      // 287.5 ns the band allows at 1.15 µs.
+      final suite = _suite([
+        _entry('tiny', 256, _neverReadLatencyNs),
+        _entry('tiny', 64 * 1024, _neverReadLatencyNs),
+      ]);
+
+      final findings = ThroughputPlausibility.screenInvariance(suite);
+
+      check(findings).length.equals(1);
+      check(findings.single)
+        ..has((f) => f.smallBytes, 'smallBytes').equals(256)
+        ..has((f) => f.largeBytes, 'largeBytes').equals(64 * 1024);
+    });
+
+    test('scales the bound with latency, not payload size', () {
+      // The same spread behind 5 µs of fixed cost: the band now allows
+      // 1.25 µs, which an honest 653 ns read fits inside.
+      final suite = _suite([
+        _entry('slow_call', 256, 5000.0),
+        _entry('slow_call', 64 * 1024, 5000.0),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('does not flag a large payload that came out faster', () {
+      // 0.70x is below the band: the two sizes are doing different work (a
+      // bulk fast path, say) rather than skipping the read.
+      final suite = _suite([
+        _entry('write', 13, _neverReadLatencyNs, coordinates: _g('13b')),
+        _entry('write', _oneMiB, 800.0, coordinates: _g('1mib')),
+      ]);
+
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('never pairs arms that carry their size in the name', () {
+      // Nothing but the names says these are one mechanism resized, so they
+      // are two benchmarks to the screen, even inside one group.
       final suite = _suite([
         _entry('write_13b', 13, _neverReadLatencyNs, coordinates: _g('w7')),
         _entry(
@@ -256,184 +302,24 @@ void main() {
         ),
       ]);
 
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+    });
+
+    test('pairs one arm across the groups of a size sweep', () {
+      // The shape `BenchmarkGroup.matrix` produces: one arm name, one group
+      // per payload size.
+      final suite = _suite([
+        _entry('write', 13, _neverReadLatencyNs, coordinates: _g('13b')),
+        _entry('write', _oneMiB, _neverReadLatencyNs, coordinates: _g('1mib')),
+      ]);
+
       final findings = ThroughputPlausibility.screenInvariance(suite);
 
       check(findings).length.equals(1);
       check(findings.single)
-        ..has((f) => f.groupScoped, 'groupScoped').isTrue()
-        ..has((f) => f.benchmarkName, 'benchmarkName').equals('w7')
+        ..has((f) => f.benchmarkName, 'benchmarkName').equals('write')
         ..has((f) => f.smallBytes, 'smallBytes').equals(13)
         ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
-    });
-
-    test('does not pair competing implementations in one group', () {
-      // Real false positive from kevmoo/gcp-http-bench
-      // results/profile/buffered_vs_streaming_postfix.json: the
-      // `w5_w6_request_body` group holds three *mechanisms*, not three sizes of
-      // one mechanism. Pairing the 1 KiB direct write against the 64 KiB
-      // chunked controller reported "64.0x the data for 0.93x the time", which
-      // is two different code paths, not an unread payload. 0.93 sits inside
-      // the invariance band, so the band alone cannot reject it.
-      final suite = _suite([
-        _entry(
-          'fixed_length_body_controller_1kb',
-          1024,
-          4062.3,
-          coordinates: _g('w5_w6_request_body'),
-        ),
-        _entry(
-          'direct_uint8list_body_1kb',
-          1024,
-          3541.3,
-          coordinates: _g('w5_w6_request_body'),
-        ),
-        _entry(
-          'chunked_body_controller_64kb',
-          64 * 1024,
-          3279.3,
-          coordinates: _g('w5_w6_request_body'),
-        ),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('still pairs size variants of one mechanism in a group', () {
-      // The stem rule must not cost us the real defect: same mechanism, two
-      // sizes, both named for their size.
-      final suite = _suite([
-        _entry(
-          'write_200_fixed_13b',
-          13,
-          _neverReadLatencyNs,
-          coordinates: _g('w7'),
-        ),
-        _entry(
-          'write_200_fixed_1mb',
-          _oneMiB,
-          _neverReadLatencyNs,
-          coordinates: _g('w7'),
-        ),
-        // A competing mechanism in the same group must neither suppress the
-        // finding above nor produce one of its own.
-        _entry(
-          'chunked_writer_1mb',
-          _oneMiB,
-          _neverReadLatencyNs,
-          coordinates: _g('w7'),
-        ),
-      ]);
-
-      final findings = ThroughputPlausibility.screenInvariance(suite);
-      check(findings).length.equals(1);
-      check(findings.single)
-        ..has((f) => f.groupScoped, 'groupScoped').isTrue()
-        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
-        ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
-    });
-
-    test('keeps a trailing number that is not a payload size', () {
-      // `_42` is not a byte token, so these stay distinct arms rather than
-      // folding into one stem and being compared.
-      final suite = _suite([
-        _entry(
-          'router_param_user_42',
-          13,
-          _neverReadLatencyNs,
-          coordinates: _g('router'),
-        ),
-        _entry(
-          'router_param_user_7',
-          _oneMiB,
-          _neverReadLatencyNs,
-          coordinates: _g('router'),
-        ),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('accepts a group whose latency scales with payload', () {
-      final suite = _suite([
-        _entry('write_13b', 13, 1020.0, coordinates: _g('w7')),
-        _entry('write_1mb', _oneMiB, 18190.0, coordinates: _g('w7')),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('does not flag a slow small arm against a fast large arm', () {
-      // Same stem measured at two equivalent small-size spellings (`1024b` vs
-      // `1kib`) and a large size (`1mb`). The slow 1 KiB point is within noise
-      // of the 1 MiB point, but the fast 1 KiB point shows the stem scaled.
-      final suite = _suite([
-        _entry('impl_1024b', 1024, 10000.0, coordinates: _g('mixed')),
-        _entry('impl_1kib', 1024, 900.0, coordinates: _g('mixed')),
-        _entry('impl_1mb', _oneMiB, 11000.0, coordinates: _g('mixed')),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('one scaling arm at the large size clears the group', () {
-      final suite = _suite([
-        _entry('impl_13b', 13, 1000.0, coordinates: _g('mixed')),
-        _entry('impl_1mb', _oneMiB, 1050.0, coordinates: _g('mixed')),
-        _entry('impl_1mib', _oneMiB, 19000.0, coordinates: _g('mixed')),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('does not double-report what the name-keyed pass already found', () {
-      final suite = _suite([
-        _entry('same_arm', 13, _neverReadLatencyNs, coordinates: _g('g1')),
-        _entry('same_arm', _oneMiB, _neverReadLatencyNs, coordinates: _g('g2')),
-      ]);
-
-      final findings = ThroughputPlausibility.screenInvariance(suite);
-
-      check(findings).length.equals(1);
-      check(findings.single.groupScoped).isFalse();
-    });
-
-    test('does not flag a large payload that came out faster', () {
-      // Same stem at two sizes (`write_1kb` at 3306 ns vs `write_64kb` at
-      // 2374 ns): 64x the data in 0.72x the time (< minInvariantLatencyRatio)
-      // means a different code path (e.g. a bulk fast-path) kicked in, not an
-      // unread payload.
-      final suite = _suite([
-        _entry('write_1kb', 1024, 3306.0, coordinates: _g('w5_w6')),
-        _entry('write_64kb', 65536, 2374.0, coordinates: _g('w5_w6')),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('ignores benchmarks with no comparison group', () {
-      final suite = _suite([
-        _entry('lonely_13b', 13, _neverReadLatencyNs),
-        _entry('lonely_1mb', _oneMiB, _neverReadLatencyNs),
-      ]);
-
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
-    });
-
-    test('banners a group-scoped finding as a group', () {
-      final report = MarkdownReporter.renderSuite(
-        _suite([
-          _entry('write_13b', 13, _neverReadLatencyNs, coordinates: _g('w7')),
-          _entry(
-            'write_1mb',
-            _oneMiB,
-            _neverReadLatencyNs,
-            coordinates: _g('w7'),
-          ),
-        ]),
-      );
-
-      check(report).contains('group `w7`');
-      check(report).contains("across the group's arms");
     });
   });
 
@@ -474,7 +360,7 @@ void main() {
 
       check(report).contains('🚩 **Latency does not track payload size**');
       check(report).contains('1 benchmark costs the same');
-      check(report).contains('13 B at 1.15 µs');
+      check(report).contains('> - `blackhole` (`exe`): 13 B at 1.15 µs');
       check(report).contains('256.0 KiB at 1.15 µs');
       check(report).contains('**1.00x** the time');
       check(report).contains('Confirm the bytes are read');

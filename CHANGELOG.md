@@ -1,17 +1,17 @@
-## 0.3.2-wip
+## 0.4.0-wip
 
-- `ThroughputPlausibility.screenInvariance`'s group pass now compares only arms
-  that share a name stem once a trailing payload-size token is stripped
-  (`write_200_fixed_13b` and `write_200_fixed_1mb` pair;
-  `direct_uint8list_body_1kb` and `chunked_body_controller_64kb` do not). A
-  `BenchmarkGroup` holds competing implementations by construction, so pairing
-  differently-named arms compared unrelated code paths and read their difference
-  as invariance. On real output it reported `64.0x` the data for `0.93x` the
-  time across a group whose arms were a direct write and a chunked controller.
-  Narrowing the ratio band in the previous entry could not fix this: `0.93` is
-  inside the band, because the error was in which points get compared, not how
-  close their latencies must be.
-
+- **Breaking (config)**: removed the `matrix.entrypoints` key from
+  `bench_press.yaml`. It never chose which file ran: each value re-ran the same
+  discovered benchmark files under a made-up `entrypoint` coordinate, so the
+  matrix table compared identical runs. Pass benchmark files as positional paths
+  to `bench_press run` instead. A leftover `entrypoints:` key is ignored.
+- `bench_press run` now honors `defaults.output` in `bench_press.yaml`, both for
+  saving results and for the file `run --diff` looks up. An explicit `--output`
+  or `--save` still takes precedence, and `benchmark_results.json` remains the
+  fallback. A leading `~` expands to the home directory. The value must be a
+  non-empty string; anything else is now a config error, where it was previously
+  ignored. `bench_press report` and `bench_press diff` do not read it; pass them
+  the path.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
@@ -21,8 +21,14 @@
   `MarkdownReporter.renderSuite` warning banners to flag benchmarks whose
   declared `Throughput.bytes` rate exceeds physical memory bandwidth
   (`100 GB/s`) or whose latency remains invariant (`0.9x–1.25x`) across `>=8x`
-  payload size spreads (both across matrix coordinates and across comparison
-  group arms).
+  payload size spreads. The invariance check pairs one benchmark name across the
+  groups it ran in, holding target and `bench_press.yaml` matrix coordinates
+  fixed. It judges a pair only when reading the extra bytes at `100 GB/s` would
+  push latency past the band, so fixed per-call overhead that could hide an
+  honest read is not flagged. To have a size sweep checked, keep one benchmark
+  name across sizes (as `BenchmarkGroup.matrix` does) rather than putting the
+  size in the name, and give arms in unrelated groups distinct names, since a
+  shared name is paired.
 - Stopped `MarkdownReporter` from wrapping tables in `mdformat off` /
   `mdformat on` HTML-comment guards.
 - **Breaking (behavioral)**: an explicitly configured Dart SDK is now
