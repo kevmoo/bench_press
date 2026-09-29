@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
@@ -394,7 +395,8 @@ void main() {
 
       final json = BenchmarkEntry.fromResult(result, target: 'jit').toJson();
       check((json['warmup'] as Map)['estimated_op_ns']).equals(estimate);
-      check(BenchmarkEntry.fromJson(json).warmup?['estimated_op_ns'])
+      final decoded = jsonDecode(jsonEncode(json)) as Map<String, dynamic>;
+      check(BenchmarkEntry.fromJson(decoded).warmup?['estimated_op_ns'])
           .equals(estimate);
     });
   });

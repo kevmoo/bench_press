@@ -734,6 +734,7 @@ void main() {
           cell('v_edge', 125.0, 100.0),
           cell('v_missing', 80.0, null),
           cell('v_fallback', 60.0, 0.0),
+          cell('v_slow', 130.0, 100.0),
         ],
       );
 
@@ -743,6 +744,8 @@ void main() {
       check(table).contains('⚠️ **Calibration drift**');
       check(table)
           .contains('> - `v_drift`: warmup 100.0 ns → trials 50.0 ns (-50.0%)');
+      check(table)
+          .contains('> - `v_slow`: warmup 100.0 ns → trials 130.0 ns (+30.0%)');
       for (final quiet in ['v_base', 'v_edge', 'v_missing', 'v_fallback']) {
         check(table).not((it) => it.contains('> - `$quiet`'));
       }
