@@ -24,10 +24,11 @@
 - The speedup gate in comparison and `diff` tables now uses `isStable`, the same
   test behind the `✅ Stable` badge in `### All Benchmarks`, instead of
   `isRobustStable`. A cell that reads Stable there is no longer reported as
-  unresolved in the tables. A resolved comparison whose 95% CI contains `1.00x`
-  is now `➖ ⚪ Neutral` and its CI is not bolded, even when the point estimate
-  is outside the ±5% band.
-- **Breaking (behavioral)**: `bench_press diff` and
+  unresolved because of its own stability; a comparison is still unresolved when
+  either side is unstable or the CI is unbounded. A resolved comparison whose
+  95% CI contains `1.00x` is now `➖ ⚪ Neutral` and its CI is not bolded, even
+  when the point estimate is outside the ±5% band.
+- **Breaking (behavioral)**: `bench_press diff`, `bench_press run --diff`, and
   `MarkdownReporter.renderDeltaTable` now pair cells by full key (name, target,
   and every coordinate, including group) instead of by name and target alone. A
   name reused across groups was previously compared against the first match in

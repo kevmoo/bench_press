@@ -1077,7 +1077,7 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry cur,
   ) {
     // Same stability test as the "✅ Stable" badge in `### All Benchmarks`,
-    // so a cell never reads Stable there and unresolved here.
+    // so both tables judge each cell's stability the same way.
     final baseUnstable = !base.metrics.isStable;
     final curUnstable = !cur.metrics.isStable;
     if (baseUnstable || curUnstable) {
