@@ -101,7 +101,7 @@ void main() {
       check(deltaReport).contains('### Before vs. After Delta Comparison');
       check(deltaReport).not((it) => it.contains('mdformat'));
       check(deltaReport).contains(
-        '| Benchmark | Target | Batch | Baseline | Current | Absolute Delta | '
+        '| Benchmark | Target | Baseline | Current | Absolute Delta | '
         'Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       check(deltaReport).contains('parser_fast');
@@ -187,7 +187,7 @@ void main() {
       check<String>(table).contains('### Group: String Construction (`jit`)');
       check<String>(table).not((it) => it.contains('mdformat'));
       check<String>(table).contains(
-        '| Implementation | Batch | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
+        '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
       );
       check<String>(table).contains('`concat` (Baseline)');
@@ -595,7 +595,7 @@ void main() {
         current: curSuite,
       );
       check(gated).contains(
-        '| unbounded_bench | `jit` | - | 139.0 ns | 100.0 ns | -39.0 ns | '
+        '| unbounded_bench | `jit` | 139.0 ns | 100.0 ns | -39.0 ns | '
         '-28.1% | unresolved | [N/A] | ❓ Unresolved |',
       );
       // GeoMean must be 2.00x (from valid_bench only), not contaminated
@@ -709,64 +709,85 @@ void main() {
       },
     );
 
-    test('Change 2: Batch column renders calibratedBatch, >2x divergence emits '
-        'warning, <=2x does not, and missing calibratedBatch renders -', () {
-      final b1 = _createGroupEntryWithSamples(
-        name: 'v_base',
+    test('matrix drops the Batch column and footnotes only cells whose trial '
+        'median drifted more than 25% from the warmup estimate', () {
+      BenchmarkEntry cell(String name, double meanNs, Object? estimate) =>
+          _createGroupEntryWithSamples(
+            name: name,
+            target: 'jit',
+            meanNs: meanNs,
+            samples: [meanNs - 1, meanNs, meanNs + 1],
+            group: 'DriftGroup',
+            isBaseline: name == 'v_base',
+            calibratedBatchIterations: 7,
+            warmup: {'is_stable': true, 'estimated_op_ns': ?estimate},
+          );
+
+      final table = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'DriftGroup',
         target: 'jit',
-        meanNs: 100.0,
-        samples: [99.0, 100.0, 101.0],
-        group: 'BatchGroup',
-        isBaseline: true,
-        calibratedBatchIterations: 2,
-      );
-      final b2 = _createGroupEntryWithSamples(
-        name: 'v_diverged',
-        target: 'jit',
-        meanNs: 50.0,
-        samples: [49.0, 50.0, 51.0],
-        group: 'BatchGroup',
-        isBaseline: false,
-        calibratedBatchIterations: 7,
-      );
-      final bMissing = _createGroupEntryWithSamples(
-        name: 'v_missing_batch',
-        target: 'jit',
-        meanNs: 80.0,
-        samples: [79.0, 80.0, 81.0],
-        group: 'BatchGroup',
-        isBaseline: false,
+        entries: [
+          cell('v_base', 100.0, 100.0),
+          cell('v_drift', 50.0, 100.0),
+          cell('v_edge', 125.0, 100.0),
+          cell('v_missing', 80.0, null),
+          cell('v_fallback', 60.0, 0.0),
+        ],
       );
 
-      final divergedTable = MarkdownReporter.renderGroupComparisonTable(
-        groupName: 'BatchGroup',
-        target: 'jit',
-        entries: [b1, b2, bMissing],
-      );
-      check(divergedTable).contains('| `v_base` (Baseline) | 2 |');
-      check(divergedTable).contains('| `v_diverged` | 7 |');
-      check(divergedTable).contains('| `v_missing_batch` | - |');
-      check(divergedTable).contains(
-        'Calibrated batch sizes differ by 3.5x across compared cells (2–7).',
-      );
+      check(table).not((it) => it.contains('Batch'));
+      check(table).not((it) => it.contains('| 7 |'));
+      check(table).contains('| `v_base` (Baseline) | 10,000,000 ops/s |');
+      check(table).contains('⚠️ **Calibration drift**');
+      check(table)
+          .contains('> - `v_drift`: warmup 100.0 ns → trials 50.0 ns (-50.0%)');
+      for (final quiet in ['v_base', 'v_edge', 'v_missing', 'v_fallback']) {
+        check(table).not((it) => it.contains('> - `$quiet`'));
+      }
 
-      // <= 2.0x divergence (2 vs 4) must NOT emit warning
-      final bClose = _createGroupEntryWithSamples(
-        name: 'v_close',
+      final clean = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'DriftGroup',
         target: 'jit',
-        meanNs: 50.0,
-        samples: [49.0, 50.0, 51.0],
-        group: 'BatchGroup',
-        isBaseline: false,
-        calibratedBatchIterations: 4,
+        entries: [cell('v_base', 100.0, 100.0), cell('v_edge', 125.0, 100.0)],
       );
-      final closeTable = MarkdownReporter.renderGroupComparisonTable(
-        groupName: 'BatchGroup',
-        target: 'jit',
-        entries: [b1, bClose],
+      check(clean).not((it) => it.contains('Calibration drift'));
+    });
+
+    test('delta table footnotes drift on the baseline and current cells '
+        'separately, labeled by run', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
       );
-      check(closeTable)
-          .not((it) => it.contains('Calibrated batch sizes differ'));
+      BenchmarkSuiteResult suite(double meanNs, double estimate) =>
+          BenchmarkSuiteResult(
+            timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+            environment: env,
+            benchmarks: [
+              _createGroupEntryWithSamples(
+                name: 'parse',
+                target: 'aot',
+                meanNs: meanNs,
+                samples: [meanNs - 1, meanNs, meanNs + 1],
+                group: 'g',
+                isBaseline: false,
+                warmup: {'estimated_op_ns': estimate},
+              ),
+            ],
+          );
+
+      final delta = MarkdownReporter.renderDeltaTable(
+        baseline: suite(100.0, 100.0),
+        current: suite(100.0, 200.0),
+        baselineLabel: 'Before',
+        currentLabel: 'After',
+      );
+      check(delta).not((it) => it.contains('Batch'));
+      check(delta).contains(
+        '> - `parse, aot, After`: warmup 200.0 ns → trials 100.0 ns (-50.0%)',
+      );
+      check(delta).not((it) => it.contains('`parse, aot, Before`'));
     });
 
     test(
@@ -979,6 +1000,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
   required String group,
   required bool isBaseline,
   int? calibratedBatchIterations,
+  Map<String, Object?>? warmup,
 }) {
   final metrics = BenchmarkMetrics(
     meanNs: meanNs,
@@ -1000,6 +1022,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     samples: samples.length,
     metrics: metrics,
     rawTrialsNs: samples,
+    warmup: warmup,
     calibratedBatchIterations: calibratedBatchIterations,
     coordinates: BenchmarkCoordinates({'group': group}),
     isBaseline: isBaseline,

@@ -276,8 +276,12 @@ abstract final class MarkdownReporter() {
           includeNameCol: includeNameCol,
         ),
       );
+      _recordDrift(
+        stats,
+        _formatBaselineLabel(entry, axesList, includeNameCol: includeNameCol),
+        entry,
+      );
     }
-    _updateMatrixBatchDivergence(orderedEntries, stats);
     if (orderedEntries.length > 1) {
       _writeDeltaFooter(buffer, stats);
     } else {
@@ -310,7 +314,6 @@ abstract final class MarkdownReporter() {
       if (includeNameCol) 'Implementation',
       for (final axis in axesList)
         axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
-      'Batch',
       'Ops/sec',
       if (hasThroughput) 'Throughput',
       'Mean Latency',
@@ -322,7 +325,7 @@ abstract final class MarkdownReporter() {
     buffer.writeln('| ${headerRow.join(' | ')} |');
 
     final dimCount = axesList.length + (includeNameCol ? 1 : 0);
-    final metricCount = hasThroughput ? 8 : 7;
+    final metricCount = hasThroughput ? 7 : 6;
     final sepRow = <String>[
       for (var i = 0; i < dimCount; i++) ':---',
       for (var i = 0; i < metricCount; i++) ':---:',
@@ -330,23 +333,29 @@ abstract final class MarkdownReporter() {
     buffer.writeln('| ${sepRow.join(' | ')} |');
   }
 
-  static void _updateMatrixBatchDivergence(
-    List<BenchmarkEntry> entries,
+  /// Relative gap between a cell's trial median and its warmup per-op
+  /// estimate above which the cell is footnoted as drifted.
+  static const _driftThreshold = 0.25;
+
+  /// Records a drift note for [entry] when its trial median moved more than
+  /// [_driftThreshold] from the warmup estimate that sized its batch.
+  ///
+  /// Skipped when the estimate is absent (older JSON) or non-positive (the
+  /// batch came from the fallback calibrator, not from warmup).
+  static void _recordDrift(
     _DeltaStats stats,
+    String label,
+    BenchmarkEntry entry,
   ) {
-    var minB = 0;
-    var maxB = 0;
-    for (final e in entries) {
-      final b = e.calibratedBatchIterations;
-      if (b == null || b <= 0) continue;
-      if (minB == 0 || b < minB) minB = b;
-      if (b > maxB) maxB = b;
-    }
-    if (minB > 0 && maxB > minB) {
-      stats.maxBatchDiv = maxB / minB;
-      stats.divMinBatch = minB;
-      stats.divMaxBatch = maxB;
-    }
+    final estimate = entry.warmup?['estimated_op_ns'];
+    if (estimate is! num || estimate <= 0) return;
+    final median = entry.metrics.medianNs;
+    final drift = (median - estimate) / estimate;
+    if (drift.abs() <= _driftThreshold) return;
+    stats.driftNotes.add(
+      '`$label`: warmup ${_formatLatency(estimate.toDouble())} → '
+      'trials ${_formatLatency(median)} (${_formatPercent(drift * 100)})',
+    );
   }
 
   static String _formatBaselineLabel(
@@ -377,8 +386,6 @@ abstract final class MarkdownReporter() {
         ? (baseMeanNs / curMeanNs)
         : 1.0;
 
-    final batchStr = entry.calibratedBatchIterations?.toString() ?? '-';
-
     final cols = <String>[
       ..._formatDimensionCols(
         entry,
@@ -386,7 +393,6 @@ abstract final class MarkdownReporter() {
         axes,
         includeNameCol: includeNameCol,
       ),
-      batchStr,
       _formatOps(entry.metrics.opsPerSec),
       if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
       _formatLatency(curMeanNs),
@@ -648,6 +654,9 @@ abstract final class MarkdownReporter() {
 
     for (final (base, cur) in matched) {
       _processDeltaRow(buffer, base, cur, hasThroughput, gate, stats);
+      final rowLabel = '${cur.name}, ${cur.target}';
+      _recordDrift(stats, '$rowLabel, $baselineLabel', base);
+      _recordDrift(stats, '$rowLabel, $currentLabel', cur);
     }
 
     _writeDeltaFooter(buffer, stats);
@@ -663,22 +672,22 @@ abstract final class MarkdownReporter() {
   ) {
     if (hasThroughput) {
       buffer.writeln(
-        '| Benchmark | Target | Batch | Throughput | $baselineLabel | '
+        '| Benchmark | Target | Throughput | $baselineLabel | '
         '$currentLabel | Absolute Delta | Delta (%) | Speedup | '
         '95% CI (Fieller) | Status |',
       );
       buffer.writeln(
         '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: | :---: | :---: |',
+        ':---: | :---: |',
       );
     } else {
       buffer.writeln(
-        '| Benchmark | Target | Batch | $baselineLabel | $currentLabel | '
+        '| Benchmark | Target | $baselineLabel | $currentLabel | '
         'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
       );
       buffer.writeln(
         '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: | :---: |',
+        ':---: |',
       );
     }
   }
@@ -708,19 +717,6 @@ abstract final class MarkdownReporter() {
       if (trend > 0) stats.fasterCount++;
       if (trend < 0) stats.slowerCount++;
       if (trend == 0) stats.neutralCount++;
-    }
-
-    final bBase = base.calibratedBatchIterations;
-    final bCur = cur.calibratedBatchIterations;
-    if (bBase != null && bCur != null && bBase > 0 && bCur > 0) {
-      final maxB = math.max(bBase, bCur);
-      final minB = math.min(bBase, bCur);
-      final div = maxB / minB;
-      if (div > stats.maxBatchDiv) {
-        stats.maxBatchDiv = div.toDouble();
-        stats.divMinBatch = minB;
-        stats.divMaxBatch = maxB;
-      }
     }
   }
 
@@ -815,19 +811,7 @@ abstract final class MarkdownReporter() {
   }
 
   static void _writeAdvisoryNotes(StringBuffer buffer, _DeltaStats stats) {
-    if (stats.maxBatchDiv > 2.0) {
-      final divStr = stats.maxBatchDiv.toStringAsFixed(1);
-      final rangeStr = '${stats.divMinBatch}–${stats.divMaxBatch}';
-      buffer.writeln();
-      buffer.writeln(
-        '> ⚠️ Calibrated batch sizes differ by ${divStr}x across compared '
-        'cells ($rangeStr).',
-      );
-      buffer.writeln(
-        '> Latencies may reflect different GC regimes and are not directly '
-        'comparable.',
-      );
-    }
+    _writeDriftNotes(buffer, stats.driftNotes);
     if (stats.reasons.isNotEmpty) {
       final joinedReasons = (stats.reasons.toList()..sort()).join(' and ');
       buffer.writeln();
@@ -835,6 +819,24 @@ abstract final class MarkdownReporter() {
         '> ❓ **Unresolved**: Speedup omitted due to $joinedReasons.',
       );
     }
+  }
+
+  static void _writeDriftNotes(StringBuffer buffer, List<String> notes) {
+    if (notes.isEmpty) return;
+    final pct = (_driftThreshold * 100).round();
+    buffer.writeln();
+    buffer.writeln(
+      '> ⚠️ **Calibration drift**: the trial median moved more than $pct% '
+      'from the warmup estimate that sized the batch.',
+    );
+    for (final note in notes) {
+      buffer.writeln('> - $note');
+    }
+    buffer.writeln(
+      '> The process changed state between calibration and measurement '
+      '(for example JIT tier-up or GC pressure); treat these latencies with '
+      'caution.',
+    );
   }
 
   static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
@@ -893,23 +895,17 @@ abstract final class MarkdownReporter() {
         : '${speedup.toStringAsFixed(2)}x';
     final ciStr = verdict.ciString;
 
-    final baseBatch = base.calibratedBatchIterations?.toString() ?? '-';
-    final curBatch = cur.calibratedBatchIterations?.toString() ?? '-';
-    final batchStr = identical(base, cur)
-        ? baseBatch
-        : (baseBatch == curBatch ? baseBatch : '$baseBatch → $curBatch');
-
     if (hasThroughput) {
       final tp = cur.throughput ?? base.throughput;
       final tpStr = tp?.formatRate(curMean) ?? '-';
       final row =
-          '| ${cur.name} | `${cur.target}` | $batchStr | $tpStr | $baseStr | '
+          '| ${cur.name} | `${cur.target}` | $tpStr | $baseStr | '
           '$curStr | $diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
       return (row, speedup, trend, verdict);
     }
 
     final row =
-        '| ${cur.name} | `${cur.target}` | $batchStr | $baseStr | $curStr | '
+        '| ${cur.name} | `${cur.target}` | $baseStr | $curStr | '
         '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
 
     return (row, speedup, trend, verdict);
@@ -1054,8 +1050,6 @@ final class _DeltaStats() {
   int unresolvedCount = 0;
   double logSum = 0.0;
   int includedInGeoMean = 0;
-  double maxBatchDiv = 1.0;
-  int divMinBatch = 0;
-  int divMaxBatch = 0;
+  final List<String> driftNotes = [];
   Set<String> reasons = {};
 }

@@ -59,6 +59,8 @@ final class const BenchmarkResult({
       'converged_at': warmupResult.convergedAtIteration,
       'best_mmd': warmupResult.bestMmd,
       'elapsed_seconds': warmupResult.elapsedSeconds,
+      if (warmupResult.estimatedOpNanoseconds.isFinite)
+        'estimated_op_ns': warmupResult.estimatedOpNanoseconds,
     },
     'samples': rawTrialLatenciesNs.length,
     'raw_trials_ns': rawTrialLatenciesNs,

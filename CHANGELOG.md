@@ -12,6 +12,15 @@
   non-empty string; anything else is now a config error, where it was previously
   ignored. `bench_press report` and `bench_press diff` do not read it; pass them
   the path.
+- Markdown comparison and `diff` tables no longer show a `Batch` column, and the
+  banner warning that calibrated batch sizes differ by more than 2x across cells
+  is gone. Batch sizes are sized to each cell's cost, so they differ by design.
+  The JSON still records `calibrated_batch_iterations`. In their place, a
+  footnote now lists any cell whose trial median moved more than 25% from the
+  warmup estimate that sized its batch, which means the process changed state
+  between calibration and measurement. The estimate is saved in the new
+  `warmup.estimated_op_ns` JSON field; results written before this release, or
+  batches sized by the fallback calibrator, are not checked.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
 - **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates

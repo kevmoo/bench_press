@@ -220,6 +220,8 @@ final class const BenchmarkEntry({
         'converged_at': result.warmupResult.convergedAtIteration,
         'best_mmd': result.warmupResult.bestMmd,
         'elapsed_seconds': result.warmupResult.elapsedSeconds,
+        if (result.warmupResult.estimatedOpNanoseconds.isFinite)
+          'estimated_op_ns': result.warmupResult.estimatedOpNanoseconds,
       },
       calibratedBatchIterations: result.calibratedBatch.iterations,
       coordinates: BenchmarkCoordinates(coordinates),
