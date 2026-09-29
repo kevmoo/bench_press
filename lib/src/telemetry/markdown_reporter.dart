@@ -647,21 +647,18 @@ abstract final class MarkdownReporter() {
   /// coordinate, including group), so a benchmark name reused across groups
   /// or matrix cells is never compared against the wrong cell.
   ///
-  /// On a duplicate key within one run, the first entry wins.
+  /// On a duplicate key within one run, the last entry wins, matching
+  /// `deepMerge`.
   static _Pairing _pairByKey(
     BenchmarkSuiteResult baseline,
     BenchmarkSuiteResult current,
   ) {
-    final baseByKey = <String, BenchmarkEntry>{};
-    for (final base in baseline.benchmarks) {
-      baseByKey.putIfAbsent(base.key, () => base);
-    }
+    final baseByKey = {for (final e in baseline.benchmarks) e.key: e};
+    final curByKey = {for (final e in current.benchmarks) e.key: e};
     final matched = <(BenchmarkEntry, BenchmarkEntry)>[];
     final onlyCurrent = <BenchmarkEntry>[];
-    final matchedKeys = <String>{};
-    for (final cur in current.benchmarks) {
-      if (!matchedKeys.add(cur.key)) continue;
-      final base = baseByKey[cur.key];
+    for (final MapEntry(:key, value: cur) in curByKey.entries) {
+      final base = baseByKey[key];
       if (base == null) {
         onlyCurrent.add(cur);
       } else {
@@ -672,7 +669,7 @@ abstract final class MarkdownReporter() {
       matched: matched,
       onlyBaseline: [
         for (final MapEntry(:key, :value) in baseByKey.entries)
-          if (!matchedKeys.contains(key)) value,
+          if (!curByKey.containsKey(key)) value,
       ],
       onlyCurrent: onlyCurrent,
     );

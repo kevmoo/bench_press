@@ -874,6 +874,24 @@ void main() {
         check(delta).not((it) => it.contains('Unmatched'));
       });
 
+      test('on duplicate keys within a run, the last entry wins', () {
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: suite([
+            cell('encode', 'A', 999.0),
+            cell('encode', 'A', 100.0),
+          ]),
+          current: suite([
+            cell('encode', 'A', 777.0),
+            cell('encode', 'A', 50.0),
+          ]),
+        );
+        check(delta).contains(
+          '| encode (group=A) | `jit` | 100.0 ns | 50.0 ns | -50.0 ns |',
+        );
+        check('| encode (group=A) |'.allMatches(delta).length).equals(1);
+        check(delta).not((it) => it.contains('Unmatched'));
+      });
+
       test('lists cells present in only one run', () {
         final delta = MarkdownReporter.renderDeltaTable(
           baseline: suite([cell('keep', 'A', 100.0), cell('gone', 'A', 100.0)]),
