@@ -460,16 +460,7 @@ abstract final class MarkdownReporter() {
       isDelta: false,
       straddlesOne: verdict.straddlesOne,
     );
-    if (isUnresolved) {
-      stats.unresolvedCount++;
-      stats.reasons.addAll(verdict.reasons);
-    } else {
-      stats.logSum += math.log(speedup);
-      stats.includedInGeoMean++;
-      if (movement.$2 > 0) stats.fasterCount++;
-      if (movement.$2 < 0) stats.slowerCount++;
-      if (movement.$2 == 0) stats.neutralCount++;
-    }
+    _tally(stats, verdict, speedup, movement.$2, unresolved: isUnresolved);
 
     final ratioText = speedup >= 1.0
         ? '${speedup.toStringAsFixed(2)}x faster'
@@ -781,17 +772,35 @@ abstract final class MarkdownReporter() {
       gate: gate,
     );
     buffer.writeln(rowStr);
+    _tally(
+      stats,
+      verdict,
+      speedup,
+      trend,
+      unresolved: gate && !verdict.resolved,
+    );
+  }
 
-    if (gate && !verdict.resolved) {
+  /// Adds one comparison to [stats]: unresolved cells record their reasons;
+  /// resolved cells join the geometric mean and the faster/slower/neutral
+  /// counts by [trend].
+  static void _tally(
+    _DeltaStats stats,
+    _Verdict verdict,
+    double speedup,
+    int trend, {
+    required bool unresolved,
+  }) {
+    if (unresolved) {
       stats.unresolvedCount++;
       stats.reasons.addAll(verdict.reasons);
-    } else {
-      stats.logSum += math.log(speedup);
-      stats.includedInGeoMean++;
-      if (trend > 0) stats.fasterCount++;
-      if (trend < 0) stats.slowerCount++;
-      if (trend == 0) stats.neutralCount++;
+      return;
     }
+    stats.logSum += math.log(speedup);
+    stats.includedInGeoMean++;
+    if (trend > 0) stats.fasterCount++;
+    if (trend < 0) stats.slowerCount++;
+    if (trend == 0) stats.neutralCount++;
   }
 
   /// Emits a banner for any declared byte throughput that exceeds memory
