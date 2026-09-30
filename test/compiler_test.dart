@@ -1,6 +1,8 @@
 import 'dart:io';
 
-import 'package:bench_press/bench_press.dart';
+import 'package:bench_press/src/cli/compiler.dart';
+import 'package:bench_press/src/cli/process_runner.dart';
+import 'package:bench_press/src/cli/sdk.dart';
 import 'package:checks/checks.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/scaffolding.dart';

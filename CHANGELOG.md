@@ -1,5 +1,13 @@
 ## 0.4.0-wip
 
+- **Breaking (library exports)**: `package:bench_press/bench_press.dart` now
+  exports only the benchmark-authoring (`Benchmark`, `AsyncBenchmark`,
+  `BenchmarkGroup`, `BenchmarkMatrix`, `BenchmarkVariant`, `BenchmarkConfig`,
+  `Throughput`, `ByteThroughput`, `ElementThroughput`, `Blackhole`), suite
+  entrypoint (`mainBenchmark*`), and `.report()` result (`BenchmarkResult`,
+  `BenchmarkMetrics`, `CalibratedBatch`, `WarmupResult`) APIs. Internal CLI,
+  subprocess runner, compiler, statistical helper, and telemetry schema types
+  are no longer re-exported from the public library.
 - `BenchmarkGroup.report`, `BenchmarkMatrix.report`, `mainBenchmarkSuite`, and
   the new `BenchmarkRunner.runVariants` now interleave measurement trials across
   group variants in `ABBA BAAB` rounds after every variant has finished `setup`,
