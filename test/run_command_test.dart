@@ -1,8 +1,10 @@
 import 'dart:io';
 
-import 'package:bench_press/bench_press.dart';
+import 'package:bench_press/src/cli/command_runner.dart';
 import 'package:bench_press/src/cli/run_command.dart';
+import 'package:bench_press/src/cli/sdk.dart';
 import 'package:bench_press/src/config/bench_press_config.dart';
+import 'package:bench_press/src/telemetry/schema.dart';
 import 'package:checks/checks.dart';
 import 'package:io/io.dart';
 import 'package:test/scaffolding.dart';

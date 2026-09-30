@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:bench_press/bench_press.dart';
+import 'package:bench_press/src/runner.dart';
+import 'package:bench_press/src/telemetry/schema.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;

@@ -1,19 +1,39 @@
 ## 0.4.0-wip
 
-- `BenchmarkGroup.report`, `BenchmarkMatrix.report`, `mainBenchmarkSuite`, and
-  the new `BenchmarkRunner.runVariants` now interleave measurement trials across
-  group variants in `ABBA BAAB` rounds after every variant has finished `setup`,
-  warmup, `warmupComplete`, and batch calibration. Previously, all trials of
-  variant `A` ran before variant `B` started, so a linear thermal ramp or a
-  short host contention window during `B` produced a false speedup or regression
-  while both variants still passed the within-variant `isStable` gate. When
-  `maxTrials` is set, lockstep rounds continue across all variants in the group
-  while any variant's CV exceeds 5%.
+- **Breaking (library exports)**: `package:bench_press/bench_press.dart` now
+  exports only the benchmark-authoring (`Benchmark`, `AsyncBenchmark`,
+  `BenchmarkGroup`, `BenchmarkMatrix`, `BenchmarkVariant`, `BenchmarkConfig`,
+  `Throughput`, `ByteThroughput`, `ElementThroughput`, `Blackhole`), suite
+  entrypoint (`mainBenchmark*`), and `.report()` result (`BenchmarkResult`,
+  `BenchmarkMetrics`, `CalibratedBatch`, `WarmupResult`) APIs. Internal CLI,
+  subprocess runner, compiler, statistical helper, and telemetry schema types
+  that were previously re-exported in `0.3.1` are now internal to `lib/src/`.
 - **Breaking (config)**: removed the `matrix.entrypoints` key from
   `bench_press.yaml`. It never chose which file ran: each value re-ran the same
   discovered benchmark files under a made-up `entrypoint` coordinate, so the
   matrix table compared identical runs. Pass benchmark files as positional paths
   to `bench_press run` instead. A leftover `entrypoints:` key is ignored.
+- **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
+  by decimal `1000` (`KB/s`, `MB/s`, `GB/s`) instead of `1024`, matching
+  hardware memory bandwidth, network I/O conventions, and `ElementThroughput`.
+- **Breaking (behavioral)**: `bench_press diff` and `bench_press run --diff` now
+  pair cells by full key (name, target, and every coordinate, including group)
+  instead of by name and target alone. A name reused across groups was
+  previously compared against the first match in the other run. The Benchmark
+  column now shows coordinates, for example `encode (group=A)`. Cells present in
+  only one run are listed in an `Unmatched` note, including when nothing pairs.
+- **Breaking (behavioral)**: an explicitly configured Dart SDK (`sdk` matrix
+  axis in `bench_press.yaml`) is now authoritative and fails fast with a
+  specific diagnostic explaining why the path was rejected instead of silently
+  falling back to `dart` on `PATH`.
+- `BenchmarkGroup.report`, `BenchmarkMatrix.report`, and `mainBenchmarkSuite`
+  now interleave measurement trials across group variants in `ABBA BAAB` rounds
+  after every variant has finished `setup`, warmup, `warmupComplete`, and batch
+  calibration. Previously, all trials of variant `A` ran before variant `B`
+  started, so a linear thermal ramp or a short host contention window during `B`
+  produced a false speedup or regression while both variants still passed the
+  within-variant `isStable` gate. When `maxTrials` is set, lockstep rounds
+  continue across all variants in the group while any variant's CV exceeds 5%.
 - `bench_press run` now honors `defaults.output` in `bench_press.yaml`, both for
   saving results and for the file `run --diff` looks up. An explicit `--output`
   or `--save` still takes precedence, and `benchmark_results.json` remains the
@@ -21,80 +41,30 @@
   non-empty string; anything else is now a config error, where it was previously
   ignored. `bench_press report` and `bench_press diff` do not read it; pass them
   the path.
-- Markdown comparison and `diff` tables no longer show a `Batch` column, and the
-  banner warning that calibrated batch sizes differ by more than 2x across cells
-  is gone. Batch sizes are sized to each cell's cost, so they differ by design.
-  The JSON still records `calibrated_batch_iterations`. In their place, a
-  footnote now lists any cell whose trial median moved more than 25% from the
-  warmup estimate that sized its batch, which means the process changed state
-  between calibration and measurement. The estimate is saved in the new
-  `warmup.estimated_op_ns` JSON field; results written before this release, or
-  batches sized by the fallback calibrator, are not checked.
-- The speedup gate in comparison and `diff` tables now uses `isStable`, the same
-  test behind the `✅ Stable` badge in `### All Benchmarks`, instead of
-  `isRobustStable`. A cell that reads Stable there is no longer reported as
-  unresolved because of its own stability; a comparison is still unresolved when
-  either side is unstable or the CI is unbounded. A resolved comparison whose
-  95% CI contains `1.00x` is now `➖ ⚪ Neutral` and its CI is not bolded, even
-  when the point estimate is outside the ±5% band.
-- **Breaking (behavioral)**: `bench_press diff`, `bench_press run --diff`, and
-  `MarkdownReporter.renderDeltaTable` now pair cells by full key (name, target,
-  and every coordinate, including group) instead of by name and target alone. A
-  name reused across groups was previously compared against the first match in
-  the other run. The Benchmark column now shows coordinates, for example
-  `encode (group=A)`. Cells present in only one run are listed in an `Unmatched`
-  note, including when nothing pairs. Results that differ only in coordinates,
-  such as a benchmark moved into a group, no longer pair.
 - Added `--pin-cpu <cpu-list>` to `bench_press run` to pin benchmark
   subprocesses (VM JIT, AOT, Node.js, and D8) via `taskset -c` on Linux.
-- **Breaking (behavioral)**: `ByteThroughput.formatRate` now scales byte rates
-  by decimal `1000` (`KB/s`, `MB/s`, `GB/s`) instead of `1024`, matching
-  hardware memory bandwidth, network I/O conventions, and `ElementThroughput`.
-- Added `ThroughputPlausibility` (`screenSuite` and `screenInvariance`) and
-  `MarkdownReporter.renderSuite` warning banners to flag benchmarks whose
-  declared `Throughput.bytes` rate exceeds physical memory bandwidth
-  (`100 GB/s`) or whose latency remains invariant (`0.9x–1.25x`) across `>=8x`
-  payload size spreads. The invariance check pairs one benchmark name across the
-  groups it ran in, holding target and `bench_press.yaml` matrix coordinates
-  fixed. It judges a pair only when reading the extra bytes at `100 GB/s` would
-  push latency past the band, so fixed per-call overhead that could hide an
-  honest read is not flagged. To have a size sweep checked, keep one benchmark
-  name across sizes (as `BenchmarkGroup.matrix` does) rather than putting the
-  size in the name, and give arms in unrelated groups distinct names, since a
-  shared name is paired.
-- Stopped `MarkdownReporter` from wrapping tables in `mdformat off` /
-  `mdformat on` HTML-comment guards.
-- **Breaking (behavioral)**: an explicitly configured Dart SDK is now
-  authoritative. When `customSdkPath` (the `sdk` matrix axis) is set but does
-  not resolve to a usable SDK, `DartSdk.dartExecutable` returns `null` instead
-  of silently falling back to `dart` on `PATH`. Previously a mistyped or stale
-  configured path would compile and benchmark whatever SDK happened to be on
-  `PATH`, with no warning and nothing downstream able to tell the difference.
-- Added `DartSdk.explicitSdkError`, which explains why a configured SDK path was
-  rejected. `TargetCompiler` now reports it instead of the generic "not found on
-  PATH or DART_SDK", which named the two sources that are not consulted once an
-  explicit path is supplied.
-- Updated `bench_press run` and `bench_press validate`
-  (`BenchmarkDiscovery.discoverAll` and `resolveTargetPaths`) to discover and
-  execute all positional file and directory paths supplied on the command line
-  rather than silently ignoring arguments after the first path.
-- Computed post-warmup calibration batch sizes directly from steady-state warmup
-  convergence latencies via `BenchmarkCalibrator.calibratedBatchForDuration`,
-  eliminating redundant probe loops.
-- Invoked `warmupComplete()` hook in `runVariant()`.
-- Added Fieller confidence interval and `isRobustStable` gating to
-  `MarkdownReporter` (`gate: true` by default, configurable via `--[no-]gate` in
-  `bench_press run`, `report`, and `diff`), rendering `unresolved` and excluding
-  unstable or unbounded-CI comparisons from geometric mean rollup metrics.
-- Added `Batch` column to `MarkdownReporter` variant, matrix, and delta tables
-  alongside a `>2.0x` batch-size divergence warning banner.
-- Updated `BenchmarkRunner` (`run`, `runAsync`, `runVariant`) to perform
-  post-warmup recalibration via `BenchmarkCalibrator` before recording
-  measurement trials, warning when steady-state batch size increases by `>10x`.
-- Fixed `MarkdownReporter.renderSuite` and `renderMatrixComparisonTable` so
-  suites mixing standalone benchmarks and `BenchmarkGroup` variants collate
-  grouped variants into a single multi-row `### Group: ...` comparison table
-  with the baseline ordered first and a geometric mean summary footer.
+- Added Fieller confidence interval and `isStable` speedup gating (`gate: true`
+  by default, configurable via `--[no-]gate` in `bench_press run`, `report`, and
+  `diff`). Unstable or unbounded-CI comparisons render as `unresolved` and are
+  excluded from geometric mean rollups; a resolved comparison whose 95% CI
+  contains `1.00x` renders as `➖ ⚪ Neutral`.
+- Added Markdown report warning banners to flag benchmarks whose declared
+  `Throughput.bytes` rate exceeds physical memory bandwidth (`100 GB/s`) or
+  whose latency remains invariant (`0.9x–1.25x`) across `>=8x` payload size
+  spreads for a shared benchmark name across groups.
+- Derived post-warmup calibration batch sizes directly from steady-state warmup
+  convergence latencies (recorded in `warmup.estimated_op_ns`), and added a
+  Markdown report footnote listing any cell whose trial median moved more than
+  25% from the warmup estimate that sized its batch.
+- Updated `bench_press run` and `bench_press validate` to discover and execute
+  all positional file and directory paths supplied on the command line rather
+  than silently ignoring arguments after the first path.
+- Invoked `warmupComplete()` lifecycle hook during `BenchmarkVariant` execution.
+- Fixed Markdown suite reporting so suites mixing standalone benchmarks and
+  `BenchmarkGroup` variants collate grouped variants into a single multi-row
+  `### Group: ...` comparison table with the baseline ordered first and a
+  geometric mean summary footer, and stopped wrapping Markdown tables in
+  `mdformat off` / `mdformat on` HTML-comment guards.
 
 ## 0.3.1
 
