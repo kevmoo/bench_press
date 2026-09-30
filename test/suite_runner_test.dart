@@ -96,33 +96,57 @@ void main() {
       check(asyncSuite.benchmarks.first.samples).equals(1);
     });
 
-    test(
-      'mainBenchmarkSuite executes single top-level BenchmarkGroup directly',
-      () async {
-        final outputFile = File(d.path('group_output.json'));
+    test('mainBenchmarkSuite executes single top-level BenchmarkGroup directly '
+        'and warms up all variants before trials', () async {
+      final outputFile = File(d.path('group_output.json'));
+      final events = <String>[];
+      var v1InTrials = false;
+      var v2InTrials = false;
 
-        final args = [
-          '--json-output',
-          outputFile.path,
-          '--validate',
-          '--target',
-          'jit',
-        ];
+      final args = [
+        '--json-output',
+        outputFile.path,
+        '--validate',
+        '--target',
+        'jit',
+      ];
 
-        final group = BenchmarkGroup('test_group', [
-          BenchmarkVariant('g_var1', () => Blackhole.consume(1)),
-          BenchmarkVariant('g_var2', () => Blackhole.consume(2)),
-        ]);
+      final group = BenchmarkGroup('test_group', [
+        BenchmarkVariant(
+          'g_var1',
+          () {
+            if (v1InTrials) events.add('trial:g_var1');
+            Blackhole.consume(1);
+          },
+          warmupComplete: () {
+            events.add('warm:g_var1');
+            v1InTrials = true;
+          },
+        ),
+        BenchmarkVariant(
+          'g_var2',
+          () {
+            if (v2InTrials) events.add('trial:g_var2');
+            Blackhole.consume(2);
+          },
+          warmupComplete: () {
+            events.add('warm:g_var2');
+            v2InTrials = true;
+          },
+        ),
+      ]);
 
-        await mainBenchmarkSuite(group, args);
+      await mainBenchmarkSuite(group, args);
 
-        check(outputFile.existsSync()).isTrue();
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
-        check(suite.benchmarks.length).equals(2);
-        check(suite.findEntry('g_var1', 'jit')).isNotNull();
-        check(suite.findEntry('g_var2', 'jit')).isNotNull();
-      },
-    );
+      check(outputFile.existsSync()).isTrue();
+      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      check(suite.benchmarks.length).equals(2);
+      check(suite.findEntry('g_var1', 'jit')).isNotNull();
+      check(suite.findEntry('g_var2', 'jit')).isNotNull();
+      // Both variants complete warmup before either variant runs a trial.
+      check(events.indexOf('warm:g_var2'))
+          .isLessThan(events.indexOf('trial:g_var1'));
+    });
 
     test('mainBenchmarkSuite throws descriptive ArgumentError on null argument '
         'or null elements', () async {

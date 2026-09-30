@@ -223,17 +223,10 @@ final class BenchmarkGroup(
     return BenchmarkMatrix<T>(groups, cases: caseList, config: config);
   }
 
-  /// Executes all variants in this group sequentially.
-  Future<List<BenchmarkResult>> report({BenchmarkConfig? config}) async {
-    final effectiveConfig = config ?? this.config;
-    final results = <BenchmarkResult>[];
-    for (final variant in variants) {
-      results.add(
-        await BenchmarkRunner.runVariant(variant, config: effectiveConfig),
-      );
-    }
-    return results;
-  }
+  /// Warms up and calibrates each variant in this group, then executes
+  /// measurement trials in interleaved `ABBA BAAB` rounds across variants.
+  Future<List<BenchmarkResult>> report({BenchmarkConfig? config}) =>
+      BenchmarkRunner.runVariants(variants, config: config ?? this.config);
 }
 
 /// A parameterized matrix of benchmark groups across datasets or input cases.

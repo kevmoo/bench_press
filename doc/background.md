@@ -180,6 +180,30 @@ slowdown.
 
 ---
 
+### `ABBA BAAB` Trial Interleaving in `BenchmarkGroup`
+
+Running all $N$ trials of variant $A$ back-to-back before variant $B$ starts
+exposes group comparisons to time-varying host bias: a thermal ramp or a short
+neighbor spike during $B$'s window shifts $B$'s mean while leaving each
+variant's within-run dispersion tight.
+
+`BenchmarkGroup.report` and `BenchmarkRunner.runVariants` decouple calibration
+from measurement across the group:
+
+1. **Per-Variant Preparation**: Each variant completes `setup`, provisional
+   calibration, adaptive warmup, `warmupComplete`, and post-warmup batch
+   recalibration before any measurement trial runs.
+2. **Interleaved Measurement Rounds (`ABBA BAAB`)**: Measurement batches run in
+   lockstep rounds $r = 0, 1, \dots$ across all variants in the group, reversing
+   variant traversal order when `(r & 1) != ((r >> 1) & 1)` (`AB`, `BA`, `BA`,
+   `AB`, ...). Every pair of rounds cancels linear drift and every four-round
+   block cancels both linear and quadratic drift, while a transient host spike
+   widens dispersion across the group instead of biasing a single variant. When
+   `--max-trials` is set, lockstep rounds continue across all variants while any
+   variant's CV exceeds 5%.
+
+---
+
 ## 5. Multi-Runtime Orchestration Architecture
 
 ```mermaid

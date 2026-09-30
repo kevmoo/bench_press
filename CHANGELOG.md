@@ -1,5 +1,14 @@
 ## 0.4.0-wip
 
+- `BenchmarkGroup.report`, `BenchmarkMatrix.report`, `mainBenchmarkSuite`, and
+  the new `BenchmarkRunner.runVariants` now interleave measurement trials across
+  group variants in `ABBA BAAB` rounds after every variant has finished `setup`,
+  warmup, `warmupComplete`, and batch calibration. Previously, all trials of
+  variant `A` ran before variant `B` started, so a linear thermal ramp or a
+  short host contention window during `B` produced a false speedup or regression
+  while both variants still passed the within-variant `isStable` gate. When
+  `maxTrials` is set, lockstep rounds continue across all variants in the group
+  while any variant's CV exceeds 5%.
 - **Breaking (config)**: removed the `matrix.entrypoints` key from
   `bench_press.yaml`. It never chose which file ran: each value re-ran the same
   discovered benchmark files under a made-up `entrypoint` coordinate, so the
