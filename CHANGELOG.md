@@ -1,4 +1,4 @@
-## 0.4.0-wip
+## 0.4.0
 
 - **Breaking (library exports)**: `package:bench_press/bench_press.dart` now
   exports only the benchmark-authoring (`Benchmark`, `AsyncBenchmark`,
@@ -59,7 +59,11 @@
 - Updated `bench_press run` and `bench_press validate` to discover and execute
   all positional file and directory paths supplied on the command line rather
   than silently ignoring arguments after the first path.
-- Invoked `warmupComplete()` lifecycle hook during `BenchmarkVariant` execution.
+- Invoked `warmupComplete()` lifecycle hook during `BenchmarkVariant` execution,
+  forwarded `throughput` and `warmupComplete()` for `Benchmark` and
+  `AsyncBenchmark` instances run via `mainBenchmark*`, and preserved
+  programmatic `BenchmarkConfig` values unless explicitly overridden by CLI
+  flags.
 - Fixed Markdown suite reporting so suites mixing standalone benchmarks and
   `BenchmarkGroup` variants collate grouped variants into a single multi-row
   `### Group: ...` comparison table with the baseline ordered first and a

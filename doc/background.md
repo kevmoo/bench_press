@@ -227,7 +227,7 @@ flowchart TD
 ```
 
 1. **Discovery**: Scans designated benchmark directories or files matching
-   `*benchmark*.dart`.
+   `*_benchmark.dart` or `*_bench.dart`.
 2. **Compilation**: Dispatches target files to the appropriate compiler backends
    in parallel, generating optimized standalone artifacts (`.exe`, `.wasm`,
    `.js`).
@@ -235,7 +235,7 @@ flowchart TD
    clean heap state, capturing structured JSON streams enclosed within delimiter
    markers (`<<<BENCH_PRESS_JSON_START>>>`).
 4. **Aggregation**: Deep-merges results into a canonical `BenchmarkSuiteResult`
-   keyed by `${name}:${target}`.
+   keyed by workload name, runtime target, and matrix coordinates.
 
 ---
 
