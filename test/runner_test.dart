@@ -484,6 +484,130 @@ void main() {
         ),
       ).isTrue();
     });
+
+    test('runVariants returns empty list when given no variants', () async {
+      final results = await BenchmarkRunner.runVariants(const []);
+      check(results).isEmpty();
+    });
+
+    test('runVariants scales all variants in lockstep ABBA rounds up to '
+        'maxTrials when any variant exceeds the CV threshold', () async {
+      final logs = <String>[];
+      var quietInTrials = false;
+      var spikyInTrials = false;
+      var spikyTrialCount = 0;
+      final trialOrder = <String>[];
+
+      final quiet = BenchmarkVariant(
+        'quiet',
+        () {
+          if (quietInTrials) trialOrder.add('quiet');
+          final sw = Stopwatch()..start();
+          while (sw.elapsedMicroseconds < 1500) {}
+          Blackhole.consume(1);
+        },
+        warmupComplete: () => quietInTrials = true,
+        isBaseline: true,
+      );
+
+      final spiky = BenchmarkVariant('spiky', () {
+        if (spikyInTrials) {
+          trialOrder.add('spiky');
+          spikyTrialCount++;
+        }
+        // Spike trial 1 to 4.5 ms vs 1.5 ms so CV > 5% over 4..6 trials.
+        final targetUs = (spikyInTrials && spikyTrialCount == 1) ? 4500 : 1500;
+        final sw = Stopwatch()..start();
+        while (sw.elapsedMicroseconds < targetUs) {}
+        Blackhole.consume(2);
+      }, warmupComplete: () => spikyInTrials = true);
+
+      final results = await BenchmarkRunner.runVariants(
+        [quiet, spiky],
+        config: BenchmarkConfig(
+          trials: 4,
+          maxTrials: 6,
+          minWarmupIterations: 1,
+          maxWarmupIterations: 1,
+          targetBatchDuration: const Duration(milliseconds: 1),
+          forceRun: true,
+          logger: logs.add,
+        ),
+      );
+
+      check(results.length).equals(2);
+      // Both variants scaled in lockstep from 4 to 6 trials.
+      check(results[0].rawTrialLatenciesNs.length).equals(6);
+      check(results[1].rawTrialLatenciesNs.length).equals(6);
+      check(logs.any((l) => l.contains('Adaptively scaling up to 6 trials.')))
+          .isTrue();
+      // 6 rounds in ABBA BAAB ABBA order:
+      // r=0: quiet, spiky
+      // r=1: spiky, quiet
+      // r=2: spiky, quiet
+      // r=3: quiet, spiky
+      // r=4: quiet, spiky
+      // r=5: spiky, quiet
+      check(trialOrder).deepEquals([
+        'quiet',
+        'spiky',
+        'spiky',
+        'quiet',
+        'spiky',
+        'quiet',
+        'quiet',
+        'spiky',
+        'quiet',
+        'spiky',
+        'spiky',
+        'quiet',
+      ]);
+    });
+
+    test('runVariants runs teardown for all initialized variants even when '
+        'a later variant or an earlier teardown throws', () async {
+      final events = <String>[];
+
+      final v1 = BenchmarkVariant(
+        'v1',
+        () => Blackhole.consume(1),
+        setup: () => events.add('setup:v1'),
+        teardown: () {
+          events.add('teardown:v1');
+          throw StateError('v1 teardown failure');
+        },
+      );
+      final v2 = BenchmarkVariant(
+        'v2',
+        () => throw StateError('v2 probe failure'),
+        setup: () => events.add('setup:v2'),
+        teardown: () => events.add('teardown:v2'),
+      );
+      final v3 = BenchmarkVariant(
+        'v3',
+        () => Blackhole.consume(3),
+        setup: () => events.add('setup:v3'),
+        teardown: () => events.add('teardown:v3'),
+      );
+
+      await check(
+        BenchmarkRunner.runVariants(
+          [v1, v2, v3],
+          config: const BenchmarkConfig(
+            trials: 1,
+            minWarmupIterations: 1,
+            maxWarmupIterations: 1,
+            targetBatchDuration: Duration(milliseconds: 1),
+            forceRun: true,
+          ),
+        ),
+      ).throws<StateError>();
+
+      // v1 and v2 ran setup before v2 failed; both teardowns ran even though
+      // v1's teardown threw, and v3 was never initialized.
+      check(events)
+          .deepEquals(['setup:v1', 'setup:v2', 'teardown:v1', 'teardown:v2']);
+    });
   });
 }
 

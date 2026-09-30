@@ -240,9 +240,9 @@ Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(
     case BenchmarkVariant b:
       return [await BenchmarkRunner.runVariant(b, config: config)];
     case BenchmarkGroup g:
-      return await _runGroupVariants(g, config);
+      return await g.report(config: config);
     case BenchmarkMatrix<dynamic> m:
-      return await _runMatrixVariants(m, config);
+      return await m.report(config: config);
     default:
       throw ArgumentError(
         'Unsupported benchmark type: ${item.runtimeType}. '
@@ -251,23 +251,6 @@ Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(
       );
   }
 }
-
-Future<List<BenchmarkResult>> _runGroupVariants(
-  BenchmarkGroup g,
-  BenchmarkConfig config,
-) async => [
-  for (final v in g.variants)
-    await BenchmarkRunner.runVariant(v, config: config),
-];
-
-Future<List<BenchmarkResult>> _runMatrixVariants(
-  BenchmarkMatrix<dynamic> m,
-  BenchmarkConfig config,
-) async => [
-  for (final g in m)
-    for (final v in g.variants)
-      await BenchmarkRunner.runVariant(v, config: config),
-];
 
 final class _ConfiguredBenchmark(
   final Benchmark _delegate,

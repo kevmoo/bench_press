@@ -254,99 +254,185 @@ abstract final class BenchmarkRunner() {
   static Future<BenchmarkResult> runVariant(
     BenchmarkVariant variant, {
     BenchmarkConfig config = const BenchmarkConfig(),
+  }) async => (await runVariants([variant], config: config)).single;
+
+  /// Runs [variants] together: each variant completes `setup`, warmup,
+  /// `warmupComplete`, and batch calibration first, then measurement trials
+  /// execute in `ABBA BAAB` interleaved rounds across all variants so linear
+  /// and quadratic host drift cancel across the group.
+  ///
+  /// When [BenchmarkConfig.maxTrials] is set, lockstep rounds continue across
+  /// all variants while any variant's CV exceeds the stability threshold.
+  static Future<List<BenchmarkResult>> runVariants(
+    List<BenchmarkVariant> variants, {
+    BenchmarkConfig config = const BenchmarkConfig(),
   }) async {
-    variant.setup?.call();
+    if (variants.isEmpty) return <BenchmarkResult>[];
+
+    final initialized = <BenchmarkVariant>[];
     try {
-      final probe = variant.action();
-      final isAsync = probe is Future;
-      if (isAsync) {
-        await probe;
-      }
-      final provisional = isAsync
-          ? await BenchmarkCalibrator.calibrateAsync(
-              variant.executeAsync,
-              config,
-            )
-          : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
-
-      final warmupDetector = AdaptiveWarmupDetector(config: config);
-      final warmupStopwatch = Stopwatch()..start();
-
-      while (true) {
-        final perOpNs = await _measureVariantBatch(
-          variant,
-          provisional.iterations,
-          isAsync: isAsync,
-        );
-        warmupDetector.addSample(perOpNs);
-
-        final elapsedSec = warmupStopwatch.elapsedMicroseconds / 1000000.0;
-        if (warmupDetector.isDone(elapsedSeconds: elapsedSec)) {
-          break;
-        }
-      }
-      warmupStopwatch.stop();
-
-      final warmupResult = warmupDetector.finish(
-        elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
-      );
-
-      variant.warmupComplete?.call();
-
-      final calibrated =
-          BenchmarkCalibrator.calibratedBatchFromWarmup(warmupResult, config) ??
-          (isAsync
-              ? await BenchmarkCalibrator.calibrateAsync(
-                  variant.executeAsync,
-                  config,
-                )
-              : BenchmarkCalibrator.calibrateSync(variant.executeSync, config));
-      _logRecalibrationSwing(provisional, calibrated, config);
-
-      final trials = <double>[];
-      for (var i = 0; i < config.trials; i++) {
-        final perOpNs = await _measureVariantBatch(
-          variant,
-          calibrated.iterations,
-          isAsync: isAsync,
-        );
-        trials.add(perOpNs);
+      final prepared = <_PreparedVariant>[];
+      for (final variant in variants) {
+        variant.setup?.call();
+        initialized.add(variant);
+        prepared.add(await _prepareVariant(variant, config));
       }
 
-      if (_shouldScaleTrials(trials, config)) {
-        config.logger?.call(
-          'High variance detected in initial trials. '
-          'Adaptively scaling up to ${config.maxTrials} trials.',
-        );
-        while (_shouldScaleTrials(trials, config)) {
-          final perOpNs = await _measureVariantBatch(
-            variant,
-            calibrated.iterations,
-            isAsync: isAsync,
-          );
-          trials.add(perOpNs);
-        }
-      }
+      await _collectInterleavedTrials(prepared, config);
 
-      final metrics = BenchmarkMetrics.fromSamples(
-        trials,
-        isStable: warmupResult.isStable,
-      );
-
-      return BenchmarkResult(
-        name: variant.name,
-        mode: isAsync ? 'async' : 'sync',
-        metrics: metrics,
-        warmupResult: warmupResult,
-        rawTrialLatenciesNs: trials,
-        calibratedBatch: calibrated,
-        config: config,
-        group: variant.group,
-        isBaseline: variant.isBaseline,
-        throughput: variant.throughput,
-      );
+      return [for (final item in prepared) _buildVariantResult(item, config)];
     } finally {
-      variant.teardown?.call();
+      _teardownVariants(initialized);
+    }
+  }
+
+  static Future<_PreparedVariant> _prepareVariant(
+    BenchmarkVariant variant,
+    BenchmarkConfig config,
+  ) async {
+    final probe = variant.action();
+    final isAsync = probe is Future;
+    if (isAsync) {
+      await probe;
+    }
+    final provisional = isAsync
+        ? await BenchmarkCalibrator.calibrateAsync(variant.executeAsync, config)
+        : BenchmarkCalibrator.calibrateSync(variant.executeSync, config);
+
+    final warmupResult = await _warmupVariant(
+      variant,
+      provisional.iterations,
+      config,
+      isAsync: isAsync,
+    );
+    variant.warmupComplete?.call();
+
+    final calibrated =
+        BenchmarkCalibrator.calibratedBatchFromWarmup(warmupResult, config) ??
+        (isAsync
+            ? await BenchmarkCalibrator.calibrateAsync(
+                variant.executeAsync,
+                config,
+              )
+            : BenchmarkCalibrator.calibrateSync(variant.executeSync, config));
+    _logRecalibrationSwing(provisional, calibrated, config);
+
+    return (
+      variant: variant,
+      isAsync: isAsync,
+      warmupResult: warmupResult,
+      calibrated: calibrated,
+      trials: <double>[],
+    );
+  }
+
+  static Future<WarmupResult> _warmupVariant(
+    BenchmarkVariant variant,
+    int iterations,
+    BenchmarkConfig config, {
+    required bool isAsync,
+  }) async {
+    final warmupDetector = AdaptiveWarmupDetector(config: config);
+    final warmupStopwatch = Stopwatch()..start();
+
+    while (true) {
+      final perOpNs = await _measureVariantBatch(
+        variant,
+        iterations,
+        isAsync: isAsync,
+      );
+      warmupDetector.addSample(perOpNs);
+
+      final elapsedSec = warmupStopwatch.elapsedMicroseconds / 1000000.0;
+      if (warmupDetector.isDone(elapsedSeconds: elapsedSec)) {
+        break;
+      }
+    }
+    warmupStopwatch.stop();
+
+    return warmupDetector.finish(
+      elapsedSeconds: warmupStopwatch.elapsedMicroseconds / 1000000.0,
+    );
+  }
+
+  static Future<void> _collectInterleavedTrials(
+    List<_PreparedVariant> prepared,
+    BenchmarkConfig config,
+  ) async {
+    var round = 0;
+    for (; round < config.trials; round++) {
+      await _runInterleavedRound(prepared, round);
+    }
+    if (_anyShouldScale(prepared, config)) {
+      config.logger?.call(
+        'High variance detected in initial trials. '
+        'Adaptively scaling up to ${config.maxTrials} trials.',
+      );
+      while (_anyShouldScale(prepared, config)) {
+        await _runInterleavedRound(prepared, round++);
+      }
+    }
+  }
+
+  /// Executes one round across [prepared], reversing traversal order when
+  /// `(round & 1) != ((round >> 1) & 1)` (`AB`, `BA`, `BA`, `AB`, ...).
+  static Future<void> _runInterleavedRound(
+    List<_PreparedVariant> prepared,
+    int round,
+  ) async {
+    final reverse = (round & 1) != ((round >> 1) & 1);
+    final count = prepared.length;
+    for (var i = 0; i < count; i++) {
+      final item = prepared[reverse ? count - 1 - i : i];
+      final perOpNs = await _measureVariantBatch(
+        item.variant,
+        item.calibrated.iterations,
+        isAsync: item.isAsync,
+      );
+      item.trials.add(perOpNs);
+    }
+  }
+
+  static bool _anyShouldScale(
+    List<_PreparedVariant> prepared,
+    BenchmarkConfig config,
+  ) => prepared.any((p) => _shouldScaleTrials(p.trials, config));
+
+  static BenchmarkResult _buildVariantResult(
+    _PreparedVariant item,
+    BenchmarkConfig config,
+  ) {
+    final metrics = BenchmarkMetrics.fromSamples(
+      item.trials,
+      isStable: item.warmupResult.isStable,
+    );
+    return BenchmarkResult(
+      name: item.variant.name,
+      mode: item.isAsync ? 'async' : 'sync',
+      metrics: metrics,
+      warmupResult: item.warmupResult,
+      rawTrialLatenciesNs: item.trials,
+      calibratedBatch: item.calibrated,
+      config: config,
+      group: item.variant.group,
+      isBaseline: item.variant.isBaseline,
+      throughput: item.variant.throughput,
+    );
+  }
+
+  static void _teardownVariants(List<BenchmarkVariant> initialized) {
+    Object? firstError;
+    StackTrace? firstStack;
+    for (final variant in initialized) {
+      try {
+        variant.teardown?.call();
+      } on Object catch (e, s) {
+        firstError ??= e;
+        firstStack ??= s;
+      }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStack!);
     }
   }
 
@@ -411,3 +497,11 @@ abstract final class BenchmarkRunner() {
     return metrics.cv > BenchmarkMetrics.maxCvThreshold;
   }
 }
+
+typedef _PreparedVariant = ({
+  BenchmarkVariant variant,
+  bool isAsync,
+  WarmupResult warmupResult,
+  CalibratedBatch calibrated,
+  List<double> trials,
+});

@@ -172,5 +172,89 @@ void main() {
       check(countA).isGreaterThan(0);
       check(countB).isGreaterThan(0);
     });
+
+    test('BenchmarkGroup.report warms up all variants before interleaving '
+        'measurement trials in ABBA BAAB order', () async {
+      final events = <String>[];
+      final inTrials = <String, bool>{'A': false, 'B': false, 'C': false};
+      final batchOrder = <String>[];
+      BenchmarkVariant makeSingleOpVariant(
+        String id, {
+        bool isBaseline = false,
+      }) => BenchmarkVariant(
+        id,
+        () {
+          if (inTrials[id]!) {
+            batchOrder.add(id);
+          }
+          // ~1.5 ms busy wait so calibrated batch size is 1 op per batch.
+          final sw = Stopwatch()..start();
+          while (sw.elapsedMicroseconds < 1500) {}
+          Blackhole.consume(id);
+        },
+        setup: () => events.add('setup:$id'),
+        warmupComplete: () {
+          events.add('warm:$id');
+          inTrials[id] = true;
+        },
+        teardown: () => events.add('teardown:$id'),
+        isBaseline: isBaseline,
+      );
+
+      final group = BenchmarkGroup('ABBA Group', [
+        makeSingleOpVariant('A', isBaseline: true),
+        makeSingleOpVariant('B'),
+        makeSingleOpVariant('C'),
+      ]);
+
+      final results = await group.report(
+        config: const BenchmarkConfig(
+          trials: 4,
+          minWarmupIterations: 1,
+          maxWarmupIterations: 1,
+          targetBatchDuration: Duration(milliseconds: 1),
+          forceRun: true,
+        ),
+      );
+
+      // All setups and warmups finish before any teardown.
+      check(events).deepEquals([
+        'setup:A',
+        'warm:A',
+        'setup:B',
+        'warm:B',
+        'setup:C',
+        'warm:C',
+        'teardown:A',
+        'teardown:B',
+        'teardown:C',
+      ]);
+
+      // 4 rounds across [A, B, C] in ABBA BAAB round direction:
+      // r=0 (fwd): A, B, C
+      // r=1 (rev): C, B, A
+      // r=2 (rev): C, B, A
+      // r=3 (fwd): A, B, C
+      check(batchOrder).deepEquals([
+        'A',
+        'B',
+        'C',
+        'C',
+        'B',
+        'A',
+        'C',
+        'B',
+        'A',
+        'A',
+        'B',
+        'C',
+      ]);
+
+      // Results remain in declaration order [A, B, C], 4 trials each.
+      check(results.map((r) => r.name).toList()).deepEquals(['A', 'B', 'C']);
+      for (final r in results) {
+        check(r.rawTrialLatenciesNs.length).equals(4);
+      }
+    });
   });
 }
