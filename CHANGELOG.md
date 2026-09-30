@@ -1,4 +1,4 @@
-## 0.4.0-wip
+## 0.4.0
 
 - `BenchmarkGroup.report`, `BenchmarkMatrix.report`, `mainBenchmarkSuite`, and
   the new `BenchmarkRunner.runVariants` now interleave measurement trials across
@@ -21,22 +21,20 @@
   non-empty string; anything else is now a config error, where it was previously
   ignored. `bench_press report` and `bench_press diff` do not read it; pass them
   the path.
-- Markdown comparison and `diff` tables no longer show a `Batch` column, and the
-  banner warning that calibrated batch sizes differ by more than 2x across cells
-  is gone. Batch sizes are sized to each cell's cost, so they differ by design.
-  The JSON still records `calibrated_batch_iterations`. In their place, a
-  footnote now lists any cell whose trial median moved more than 25% from the
-  warmup estimate that sized its batch, which means the process changed state
-  between calibration and measurement. The estimate is saved in the new
-  `warmup.estimated_op_ns` JSON field; results written before this release, or
-  batches sized by the fallback calibrator, are not checked.
-- The speedup gate in comparison and `diff` tables now uses `isStable`, the same
-  test behind the `✅ Stable` badge in `### All Benchmarks`, instead of
-  `isRobustStable`. A cell that reads Stable there is no longer reported as
-  unresolved because of its own stability; a comparison is still unresolved when
-  either side is unstable or the CI is unbounded. A resolved comparison whose
-  95% CI contains `1.00x` is now `➖ ⚪ Neutral` and its CI is not bolded, even
-  when the point estimate is outside the ±5% band.
+- Added Fieller confidence interval and `isStable` gating to `MarkdownReporter`
+  (`gate: true` by default, configurable via `--[no-]gate` in `bench_press run`,
+  `report`, and `diff`), rendering `unresolved` and excluding comparisons from
+  geometric mean rollup metrics when either side is unstable (`!isStable`, the
+  same test behind the `✅ Stable` badge in `### All Benchmarks`) or when the
+  95% Fieller CI is unbounded. A resolved comparison whose 95% CI contains
+  `1.00x` is classified as `➖ ⚪ Neutral` and its `vs. Baseline` and CI cells
+  are not bolded, even when the point estimate is outside the ±5% band.
+- `MarkdownReporter` comparison and `diff` tables now render a footnote listing
+  any cell whose trial median moved more than 25% from the warmup estimate that
+  sized its batch, which indicates the process changed state between calibration
+  and measurement. The estimate is saved in the new `warmup.estimated_op_ns`
+  JSON field; results written before this release, or batches sized by the
+  fallback calibrator, are not checked.
 - **Breaking (behavioral)**: `bench_press diff`, `bench_press run --diff`, and
   `MarkdownReporter.renderDeltaTable` now pair cells by full key (name, target,
   and every coordinate, including group) instead of by name and target alone. A
@@ -78,19 +76,12 @@
   (`BenchmarkDiscovery.discoverAll` and `resolveTargetPaths`) to discover and
   execute all positional file and directory paths supplied on the command line
   rather than silently ignoring arguments after the first path.
-- Computed post-warmup calibration batch sizes directly from steady-state warmup
-  convergence latencies via `BenchmarkCalibrator.calibratedBatchForDuration`,
-  eliminating redundant probe loops.
+- Updated `BenchmarkRunner` (`run`, `runAsync`, `runVariant`, `runVariants`) to
+  perform post-warmup batch recalibration directly from steady-state warmup
+  convergence latencies via `BenchmarkCalibrator.calibratedBatchForDuration`
+  (falling back to probe calibration when warmup does not converge), warning
+  when the steady-state batch size changes by `>10x`.
 - Invoked `warmupComplete()` hook in `runVariant()`.
-- Added Fieller confidence interval and `isRobustStable` gating to
-  `MarkdownReporter` (`gate: true` by default, configurable via `--[no-]gate` in
-  `bench_press run`, `report`, and `diff`), rendering `unresolved` and excluding
-  unstable or unbounded-CI comparisons from geometric mean rollup metrics.
-- Added `Batch` column to `MarkdownReporter` variant, matrix, and delta tables
-  alongside a `>2.0x` batch-size divergence warning banner.
-- Updated `BenchmarkRunner` (`run`, `runAsync`, `runVariant`) to perform
-  post-warmup recalibration via `BenchmarkCalibrator` before recording
-  measurement trials, warning when steady-state batch size increases by `>10x`.
 - Fixed `MarkdownReporter.renderSuite` and `renderMatrixComparisonTable` so
   suites mixing standalone benchmarks and `BenchmarkGroup` variants collate
   grouped variants into a single multi-row `### Group: ...` comparison table
