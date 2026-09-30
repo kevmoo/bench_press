@@ -10,6 +10,7 @@ import '../config.dart';
 import '../harness.dart';
 import '../runner.dart';
 import '../telemetry/schema.dart';
+import '../throughput.dart';
 
 /// Marker line indicating the beginning of embedded benchmark telemetry JSON.
 const String benchPressJsonStartMarker = '<<<BENCH_PRESS_JSON_START>>>';
@@ -114,7 +115,6 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
 
   final target = parsed.option('target') ?? 'jit';
   final isValidate = parsed.flag('validate');
-  final config = _buildConfigFromArgs(parsed, isValidate: isValidate);
 
   final benchmarkList = benchmarks is Iterable
       ? List<Object>.from(benchmarks)
@@ -123,9 +123,16 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   final results = <BenchmarkResult>[];
   for (final item in benchmarkList) {
     if (item is Benchmark) {
+      final config = _resolveConfig(
+        item.config,
+        parsed,
+        isValidate: isValidate,
+      );
       results.add(BenchmarkRunner.run(_applyConfigToBenchmark(item, config)));
     } else {
-      results.addAll(await _executeAsyncBenchmarkItem(item, config));
+      results.addAll(
+        await _executeAsyncBenchmarkItem(item, parsed, isValidate: isValidate),
+      );
     }
   }
 
@@ -159,17 +166,21 @@ void _writeJsonOutput(String? jsonOutputPath, String jsonText) {
   }
 }
 
-BenchmarkConfig _buildConfigFromArgs(
+BenchmarkConfig _resolveConfig(
+  BenchmarkConfig base,
   ArgResults parsed, {
   required bool isValidate,
 }) {
   if (isValidate) {
-    return const BenchmarkConfig(
+    return BenchmarkConfig(
       trials: 1,
       minWarmupIterations: 1,
       maxWarmupIterations: 2,
-      targetBatchDuration: Duration(milliseconds: 1),
+      targetBatchDuration: const Duration(milliseconds: 1),
+      maxWarmupDurationSeconds: base.maxWarmupDurationSeconds,
+      maxSemRelativeError: base.maxSemRelativeError,
       forceRun: true,
+      logger: base.logger,
     );
   }
 
@@ -178,17 +189,22 @@ BenchmarkConfig _buildConfigFromArgs(
   final minWarmup = int.tryParse(parsed.option('min-warmup') ?? '');
   final maxWarmup = int.tryParse(parsed.option('max-warmup') ?? '');
   final batchMs = int.tryParse(parsed.option('target-batch-ms') ?? '');
-  final forceRun = parsed.flag('force-run');
+  final forceRun = parsed.wasParsed('force-run')
+      ? parsed.flag('force-run')
+      : base.forceRun;
 
   return BenchmarkConfig(
-    trials: trials ?? 15,
-    maxTrials: maxTrials,
-    minWarmupIterations: minWarmup ?? 10,
-    maxWarmupIterations: maxWarmup ?? 200,
+    trials: trials ?? base.trials,
+    maxTrials: maxTrials ?? base.maxTrials,
+    minWarmupIterations: minWarmup ?? base.minWarmupIterations,
+    maxWarmupIterations: maxWarmup ?? base.maxWarmupIterations,
     targetBatchDuration: batchMs != null
         ? Duration(milliseconds: batchMs)
-        : const Duration(milliseconds: 100),
+        : base.targetBatchDuration,
+    maxWarmupDurationSeconds: base.maxWarmupDurationSeconds,
+    maxSemRelativeError: base.maxSemRelativeError,
     forceRun: forceRun,
+    logger: base.logger,
   );
 }
 
@@ -230,18 +246,27 @@ void _finishSuite(
 
 Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(
   Object item,
-  BenchmarkConfig config,
-) async {
+  ArgResults parsed, {
+  required bool isValidate,
+}) async {
   switch (item) {
     case AsyncBenchmark b:
+      final config = _resolveConfig(b.config, parsed, isValidate: isValidate);
       return [
         await BenchmarkRunner.runAsync(_applyConfigToAsyncBenchmark(b, config)),
       ];
     case BenchmarkVariant b:
+      final config = _resolveConfig(
+        const BenchmarkConfig(),
+        parsed,
+        isValidate: isValidate,
+      );
       return [await BenchmarkRunner.runVariant(b, config: config)];
     case BenchmarkGroup g:
+      final config = _resolveConfig(g.config, parsed, isValidate: isValidate);
       return await g.report(config: config);
     case BenchmarkMatrix<dynamic> m:
+      final config = _resolveConfig(m.config, parsed, isValidate: isValidate);
       return await m.report(config: config);
     default:
       throw ArgumentError(
@@ -265,10 +290,16 @@ final class _ConfiguredBenchmark(
       );
 
   @override
+  Throughput? get throughput => _delegate.throughput;
+
+  @override
   void setup() => _delegate.setup();
 
   @override
   void run() => _delegate.run();
+
+  @override
+  void warmupComplete() => _delegate.warmupComplete();
 
   @override
   void teardown() => _delegate.teardown();
@@ -287,10 +318,16 @@ final class _ConfiguredAsyncBenchmark(
       );
 
   @override
+  Throughput? get throughput => _delegate.throughput;
+
+  @override
   Future<void> setup() => _delegate.setup();
 
   @override
   Future<void> run() => _delegate.run();
+
+  @override
+  Future<void> warmupComplete() => _delegate.warmupComplete();
 
   @override
   Future<void> teardown() => _delegate.teardown();
