@@ -1,4 +1,4 @@
-## 0.4.1-wip
+## 0.4.1
 
 - Interleaved `BenchmarkGroup` trials now run in blocks (sized for four
   `ABBA BAAB` visits over `trials`) and discard two batches at every switch
