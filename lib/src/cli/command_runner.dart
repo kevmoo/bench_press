@@ -18,7 +18,7 @@ import 'sdk.dart';
 
 export 'run_command.dart' show RunCommand;
 
-const String benchPressVersion = '0.4.0';
+const String benchPressVersion = '0.4.1-wip';
 
 /// The top-level command runner for `bench_press`.
 final class BenchPressCommandRunner({
