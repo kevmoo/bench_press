@@ -230,24 +230,18 @@ void main() {
         'teardown:C',
       ]);
 
-      // 4 rounds across [A, B, C] in ABBA BAAB round direction:
-      // r=0 (fwd): A, B, C
-      // r=1 (rev): C, B, A
-      // r=2 (rev): C, B, A
-      // r=3 (fwd): A, B, C
+      // trials: 4 gives blocks of 1, so 4 visits across [A, B, C] in ABBA
+      // BAAB direction; every change of variant runs two discarded batches
+      // (marked *) before the measured one:
+      // v=0 (fwd): A**, A, B**, B, C**, C
+      // v=1 (rev): C, B**, B, A**, A
+      // v=2 (rev): C**, C, B**, B, A**, A
+      // v=3 (fwd): A, B**, B, C**, C
       check(batchOrder).deepEquals([
-        'A',
-        'B',
-        'C',
-        'C',
-        'B',
-        'A',
-        'C',
-        'B',
-        'A',
-        'A',
-        'B',
-        'C',
+        'A', 'A', 'A', 'B', 'B', 'B', 'C', 'C', 'C', //
+        'C', 'B', 'B', 'B', 'A', 'A', 'A', //
+        'C', 'C', 'C', 'B', 'B', 'B', 'A', 'A', 'A', //
+        'A', 'B', 'B', 'B', 'C', 'C', 'C',
       ]);
 
       // Results remain in declaration order [A, B, C], 4 trials each.

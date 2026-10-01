@@ -1,3 +1,13 @@
+## 0.4.1
+
+- Interleaved `BenchmarkGroup` trials now run in blocks (sized for four
+  `ABBA BAAB` visits over `trials`) and discard two batches at every switch
+  between variants. The first batches after a switch carry state left by the
+  previous variant; with every trial a switch, `0.4.0` roughly doubled the
+  per-cell spread (`robust_cv`) on Wasm, and a single discard recovered only
+  half of that. Two discards per switch restore the sequential baseline at about
+  +20% wall-clock. See [#71](https://github.com/kevmoo/bench_press/issues/71).
+
 ## 0.4.0
 
 - **Breaking (library exports)**: `package:bench_press/bench_press.dart` now

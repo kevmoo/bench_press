@@ -258,8 +258,11 @@ abstract final class BenchmarkRunner() {
 
   /// Runs [variants] together: each variant completes `setup`, warmup,
   /// `warmupComplete`, and batch calibration first, then measurement trials
-  /// execute in `ABBA BAAB` interleaved rounds across all variants so linear
-  /// and quadratic host drift cancel across the group.
+  /// execute in `ABBA BAAB` interleaved visits across all variants so linear
+  /// and quadratic host drift cancel across the group. Each visit records a
+  /// block of trials per variant (sized for four visits), and each switch
+  /// between variants runs two discarded batches first, so no measured trial
+  /// is among the first to execute after a different variant.
   ///
   /// When [BenchmarkConfig.maxTrials] is set, lockstep rounds continue across
   /// all variants while any variant's CV exceeds the stability threshold.
@@ -355,13 +358,36 @@ abstract final class BenchmarkRunner() {
     );
   }
 
+  /// Measured trials per variant per visit. The `ABBA BAAB` visit schedule
+  /// cancels linear and quadratic drift over four visits, so blocks are sized
+  /// to give exactly four visits across [BenchmarkConfig.trials].
+  static int _blockSize(BenchmarkConfig config) =>
+      math.max(1, (config.trials / 4).ceil());
+
+  /// Batches run and discarded whenever the measured variant changes.
+  ///
+  /// The first batches after a switch carry state left by the previous
+  /// variant. On Wasm the penalty decays over roughly two ~100 ms batches and,
+  /// with every trial a switch, doubled per-cell `robust_cv`; a single discard
+  /// recovered only half of that. Two discards bring interleaved runs back to
+  /// the spread sequential execution gives.
+  static const int _discardsOnSwitch = 2;
+
   static Future<void> _collectInterleavedTrials(
     List<_PreparedVariant> prepared,
     BenchmarkConfig config,
   ) async {
-    var round = 0;
-    for (; round < config.trials; round++) {
-      await _runInterleavedRound(prepared, round);
+    final block = _blockSize(config);
+    var visit = 0;
+    _PreparedVariant? last;
+    while (prepared.any((p) => p.trials.length < config.trials)) {
+      last = await _runInterleavedVisit(
+        prepared,
+        visit++,
+        block: block,
+        target: config.trials,
+        last: last,
+      );
     }
     if (_anyShouldScale(prepared, config)) {
       config.logger?.call(
@@ -369,28 +395,59 @@ abstract final class BenchmarkRunner() {
         'Adaptively scaling up to ${config.maxTrials} trials.',
       );
       while (_anyShouldScale(prepared, config)) {
-        await _runInterleavedRound(prepared, round++);
+        last = await _runInterleavedVisit(
+          prepared,
+          visit++,
+          block: block,
+          target: config.maxTrials!,
+          last: last,
+        );
       }
     }
   }
 
-  /// Executes one round across [prepared], reversing traversal order when
-  /// `(round & 1) != ((round >> 1) & 1)` (`AB`, `BA`, `BA`, `AB`, ...).
-  static Future<void> _runInterleavedRound(
+  /// Executes one visit across [prepared], reversing traversal order when
+  /// `(visit & 1) != ((visit >> 1) & 1)` (`AB`, `BA`, `BA`, `AB`, ...).
+  ///
+  /// Each variant records up to [block] trials, never exceeding [target].
+  /// [last] is the variant measured most recently (null before the first
+  /// visit); whenever the variant changes, [_discardsOnSwitch] batches run and
+  /// are thrown away before the measured ones. Returns the variant measured
+  /// last in this visit.
+  static Future<_PreparedVariant?> _runInterleavedVisit(
     List<_PreparedVariant> prepared,
-    int round,
-  ) async {
-    final reverse = (round & 1) != ((round >> 1) & 1);
+    int visit, {
+    required int block,
+    required int target,
+    required _PreparedVariant? last,
+  }) async {
+    final reverse = (visit & 1) != ((visit >> 1) & 1);
     final count = prepared.length;
     for (var i = 0; i < count; i++) {
       final item = prepared[reverse ? count - 1 - i : i];
-      final perOpNs = await _measureVariantBatch(
-        item.variant,
-        item.calibrated.iterations,
-        isAsync: item.isAsync,
-      );
-      item.trials.add(perOpNs);
+      final remaining = math.min(block, target - item.trials.length);
+      if (remaining <= 0) continue;
+      if (!identical(item, last)) {
+        for (var d = 0; d < _discardsOnSwitch; d++) {
+          await _measureVariantBatch(
+            item.variant,
+            item.calibrated.iterations,
+            isAsync: item.isAsync,
+          );
+        }
+      }
+      for (var k = 0; k < remaining; k++) {
+        item.trials.add(
+          await _measureVariantBatch(
+            item.variant,
+            item.calibrated.iterations,
+            isAsync: item.isAsync,
+          ),
+        );
+      }
+      last = item;
     }
+    return last;
   }
 
   static bool _anyShouldScale(

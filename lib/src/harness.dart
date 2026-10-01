@@ -224,7 +224,8 @@ final class BenchmarkGroup(
   }
 
   /// Warms up and calibrates each variant in this group, then executes
-  /// measurement trials in interleaved `ABBA BAAB` rounds across variants.
+  /// measurement trials in interleaved `ABBA BAAB` visits across variants,
+  /// discarding two batches at every switch between variants.
   Future<List<BenchmarkResult>> report({BenchmarkConfig? config}) =>
       BenchmarkRunner.runVariants(variants, config: config ?? this.config);
 }
