@@ -11,7 +11,8 @@ Dart and Flutter.
   allocations.
 - **Adaptive Warmup & Interleaved Trials**: Automatically detects steady-state
   warmup convergence, calibrates ~100ms trial batches, and interleaves group
-  variants in counterbalanced `ABBA BAAB` rounds to cancel host thermal drift.
+  variants in counterbalanced `ABBA BAAB` visits to cancel host thermal drift,
+  discarding two batches at every switch between variants.
 - **PayloadPlausibility & Fieller Gating**: Formats `Throughput.bytes` and
   `Throughput.elements` rates (`MB/s`, `GB/s`, `items/s`), flags implausible
   rates (`> 100 GB/s` or size-invariant latencies across `>= 8x` payload

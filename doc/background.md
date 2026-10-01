@@ -201,6 +201,16 @@ from measurement across the group:
    widens dispersion across the group instead of biasing a single variant. When
    `--max-trials` is set, lockstep rounds continue across all variants while any
    variant's CV exceeds 5%.
+3. **Blocks and Discarded Batches on Every Switch**: The first batches after a
+   change of variant carry engine state left by the previous variant (heap
+   shape, caches, tiering) and are measurably slower and noisier: on Wasm the
+   penalty decays over roughly two ~100 ms batches, and with every trial a
+   switch, `0.4.0` roughly doubled per-cell `robust_cv`. So each visit records a
+   block of trials per variant, sized so that four visits cover `trials`
+   (keeping the four-visit drift cancellation), and whenever the variant changes
+   two batches run and are thrown away before the measured ones. On Wasm this
+   brings the per-cell spread back to what sequential execution gives, at about
+   +20% wall-clock over sequential.
 
 ---
 

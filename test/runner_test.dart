@@ -517,8 +517,10 @@ void main() {
           trialOrder.add('spiky');
           spikyTrialCount++;
         }
-        // Spike trial 1 to 4.5 ms vs 1.5 ms so CV > 5% over 4..6 trials.
-        final targetUs = (spikyInTrials && spikyTrialCount == 1) ? 4500 : 1500;
+        // Executions 1-2 are the discarded batches run on the switch to
+        // spiky; execution 3 is measured trial 1. Spike it to 4.5 ms vs 1.5 ms
+        // so CV > 5% over 4..6 trials.
+        final targetUs = (spikyInTrials && spikyTrialCount == 3) ? 4500 : 1500;
         final sw = Stopwatch()..start();
         while (sw.elapsedMicroseconds < targetUs) {}
         Blackhole.consume(2);
@@ -543,27 +545,70 @@ void main() {
       check(results[1].rawTrialLatenciesNs.length).equals(6);
       check(logs.any((l) => l.contains('Adaptively scaling up to 6 trials.')))
           .isTrue();
-      // 6 rounds in ABBA BAAB ABBA order:
-      // r=0: quiet, spiky
-      // r=1: spiky, quiet
-      // r=2: spiky, quiet
-      // r=3: quiet, spiky
-      // r=4: quiet, spiky
-      // r=5: spiky, quiet
+      // trials: 4 gives blocks of 1, so 6 visits in ABBA BAAB ABBA order;
+      // every change of variant runs two discarded batches (marked *) before
+      // the measured one:
+      // v=0: quiet**, quiet, spiky**, spiky
+      // v=1: spiky, quiet**, quiet
+      // v=2: spiky**, spiky, quiet**, quiet
+      // v=3: quiet, spiky**, spiky
+      // v=4: quiet**, quiet, spiky**, spiky
+      // v=5: spiky, quiet**, quiet
       check(trialOrder).deepEquals([
-        'quiet',
-        'spiky',
-        'spiky',
-        'quiet',
-        'spiky',
-        'quiet',
-        'quiet',
-        'spiky',
-        'quiet',
-        'spiky',
-        'spiky',
-        'quiet',
+        'quiet', 'quiet', 'quiet', 'spiky', 'spiky', 'spiky', //
+        'spiky', 'quiet', 'quiet', 'quiet', //
+        'spiky', 'spiky', 'spiky', 'quiet', 'quiet', 'quiet', //
+        'quiet', 'spiky', 'spiky', 'spiky', //
+        'quiet', 'quiet', 'quiet', 'spiky', 'spiky', 'spiky', //
+        'spiky', 'quiet', 'quiet', 'quiet',
       ]);
+      for (final r in results) {
+        check(r.rawTrialLatenciesNs.length).equals(6);
+      }
+    });
+
+    test('runVariants records trials in blocks sized for four ABBA visits '
+        'and discards two batches at every switch between variants', () async {
+      final inTrials = <String, bool>{'A': false, 'B': false};
+      final executions = <String>[];
+      BenchmarkVariant make(String id) => BenchmarkVariant(
+        id,
+        () {
+          if (inTrials[id]!) executions.add(id);
+          // ~1.5 ms busy wait so the calibrated batch is 1 op.
+          final sw = Stopwatch()..start();
+          while (sw.elapsedMicroseconds < 1500) {}
+          Blackhole.consume(id);
+        },
+        warmupComplete: () => inTrials[id] = true,
+        isBaseline: id == 'A',
+      );
+
+      final results = await BenchmarkRunner.runVariants(
+        [make('A'), make('B')],
+        config: const BenchmarkConfig(
+          trials: 8,
+          minWarmupIterations: 1,
+          maxWarmupIterations: 1,
+          targetBatchDuration: Duration(milliseconds: 1),
+          forceRun: true,
+        ),
+      );
+
+      // trials: 8 gives blocks of 2. Discarded batches marked *:
+      // v=0 (fwd): A**, A, A, B**, B, B
+      // v=1 (rev): B, B (no discard: same variant as before), A**, A, A
+      // v=2 (rev): B**, B, B, A**, A, A
+      // v=3 (fwd): A, A, B**, B, B
+      check(executions).deepEquals([
+        'A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', //
+        'B', 'B', 'A', 'A', 'A', 'A', //
+        'B', 'B', 'B', 'B', 'A', 'A', 'A', 'A', //
+        'A', 'A', 'B', 'B', 'B', 'B',
+      ]);
+      for (final r in results) {
+        check(r.rawTrialLatenciesNs.length).equals(8);
+      }
     });
 
     test('runVariants runs teardown for all initialized variants even when '
