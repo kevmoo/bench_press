@@ -1,3 +1,5 @@
+## 0.4.2-wip
+
 ## 0.4.1
 
 - Interleaved `BenchmarkGroup` trials now run in blocks (sized for four
