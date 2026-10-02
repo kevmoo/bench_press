@@ -330,14 +330,50 @@ final class RunCommand({
     }
 
     final coords = config.generateCoordinates();
-    final (:suite, :hasFailures) = await _executeMatrix(
-      files,
-      coords,
-      config,
-      targets,
-      effectiveSdk,
+    final trialsStr = argResults!.option('trials');
+    final trials = trialsStr != null
+        ? int.tryParse(trialsStr)
+        : config.defaults.trials;
+    final maxTrialsStr = argResults!.option('max-trials');
+    final maxTrials = maxTrialsStr != null
+        ? int.tryParse(maxTrialsStr)
+        : config.defaults.maxTrials;
+    final forceRun = argResults!.flag('force-run');
+    final isolateMode =
+        argResults!.flag('isolate-mode') || config.defaults.isolateMode;
+    final compilerFlags = argResults!.multiOption('compiler-flag');
+    final vmFlags = argResults!.multiOption('vm-flag');
+    final cpuAffinity = _applyCpuPinningLimits(
       pinCpu,
+      isolateMode: isolateMode,
+      targets: _effectiveMatrixTargets(coords, targets),
     );
+
+    BenchmarkSuiteResult? suite;
+    var hasFailures = false;
+
+    for (final discovered in files) {
+      final result = await _executeFileCoordinates(
+        discovered: discovered,
+        coords: coords,
+        defaultTargets: targets,
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        compilerFlags: compilerFlags,
+        vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
+        effectiveSdk: effectiveSdk,
+      );
+      if (result.hasFailures) {
+        hasFailures = true;
+      }
+      if (result.suite != null) {
+        suite = _mergeResults(suite, result.suite!);
+      }
+    }
+
     if (suite == null || suite.benchmarks.isEmpty) {
       stderr.writeln('No benchmark results produced.');
       return ExitCode.software.code;
@@ -362,13 +398,44 @@ final class RunCommand({
         expandHomeDirectory(configuredOutput);
     final finalSuite = !noSave ? suite.mergeAndSave(File(outputPath)) : suite;
 
-    _outputSuiteReport(
-      suite: finalSuite,
-      format: argResults!.option('format')!,
-      title: argResults!.option('title'),
-      diffRef: argResults!.option('diff'),
-      outputPath: outputPath,
-      gate: argResults!.flag('gate'),
+    final format = argResults!.option('format')!;
+    final title = argResults!.option('title');
+    final diffRef = argResults!.option('diff') ?? '';
+    final gate = argResults!.flag('gate');
+
+    String? report;
+    if (format == 'json') {
+      report = finalSuite.toFormattedJson();
+    } else if (diffRef.isEmpty) {
+      report = MarkdownReporter.renderSuite(
+        finalSuite,
+        title: title,
+        gate: gate,
+      );
+    } else if (File(diffRef).existsSync()) {
+      try {
+        final baselineSuite = BenchmarkSuiteResult.loadFromFile(File(diffRef));
+        report = MarkdownReporter.renderDeltaTable(
+          baseline: baselineSuite,
+          current: finalSuite,
+          title: title ?? 'Baseline Delta: `$diffRef`',
+          baselineLabel: 'Baseline ($diffRef)',
+          currentLabel: 'Current',
+          gate: gate,
+        );
+      } on Object catch (e) {
+        stderr.writeln('Warning: Failed to load baseline from "$diffRef": $e');
+      }
+    }
+    stdout.writeln(
+      report ??
+          GitDiffReporter.renderGitDiffReport(
+            gitRef: diffRef,
+            filePath: outputPath,
+            current: finalSuite,
+            title: title,
+            gate: gate,
+          ),
     );
 
     if (hasFailures) {
@@ -379,67 +446,13 @@ final class RunCommand({
     }
 
     if (argResults!.flag('fail-on-unstable') &&
-        _hasUnstableBenchmark(finalSuite)) {
+        finalSuite.benchmarks.any((b) => !b.metrics.isStable)) {
       stderr.writeln(
         'Failure: One or more benchmarks failed steady-state warmup.',
       );
       return 2;
     }
     return ExitCode.success.code;
-  }
-
-  Future<({BenchmarkSuiteResult? suite, bool hasFailures})> _executeMatrix(
-    List<DiscoveredBenchmarkFile> files,
-    List<MatrixCoordinate> coords,
-    BenchPressConfig config,
-    List<TargetRuntime> defaultTargets,
-    DartSdk effectiveSdk,
-    CpuAffinity? pinCpu,
-  ) async {
-    final trialsStr = argResults!.option('trials');
-    final trials = trialsStr != null
-        ? int.tryParse(trialsStr)
-        : config.defaults.trials;
-    final maxTrialsStr = argResults!.option('max-trials');
-    final maxTrials = maxTrialsStr != null
-        ? int.tryParse(maxTrialsStr)
-        : config.defaults.maxTrials;
-    final forceRun = argResults!.flag('force-run');
-    final isolateMode =
-        argResults!.flag('isolate-mode') || config.defaults.isolateMode;
-    final compilerFlags = argResults!.multiOption('compiler-flag');
-    final vmFlags = argResults!.multiOption('vm-flag');
-    final cpuAffinity = _applyCpuPinningLimits(
-      pinCpu,
-      isolateMode: isolateMode,
-      targets: _effectiveMatrixTargets(coords, defaultTargets),
-    );
-
-    BenchmarkSuiteResult? accumulated;
-    var hasFailures = false;
-
-    for (final discovered in files) {
-      final result = await _executeFileCoordinates(
-        discovered: discovered,
-        coords: coords,
-        defaultTargets: defaultTargets,
-        trials: trials,
-        maxTrials: maxTrials,
-        forceRun: forceRun,
-        isolateMode: isolateMode,
-        compilerFlags: compilerFlags,
-        vmFlags: vmFlags,
-        cpuAffinity: cpuAffinity,
-        effectiveSdk: effectiveSdk,
-      );
-      if (result.hasFailures) {
-        hasFailures = true;
-      }
-      if (result.suite != null) {
-        accumulated = _mergeResults(accumulated, result.suite!);
-      }
-    }
-    return (suite: accumulated, hasFailures: hasFailures);
   }
 
   static List<TargetRuntime> _resolveCoordinateTargets(
@@ -483,24 +496,27 @@ final class RunCommand({
     var hasFailures = false;
 
     for (final coord in coords) {
-      final result = await _executeMatrixCoordinate(
-        discovered: discovered,
-        coord: coord,
-        defaultTargets: defaultTargets,
-        trials: trials,
-        maxTrials: maxTrials,
-        forceRun: forceRun,
-        isolateMode: isolateMode,
-        compilerFlags: compilerFlags,
-        vmFlags: vmFlags,
-        cpuAffinity: cpuAffinity,
-        effectiveSdk: effectiveSdk,
-      );
-      if (result.hasFailures) {
-        hasFailures = true;
-      }
-      if (result.suite != null) {
-        fileAccumulated = _mergeResults(fileAccumulated, result.suite!);
+      final runtimes = _resolveCoordinateTargets(coord, defaultTargets);
+      for (final runtime in runtimes) {
+        final result = await _executeMatrixEntry(
+          discovered: discovered,
+          coord: coord,
+          runtime: runtime,
+          trials: trials,
+          maxTrials: maxTrials,
+          forceRun: forceRun,
+          isolateMode: isolateMode,
+          compilerFlags: compilerFlags,
+          vmFlags: vmFlags,
+          cpuAffinity: cpuAffinity,
+          effectiveSdk: effectiveSdk,
+        );
+        if (result.hasFailures) {
+          hasFailures = true;
+        }
+        if (result.suite != null) {
+          fileAccumulated = _mergeResults(fileAccumulated, result.suite!);
+        }
       }
     }
     return (suite: fileAccumulated, hasFailures: hasFailures);
@@ -510,48 +526,6 @@ final class RunCommand({
     BenchmarkSuiteResult? current,
     BenchmarkSuiteResult incoming,
   ) => current == null ? incoming : current.deepMerge(incoming);
-
-  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
-  _executeMatrixCoordinate({
-    required DiscoveredBenchmarkFile discovered,
-    required MatrixCoordinate coord,
-    required List<TargetRuntime> defaultTargets,
-    required int? trials,
-    required int? maxTrials,
-    required bool forceRun,
-    required bool isolateMode,
-    required List<String> compilerFlags,
-    required List<String> vmFlags,
-    required CpuAffinity? cpuAffinity,
-    required DartSdk effectiveSdk,
-  }) async {
-    final runtimes = _resolveCoordinateTargets(coord, defaultTargets);
-
-    BenchmarkSuiteResult? coordAccumulated;
-    var hasFailures = false;
-    for (final runtime in runtimes) {
-      final result = await _executeMatrixEntry(
-        discovered: discovered,
-        coord: coord,
-        runtime: runtime,
-        trials: trials,
-        maxTrials: maxTrials,
-        forceRun: forceRun,
-        isolateMode: isolateMode,
-        compilerFlags: compilerFlags,
-        vmFlags: vmFlags,
-        cpuAffinity: cpuAffinity,
-        effectiveSdk: effectiveSdk,
-      );
-      if (result.hasFailures) {
-        hasFailures = true;
-      }
-      if (result.suite != null) {
-        coordAccumulated = _mergeResults(coordAccumulated, result.suite!);
-      }
-    }
-    return (suite: coordAccumulated, hasFailures: hasFailures);
-  }
 
   Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
   _executeMatrixEntry({
@@ -578,57 +552,16 @@ final class RunCommand({
         ? processRunner
         : BenchmarkProcessRunner(sdk: currentSdk, cpuAffinity: cpuAffinity);
 
-    return await _executeMatrixSingleTarget(
-      discovered: discovered,
-      runtime: runtime,
-      trials: trials,
-      maxTrials: maxTrials,
-      forceRun: forceRun,
-      isolateMode: isolateMode,
-      compilerFlags: execFlags,
-      vmFlags: vmFlags,
-      compiler: currentCompiler,
-      processRunner: currentProcessRunner,
-      coordinate: coord,
-    );
-  }
-
-  List<String> _resolveFlagsFromCoordinate(
-    MatrixCoordinate coord,
-    List<String> compilerFlags,
-  ) {
-    final execFlags = [...compilerFlags];
-    final flagVal = coord.resolvedValues['flags'];
-    if (flagVal != null && flagVal.isNotEmpty) {
-      execFlags.addAll(flagVal.split(' '));
-    }
-    return execFlags;
-  }
-
-  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
-  _executeMatrixSingleTarget({
-    required DiscoveredBenchmarkFile discovered,
-    required TargetRuntime runtime,
-    required int? trials,
-    required int? maxTrials,
-    required bool forceRun,
-    required bool isolateMode,
-    required List<String> compilerFlags,
-    required List<String> vmFlags,
-    required TargetCompiler compiler,
-    required BenchmarkProcessRunner processRunner,
-    required MatrixCoordinate coordinate,
-  }) async {
-    if (compiler.sdk.explicitSdkError == null &&
-        !compiler.sdk.isRuntimeAvailable(runtime)) {
+    if (currentCompiler.sdk.explicitSdkError == null &&
+        !currentCompiler.sdk.isRuntimeAvailable(runtime)) {
       stderr.writeln('Warning: Runtime "$runtime" is not available.');
       return (suite: null, hasFailures: false);
     }
 
-    final compilation = await compiler.compile(
+    final compilation = await currentCompiler.compile(
       sourceFile: discovered.file,
       runtime: runtime,
-      compilerFlags: compilerFlags,
+      compilerFlags: execFlags,
       useCache: argResults!['cache'] as bool,
     );
 
@@ -640,7 +573,7 @@ final class RunCommand({
       return (suite: null, hasFailures: true);
     }
 
-    final execResult = await processRunner.execute(
+    final execResult = await currentProcessRunner.execute(
       compilationResult: compilation,
       isolateMode: isolateMode,
       trials: trials,
@@ -665,14 +598,14 @@ final class RunCommand({
     }
 
     final taggedBenchmarks = suiteResult.benchmarks.map((b) {
-      if (coordinate.coordinates.isEmpty) return b;
+      if (coord.coordinates.isEmpty) return b;
       final hasGroup =
           b.coordinates.group != null && b.coordinates.group!.isNotEmpty;
       return b.copyWith(
-        coordinates: {...b.coordinates, ...coordinate.coordinates},
+        coordinates: {...b.coordinates, ...coord.coordinates},
         isBaseline: hasGroup
-            ? (b.isBaseline && coordinate.isBaseline)
-            : coordinate.isBaseline,
+            ? (b.isBaseline && coord.isBaseline)
+            : coord.isBaseline,
       );
     }).toList();
     final resultSuite = BenchmarkSuiteResult(
@@ -684,68 +617,16 @@ final class RunCommand({
     return (suite: resultSuite, hasFailures: false);
   }
 
-  bool _hasUnstableBenchmark(BenchmarkSuiteResult suite) =>
-      suite.benchmarks.any((b) => !b.metrics.isStable);
-
-  void _outputSuiteReport({
-    required BenchmarkSuiteResult suite,
-    required String format,
-    String? title,
-    String? diffRef,
-    required String outputPath,
-    bool gate = true,
-  }) {
-    if (format == 'json') {
-      stdout.writeln(suite.toFormattedJson());
-      return;
+  List<String> _resolveFlagsFromCoordinate(
+    MatrixCoordinate coord,
+    List<String> compilerFlags,
+  ) {
+    final execFlags = [...compilerFlags];
+    final flagVal = coord.resolvedValues['flags'];
+    if (flagVal != null && flagVal.isNotEmpty) {
+      execFlags.addAll(flagVal.split(' '));
     }
-
-    if (diffRef != null && diffRef.isNotEmpty) {
-      _outputDiffReport(suite, diffRef, title, outputPath, gate: gate);
-      return;
-    }
-
-    final report = MarkdownReporter.renderSuite(
-      suite,
-      title: title,
-      gate: gate,
-    );
-    stdout.writeln(report);
-  }
-
-  void _outputDiffReport(
-    BenchmarkSuiteResult suite,
-    String diffRef,
-    String? title,
-    String outputPath, {
-    bool gate = true,
-  }) {
-    final diffFile = File(diffRef);
-    if (diffFile.existsSync()) {
-      try {
-        final baselineSuite = BenchmarkSuiteResult.loadFromFile(diffFile);
-        final report = MarkdownReporter.renderDeltaTable(
-          baseline: baselineSuite,
-          current: suite,
-          title: title ?? 'Baseline Delta: `$diffRef`',
-          baselineLabel: 'Baseline ($diffRef)',
-          currentLabel: 'Current',
-          gate: gate,
-        );
-        stdout.writeln(report);
-        return;
-      } on Object catch (e) {
-        stderr.writeln('Warning: Failed to load baseline from "$diffRef": $e');
-      }
-    }
-    final report = GitDiffReporter.renderGitDiffReport(
-      gitRef: diffRef,
-      filePath: outputPath,
-      current: suite,
-      title: title,
-      gate: gate,
-    );
-    stdout.writeln(report);
+    return execFlags;
   }
 }
 

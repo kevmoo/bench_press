@@ -128,7 +128,10 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
         parsed,
         isValidate: isValidate,
       );
-      results.add(BenchmarkRunner.run(_applyConfigToBenchmark(item, config)));
+      final configured = item.config == config
+          ? item
+          : _ConfiguredBenchmark(item, config);
+      results.add(BenchmarkRunner.run(configured));
     } else {
       results.addAll(
         await _executeAsyncBenchmarkItem(item, parsed, isValidate: isValidate),
@@ -208,19 +211,6 @@ BenchmarkConfig _resolveConfig(
   );
 }
 
-Benchmark _applyConfigToBenchmark(Benchmark benchmark, BenchmarkConfig config) {
-  if (benchmark.config == config) return benchmark;
-  return _ConfiguredBenchmark(benchmark, config);
-}
-
-AsyncBenchmark _applyConfigToAsyncBenchmark(
-  AsyncBenchmark benchmark,
-  BenchmarkConfig config,
-) {
-  if (benchmark.config == config) return benchmark;
-  return _ConfiguredAsyncBenchmark(benchmark, config);
-}
-
 void _finishSuite(
   List<BenchmarkResult> results, {
   required String target,
@@ -252,9 +242,10 @@ Future<List<BenchmarkResult>> _executeAsyncBenchmarkItem(
   switch (item) {
     case AsyncBenchmark b:
       final config = _resolveConfig(b.config, parsed, isValidate: isValidate);
-      return [
-        await BenchmarkRunner.runAsync(_applyConfigToAsyncBenchmark(b, config)),
-      ];
+      final configured = b.config == config
+          ? b
+          : _ConfiguredAsyncBenchmark(b, config);
+      return [await BenchmarkRunner.runAsync(configured)];
     case BenchmarkVariant b:
       final config = _resolveConfig(
         const BenchmarkConfig(),

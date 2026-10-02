@@ -270,13 +270,32 @@ abstract final class MarkdownReporter() {
         axesList.isEmpty ||
         orderedEntries.map((e) => e.name).toSet().length > 1;
 
-    _writeMatrixHeader(
-      buffer,
-      axesList,
-      hasThroughput,
+    final baselineLabel = _formatBaselineLabel(
       baseEntry,
+      axesList,
       includeNameCol: includeNameCol,
     );
+    final headerRow = <String>[
+      if (includeNameCol) 'Implementation',
+      for (final axis in axesList)
+        axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
+      'Ops/sec',
+      if (hasThroughput) 'Throughput',
+      'Mean Latency',
+      'vs. Baseline (`$baselineLabel`)',
+      'Speedup Ratio',
+      '95% Confidence Interval',
+      'Status',
+    ];
+    buffer.writeln('| ${headerRow.join(' | ')} |');
+
+    final dimCount = axesList.length + (includeNameCol ? 1 : 0);
+    final metricCount = hasThroughput ? 7 : 6;
+    final sepRow = <String>[
+      for (var i = 0; i < dimCount; i++) ':---',
+      for (var i = 0; i < metricCount; i++) ':---:',
+    ];
+    buffer.writeln('| ${sepRow.join(' | ')} |');
 
     final stats = _DeltaStats();
     final baseMeanNs = baseEntry.metrics.meanNs;
@@ -313,41 +332,6 @@ abstract final class MarkdownReporter() {
       axes.addAll(e.coordinates.keys);
     }
     return axes.toList()..sort();
-  }
-
-  static void _writeMatrixHeader(
-    StringBuffer buffer,
-    List<String> axesList,
-    bool hasThroughput,
-    BenchmarkEntry baseEntry, {
-    required bool includeNameCol,
-  }) {
-    final baselineLabel = _formatBaselineLabel(
-      baseEntry,
-      axesList,
-      includeNameCol: includeNameCol,
-    );
-    final headerRow = <String>[
-      if (includeNameCol) 'Implementation',
-      for (final axis in axesList)
-        axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
-      'Ops/sec',
-      if (hasThroughput) 'Throughput',
-      'Mean Latency',
-      'vs. Baseline (`$baselineLabel`)',
-      'Speedup Ratio',
-      '95% Confidence Interval',
-      'Status',
-    ];
-    buffer.writeln('| ${headerRow.join(' | ')} |');
-
-    final dimCount = axesList.length + (includeNameCol ? 1 : 0);
-    final metricCount = hasThroughput ? 7 : 6;
-    final sepRow = <String>[
-      for (var i = 0; i < dimCount; i++) ':---',
-      for (var i = 0; i < metricCount; i++) ':---:',
-    ];
-    buffer.writeln('| ${sepRow.join(' | ')} |');
   }
 
   /// Relative gap between a cell's trial median and its warmup per-op
@@ -400,11 +384,7 @@ abstract final class MarkdownReporter() {
     required bool includeNameCol,
   }) {
     final curMeanNs = entry.metrics.meanNs;
-    final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
-        ? (baseMeanNs / curMeanNs)
-        : 1.0;
-
-    final cols = <String>[
+    final prefixCols = <String>[
       ..._formatDimensionCols(
         entry,
         baselineEntry,
@@ -414,8 +394,50 @@ abstract final class MarkdownReporter() {
       _formatOps(entry.metrics.opsPerSec),
       if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
       _formatLatency(curMeanNs),
-      ..._formatComparisonCols(entry, baselineEntry, speedup, gate, stats),
     ];
+
+    if (identical(entry, baselineEntry)) {
+      final cols = [
+        ...prefixCols,
+        '1.00x (ref)',
+        '1.00x',
+        '[1.00x – 1.00x]',
+        'Ref',
+      ];
+      return '| ${cols.join(' | ')} |';
+    }
+
+    final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
+        ? (baseMeanNs / curMeanNs)
+        : 1.0;
+    final verdict = _computeFiellerVerdict(baselineEntry, entry);
+    final isUnresolved = gate && !verdict.resolved;
+    final movement = _classifyMovement(
+      speedup,
+      isDelta: false,
+      straddlesOne: verdict.straddlesOne,
+    );
+    _tally(stats, verdict, speedup, movement.$2, unresolved: isUnresolved);
+
+    if (isUnresolved) {
+      final cols = [
+        ...prefixCols,
+        'unresolved',
+        'unresolved',
+        verdict.matrixCiString,
+        '❓ Unresolved',
+      ];
+      return '| ${cols.join(' | ')} |';
+    }
+
+    final ratioText = speedup >= 1.0
+        ? '${speedup.toStringAsFixed(2)}x faster'
+        : '${(1.0 / speedup).toStringAsFixed(2)}x slower';
+    final diffStr = movement.$2 != 0 ? '**$ratioText**' : ratioText;
+    final ratioStr = '${speedup.toStringAsFixed(2)}x';
+    final ci = verdict.matrixCiString;
+    final ciStr = verdict.resolved && movement.$2 != 0 ? '**$ci**' : ci;
+    final cols = [...prefixCols, diffStr, ratioStr, ciStr, movement.$1];
 
     return '| ${cols.join(' | ')} |';
   }
@@ -440,46 +462,6 @@ abstract final class MarkdownReporter() {
     return [
       for (final axis in axes) '`${entry.coordinates[axis] ?? '-'}`$suffix',
     ];
-  }
-
-  static List<String> _formatComparisonCols(
-    BenchmarkEntry entry,
-    BenchmarkEntry baselineEntry,
-    double speedup,
-    bool gate,
-    _DeltaStats stats,
-  ) {
-    if (identical(entry, baselineEntry)) {
-      return ['1.00x (ref)', '1.00x', '[1.00x – 1.00x]', 'Ref'];
-    }
-
-    final verdict = _computeFiellerVerdict(baselineEntry, entry);
-    final isUnresolved = gate && !verdict.resolved;
-    final movement = _classifyMovement(
-      speedup,
-      isDelta: false,
-      straddlesOne: verdict.straddlesOne,
-    );
-    _tally(stats, verdict, speedup, movement.$2, unresolved: isUnresolved);
-
-    final ratioText = speedup >= 1.0
-        ? '${speedup.toStringAsFixed(2)}x faster'
-        : '${(1.0 / speedup).toStringAsFixed(2)}x slower';
-    final diffStr = isUnresolved
-        ? 'unresolved'
-        : (movement.$2 != 0 ? '**$ratioText**' : ratioText);
-    final ratioStr = isUnresolved
-        ? 'unresolved'
-        : '${speedup.toStringAsFixed(2)}x';
-    final ciStr = _formatMatrixFiellerCi(verdict, movement.$2);
-    final statusLabel = isUnresolved ? '❓ Unresolved' : movement.$1;
-
-    return [diffStr, ratioStr, ciStr, statusLabel];
-  }
-
-  static String _formatMatrixFiellerCi(_Verdict verdict, int trend) {
-    final ci = verdict.matrixCiString;
-    return verdict.resolved && trend != 0 ? '**$ci**' : ci;
   }
 
   static String renderAllGroupComparisonTables(
@@ -718,7 +700,20 @@ abstract final class MarkdownReporter() {
     _writeDeltaHeader(buffer, hasThroughput, baselineLabel, currentLabel);
 
     for (final (base, cur) in matched) {
-      _processDeltaRow(buffer, base, cur, hasThroughput, gate, stats);
+      final (rowStr, speedup, trend, verdict) = _formatDeltaRow(
+        base,
+        cur,
+        hasThroughput: hasThroughput,
+        gate: gate,
+      );
+      buffer.writeln(rowStr);
+      _tally(
+        stats,
+        verdict,
+        speedup,
+        trend,
+        unresolved: gate && !verdict.resolved,
+      );
       final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
       _recordDrift(stats.driftNotes, '$rowLabel, $baselineLabel', base);
       _recordDrift(stats.driftNotes, '$rowLabel, $currentLabel', cur);
@@ -755,30 +750,6 @@ abstract final class MarkdownReporter() {
         ':---: |',
       );
     }
-  }
-
-  static void _processDeltaRow(
-    StringBuffer buffer,
-    BenchmarkEntry base,
-    BenchmarkEntry cur,
-    bool hasThroughput,
-    bool gate,
-    _DeltaStats stats,
-  ) {
-    final (rowStr, speedup, trend, verdict) = _formatDeltaRow(
-      base,
-      cur,
-      hasThroughput: hasThroughput,
-      gate: gate,
-    );
-    buffer.writeln(rowStr);
-    _tally(
-      stats,
-      verdict,
-      speedup,
-      trend,
-      unresolved: gate && !verdict.resolved,
-    );
   }
 
   /// Adds one comparison to [stats]: unresolved cells record their reasons;
@@ -858,13 +829,16 @@ abstract final class MarkdownReporter() {
       'bytes.',
     );
     for (final finding in findings) {
+      final volumeRatioStr = finding.volumeRatio >= 100
+          ? finding.volumeRatio.toStringAsFixed(0)
+          : finding.volumeRatio.toStringAsFixed(1);
       buffer.writeln(
         '> - `${finding.benchmarkName}` (`${finding.target}`): '
         '${_formatBytes(finding.smallBytes)} at '
         '${_formatLatency(finding.smallLatencyNs)} vs '
         '${_formatBytes(finding.largeBytes)} at '
         '${_formatLatency(finding.largeLatencyNs)} — '
-        '**${_formatRatio(finding.volumeRatio)}x** the data for '
+        '**${volumeRatioStr}x** the data for '
         '**${finding.latencyRatio.toStringAsFixed(2)}x** the time.',
       );
     }
@@ -874,9 +848,6 @@ abstract final class MarkdownReporter() {
     );
     buffer.writeln();
   }
-
-  static String _formatRatio(double ratio) =>
-      ratio >= 100 ? ratio.toStringAsFixed(0) : ratio.toStringAsFixed(1);
 
   /// Payload sizes use binary prefixes (`KiB`, `MiB`, `GiB`); rates stay
   /// decimal (see `ByteThroughput`).
@@ -975,7 +946,9 @@ abstract final class MarkdownReporter() {
 
     final baseStr = _formatLatency(baseMean);
     final curStr = _formatLatency(curMean);
-    final diffStr = _formatDelta(diffNs);
+    final diffStr = diffNs.abs() < 1e-9
+        ? '0.0 ns'
+        : '${diffNs > 0 ? '+' : '-'}${_formatLatency(diffNs.abs())}';
     final pctStr = _formatPercent(deltaPct);
     final speedupStr = isUnresolved
         ? 'unresolved'
@@ -1056,12 +1029,6 @@ abstract final class MarkdownReporter() {
     < 1000000000.0 => '${(ns / 1000000.0).toStringAsFixed(2)} ms',
     _ => '${(ns / 1000000000.0).toStringAsFixed(2)} s',
   };
-
-  static String _formatDelta(double diffNs) {
-    if (diffNs.abs() < 1e-9) return '0.0 ns';
-    final sign = diffNs > 0 ? '+' : '-';
-    return '$sign${_formatLatency(diffNs.abs())}';
-  }
 
   static String _formatPercent(double pct) {
     if (pct.abs() < 1e-9) return '0.0%';

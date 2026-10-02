@@ -195,7 +195,19 @@ double _studentTQuantileSmallDf(double p, double df) {
   var high = studentTQuantile(p, 1.0);
   for (var i = 0; i < 45; i++) {
     final mid = (low + high) / 2.0;
-    if (_studentTCdf(mid, df) < p) {
+    // Cumulative distribution function (CDF) for Student's t-distribution at
+    // mid (mid >= 0) with df degrees of freedom using the regularized
+    // incomplete beta function.
+    final cdf = mid <= 0.0
+        ? 0.5
+        : 1.0 -
+              0.5 *
+                  _regularizedIncompleteBeta(
+                    df / (df + mid * mid),
+                    df / 2.0,
+                    0.5,
+                  );
+    if (cdf < p) {
       low = mid;
     } else {
       high = mid;
@@ -327,16 +339,6 @@ double _regularizedIncompleteBeta(double x, double a, double b) {
   }
 
   return front * h;
-}
-
-/// Computes the cumulative distribution function (CDF) for Student's
-/// $t$-distribution at [t] (`t >= 0`) with [df] degrees of freedom using the
-/// regularized incomplete beta function evaluated via Lentz's continued
-/// fraction algorithm.
-double _studentTCdf(double t, double df) {
-  if (t <= 0.0) return 0.5;
-  final x = df / (df + t * t);
-  return 1.0 - 0.5 * _regularizedIncompleteBeta(x, df / 2.0, 0.5);
 }
 
 /// Lower tail probability boundary for Peter J. Acklam's inverse normal CDF
