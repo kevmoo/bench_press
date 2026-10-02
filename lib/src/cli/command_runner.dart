@@ -18,7 +18,7 @@ import 'sdk.dart';
 
 export 'run_command.dart' show RunCommand;
 
-const String benchPressVersion = '0.4.1';
+const String benchPressVersion = '0.4.2-wip';
 
 /// The top-level command runner for `bench_press`.
 final class BenchPressCommandRunner({
@@ -209,22 +209,36 @@ final class ValidateCommand({
     required List<TargetRuntime> targets,
     required List<String> compilerFlags,
     required DartSdk effectiveSdk,
-  }) {
+  }) async {
     if (config == null) {
-      return _validateSimpleTargets(
+      return await _validateSimpleTargets(
         files,
         targets,
         compilerFlags,
         effectiveSdk,
       );
     }
-    return _validateMatrixTargets(
-      files,
-      config,
-      targets,
-      compilerFlags,
-      effectiveSdk,
-    );
+    var allPassed = true;
+    final coords = config.generateCoordinates();
+    for (final discovered in files) {
+      for (final coord in coords) {
+        final currentSdk = resolveSdkFromCoordinate(coord, effectiveSdk);
+        final (compiler, runner) = _resolveCompilerAndRunner(currentSdk);
+        final runtimes = _resolveTargetsFromCoordinate(coord, targets);
+        for (final runtime in runtimes) {
+          final passed = await _validateTarget(
+            discovered: discovered,
+            runtime: runtime,
+            compilerFlags: compilerFlags,
+            currentSdk: currentSdk,
+            currentCompiler: compiler,
+            currentProcessRunner: runner,
+          );
+          if (!passed) allPassed = false;
+        }
+      }
+    }
+    return allPassed;
   }
 
   Future<bool> _validateSimpleTargets(
@@ -252,55 +266,6 @@ final class ValidateCommand({
         );
         if (!passed) allPassed = false;
       }
-    }
-    return allPassed;
-  }
-
-  Future<bool> _validateMatrixTargets(
-    List<DiscoveredBenchmarkFile> files,
-    BenchPressConfig config,
-    List<TargetRuntime> targets,
-    List<String> compilerFlags,
-    DartSdk effectiveSdk,
-  ) async {
-    var allPassed = true;
-    final coords = config.generateCoordinates();
-    for (final discovered in files) {
-      for (final coord in coords) {
-        final passed = await _validateCoordinate(
-          discovered: discovered,
-          coord: coord,
-          targets: targets,
-          compilerFlags: compilerFlags,
-          effectiveSdk: effectiveSdk,
-        );
-        if (!passed) allPassed = false;
-      }
-    }
-    return allPassed;
-  }
-
-  Future<bool> _validateCoordinate({
-    required DiscoveredBenchmarkFile discovered,
-    required MatrixCoordinate coord,
-    required List<TargetRuntime> targets,
-    required List<String> compilerFlags,
-    required DartSdk effectiveSdk,
-  }) async {
-    final currentSdk = resolveSdkFromCoordinate(coord, effectiveSdk);
-    final (compiler, runner) = _resolveCompilerAndRunner(currentSdk);
-    final runtimes = _resolveTargetsFromCoordinate(coord, targets);
-    var allPassed = true;
-    for (final runtime in runtimes) {
-      final passed = await _validateTarget(
-        discovered: discovered,
-        runtime: runtime,
-        compilerFlags: compilerFlags,
-        currentSdk: currentSdk,
-        currentCompiler: compiler,
-        currentProcessRunner: runner,
-      );
-      if (!passed) allPassed = false;
     }
     return allPassed;
   }

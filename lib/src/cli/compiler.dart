@@ -118,12 +118,15 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
       extraFlags: compilerFlags,
     );
 
-    final expectedRunnerPath = _expectedRunnerPath(
-      runtime: runtime,
-      outputDir: targetDir.path,
-      baseName: baseName,
-      runnerPath: runnerPath,
-    );
+    final expectedRunnerPath = switch (runtime) {
+      TargetRuntime.wasm => p.normalize(
+        p.join(targetDir.path, '$baseName.run.mjs'),
+      ),
+      TargetRuntime.js => p.normalize(
+        p.join(targetDir.path, '$baseName.node.cjs'),
+      ),
+      _ => runnerPath,
+    };
 
     final currentManifest = _computeCacheManifest(
       sourceFile: sourceFile,
@@ -199,17 +202,6 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
     }
   }
 
-  String? _expectedRunnerPath({
-    required TargetRuntime runtime,
-    required String outputDir,
-    required String baseName,
-    required String? runnerPath,
-  }) => switch (runtime) {
-    TargetRuntime.wasm => p.normalize(p.join(outputDir, '$baseName.run.mjs')),
-    TargetRuntime.js => p.normalize(p.join(outputDir, '$baseName.node.cjs')),
-    _ => runnerPath,
-  };
-
   void _writeRunnerIfNeeded({
     required TargetRuntime runtime,
     required String outputDir,
@@ -223,11 +215,47 @@ final class const TargetCompiler({final DartSdk sdk = const DartSdk()}) {
         loaderPath: runnerPath!,
       );
     } else if (runtime == TargetRuntime.js) {
-      _writeJsRunner(
-        outputDir: outputDir,
-        baseName: baseName,
-        compiledPath: runnerPath!,
-      );
+      // `dart compile js` output assumes a browser (or worker) global scope and
+      // feature-detects microtask/timer scheduling off the bare `self` global —
+      // present in browsers/workers, absent in Node.js. Any benchmark that
+      // genuinely suspends on `await` (not just trampolines through synchronous
+      // work) hits that scheduler, throws `ReferenceError: self is not
+      // defined`, and the resulting rejected Future is dropped silently (no
+      // crash, no telemetry).
+      //
+      // Separately, the compiled output invokes `main` with a hardcoded empty
+      // arguments array (`dartMainRunner(s,[])`) — CLI args like `--target js`
+      // or `--trials N` never reach Dart's `main(args)` no matter what's passed
+      // on the command line. `dartMainRunner` is dart2js's documented embedder
+      // hook for this: if defined as a global before the compiled script runs,
+      // dart2js calls it instead of invoking `main` directly, letting us supply
+      // the real args ourselves.
+      //
+      // `.node.cjs` is used instead of `.node.js` so Node.js treats the script
+      // unconditionally as CommonJS, even inside packages configured with
+      // `"type": "module"`.
+      final compiledFileName = p.basename(runnerPath!);
+      final jsRunnerPath = p.normalize(p.join(outputDir, '$baseName.node.cjs'));
+      final encodedCompiledFile = jsonEncode('./$compiledFileName');
+      File(jsRunnerPath).writeAsStringSync('''
+process.on('unhandledRejection', (err) => {
+  console.error(err);
+  process.exit(1);
+});
+
+if (typeof self === 'undefined') {
+  globalThis.self = globalThis;
+}
+globalThis.dartMainRunner = (main, _ignoredArgs) => {
+  try {
+    main(process.argv.slice(2));
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+};
+require($encodedCompiledFile);
+''');
     }
   }
 
@@ -327,58 +355,6 @@ try {
   console.error(err);
   process.exit(1);
 }
-''');
-    return runnerPath;
-  }
-
-  /// `dart compile js` output assumes a browser (or worker) global scope and
-  /// feature-detects microtask/timer scheduling off the bare `self` global —
-  /// present in browsers/workers, absent in Node.js. Any benchmark that
-  /// genuinely suspends on `await` (not just trampolines through synchronous
-  /// work) hits that scheduler, throws `ReferenceError: self is not
-  /// defined,` and the resulting rejected Future is dropped silently (no
-  /// crash, no telemetry).
-  ///
-  /// Separately, the compiled output invokes `main` with a *hardcoded empty
-  /// arguments array* (`dartMainRunner(s,[])`) — CLI args like `--target js`
-  /// or `--trials N` never reach Dart's `main(args)` no matter what's passed
-  /// on the command line. `dartMainRunner` is dart2js's documented embedder
-  /// hook for exactly this: if defined as a global before the compiled
-  /// script runs, dart2js calls it instead of invoking `main` directly,
-  /// letting us supply the real args ourselves.
-  ///
-  /// This writes a `.node.cjs` wrapper next to the compiled output that
-  /// polyfills `self`, defines `dartMainRunner` to forward `process.argv`,
-  /// and requires the compiled artifact — and returns its path for use as
-  /// the actual runner script. `.node.cjs` is used instead of `.node.js` so
-  /// Node.js treats the script unconditionally as CommonJS, even inside
-  /// packages configured with `"type": "module"`.
-  String _writeJsRunner({
-    required String outputDir,
-    required String baseName,
-    required String compiledPath,
-  }) {
-    final compiledFileName = p.basename(compiledPath);
-    final runnerPath = p.normalize(p.join(outputDir, '$baseName.node.cjs'));
-    final encodedCompiledFile = jsonEncode('./$compiledFileName');
-    File(runnerPath).writeAsStringSync('''
-process.on('unhandledRejection', (err) => {
-  console.error(err);
-  process.exit(1);
-});
-
-if (typeof self === 'undefined') {
-  globalThis.self = globalThis;
-}
-globalThis.dartMainRunner = (main, _ignoredArgs) => {
-  try {
-    main(process.argv.slice(2));
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
-  }
-};
-require($encodedCompiledFile);
 ''');
     return runnerPath;
   }

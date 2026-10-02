@@ -358,12 +358,6 @@ abstract final class BenchmarkRunner() {
     );
   }
 
-  /// Measured trials per variant per visit. The `ABBA BAAB` visit schedule
-  /// cancels linear and quadratic drift over four visits, so blocks are sized
-  /// to give exactly four visits across [BenchmarkConfig.trials].
-  static int _blockSize(BenchmarkConfig config) =>
-      math.max(1, (config.trials / 4).ceil());
-
   /// Batches run and discarded whenever the measured variant changes.
   ///
   /// The first batches after a switch carry state left by the previous
@@ -377,7 +371,10 @@ abstract final class BenchmarkRunner() {
     List<_PreparedVariant> prepared,
     BenchmarkConfig config,
   ) async {
-    final block = _blockSize(config);
+    // Measured trials per variant per visit. The `ABBA BAAB` visit schedule
+    // cancels linear and quadratic drift over four visits, so blocks are sized
+    // to give exactly four visits across [BenchmarkConfig.trials].
+    final block = math.max(1, (config.trials / 4).ceil());
     var visit = 0;
     _PreparedVariant? last;
     while (prepared.any((p) => p.trials.length < config.trials)) {

@@ -103,19 +103,43 @@ final class const BenchmarkProcessRunner({
         );
       }
 
-      final resolved = _resolveExecutionCommand(
-        runtime: runtime,
-        artifactPath: artifactPath,
-        runnerScriptPath: runnerScriptPath,
-        vmFlags: vmFlags,
-        benchArgs: benchArgs,
-      );
+      final (String commandExe, List<String> commandArgs) = switch (runtime) {
+        TargetRuntime.jit => (
+          sdk.dartExecutable ??
+              (throw StateError(
+                sdk.explicitSdkError ??
+                    'Dart SDK executable not found on PATH or DART_SDK.',
+              )),
+          <String>[
+            'run',
+            if (sdk.packageConfigPath case final pkgConfig?)
+              '--packages=$pkgConfig',
+            ...vmFlags,
+            artifactPath,
+            ...benchArgs,
+          ],
+        ),
+        TargetRuntime.aot => (artifactPath, benchArgs),
+        TargetRuntime.wasm => _resolveWasmCommand(
+          artifactPath: artifactPath,
+          runnerScriptPath: runnerScriptPath,
+          vmFlags: vmFlags,
+          benchArgs: benchArgs,
+        ),
+        TargetRuntime.js => _resolveJsCommand(
+          artifactPath: artifactPath,
+          runnerScriptPath: runnerScriptPath,
+          vmFlags: vmFlags,
+          benchArgs: benchArgs,
+        ),
+      };
 
       // Pinning wraps the fully resolved command, so it applies identically to
       // the Dart VM, an AOT executable, Node.js, and D8.
       final effectiveAffinity = cpuAffinity ?? this.cpuAffinity;
       final (executable, processArgs) =
-          effectiveAffinity?.wrap(resolved.$1, resolved.$2) ?? resolved;
+          effectiveAffinity?.wrap(commandExe, commandArgs) ??
+          (commandExe, commandArgs);
 
       final processResult = await Process.run(
         executable,
@@ -147,53 +171,6 @@ final class const BenchmarkProcessRunner({
       } on Object {
         // Ignore temp cleanup errors
       }
-    }
-  }
-
-  (String executable, List<String> processArgs) _resolveExecutionCommand({
-    required TargetRuntime runtime,
-    required String artifactPath,
-    required String? runnerScriptPath,
-    required List<String> vmFlags,
-    required List<String> benchArgs,
-  }) {
-    switch (runtime) {
-      case TargetRuntime.jit:
-        final dartExe = sdk.dartExecutable;
-        if (dartExe == null) {
-          throw StateError(
-            sdk.explicitSdkError ??
-                'Dart SDK executable not found on PATH or DART_SDK.',
-          );
-        }
-        final pkgConfig = sdk.packageConfigPath;
-        final args = <String>[
-          'run',
-          if (pkgConfig != null) '--packages=$pkgConfig',
-          ...vmFlags,
-          artifactPath,
-          ...benchArgs,
-        ];
-        return (dartExe, args);
-
-      case TargetRuntime.aot:
-        return (artifactPath, benchArgs);
-
-      case TargetRuntime.wasm:
-        return _resolveWasmCommand(
-          artifactPath: artifactPath,
-          runnerScriptPath: runnerScriptPath,
-          vmFlags: vmFlags,
-          benchArgs: benchArgs,
-        );
-
-      case TargetRuntime.js:
-        return _resolveJsCommand(
-          artifactPath: artifactPath,
-          runnerScriptPath: runnerScriptPath,
-          vmFlags: vmFlags,
-          benchArgs: benchArgs,
-        );
     }
   }
 
