@@ -1,5 +1,10 @@
 ## 0.4.2-wip
 
+- `bench_press run --target` now narrows a `matrix` with a `runtime` axis to the
+  requested targets instead of being silently overridden by it, and exits with a
+  usage error when no coordinate matches. Coordinates without a runtime axis and
+  runs that do not pass `--target` are unchanged.
+
 ## 0.4.1
 
 - Interleaved `BenchmarkGroup` trials now run in blocks (sized for four
