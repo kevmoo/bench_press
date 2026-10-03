@@ -184,12 +184,15 @@ final class RunCommand({
 
     final targets = _resolveRunTargets(config);
     if (targets == null) return ExitCode.usage.code;
+    final explicitTargets = argResults!.wasParsed('target') ? targets : null;
 
     final (:files, :exitCode) = _discoverRunFiles();
     if (exitCode != null) return exitCode;
 
     if (argResults!.flag('dry-run')) {
-      _printDryRunPlan(config.generateCoordinates(), files!);
+      final coords = _selectCoordinates(config, explicitTargets);
+      if (coords == null) return ExitCode.usage.code;
+      _printDryRunPlan(coords, files!);
       return ExitCode.success.code;
     }
 
@@ -197,9 +200,46 @@ final class RunCommand({
       files: files!,
       config: config,
       targets: targets,
+      explicitTargets: explicitTargets,
       effectiveSdk: effectiveSdk,
       pinCpu: pinCpu,
     );
+  }
+
+  /// The matrix coordinates this run executes: every coordinate the config
+  /// generates, narrowed to [explicitTargets] when `--target` was passed.
+  ///
+  /// A coordinate that pins a runtime axis runs only when that runtime was
+  /// requested; a coordinate without one runs every requested target and is
+  /// always kept. Returns `null` after reporting a usage error when the
+  /// selection would leave nothing to run, because a `--target` that silently
+  /// runs the whole matrix hands back numbers that look like the ones asked
+  /// for.
+  List<MatrixCoordinate>? _selectCoordinates(
+    BenchPressConfig config,
+    List<TargetRuntime>? explicitTargets,
+  ) {
+    final all = config.generateCoordinates();
+    if (explicitTargets == null) return all;
+    final wanted = explicitTargets.toSet();
+    final selected = all.where((coord) {
+      final pinned = _coordinateRuntime(coord);
+      return pinned == null || wanted.contains(pinned);
+    }).toList();
+    if (selected.isEmpty && all.isNotEmpty) {
+      final available = all
+          .map(_coordinateRuntime)
+          .nonNulls
+          .map((t) => t.name)
+          .toSet()
+          .join(', ');
+      stderr.writeln(
+        '--target ${explicitTargets.map((t) => t.name).join(',')} matches '
+        'none of the runtime coordinates in the matrix ($available).',
+      );
+      return null;
+    }
+    return selected;
   }
 
   /// Narrows an already-parsed [pinCpu] to what this host and run can actually
@@ -319,6 +359,7 @@ final class RunCommand({
     required List<DiscoveredBenchmarkFile> files,
     required BenchPressConfig config,
     required List<TargetRuntime> targets,
+    required List<TargetRuntime>? explicitTargets,
     required DartSdk effectiveSdk,
     required CpuAffinity? pinCpu,
   }) async {
@@ -329,7 +370,8 @@ final class RunCommand({
       return ExitCode.config.code;
     }
 
-    final coords = config.generateCoordinates();
+    final coords = _selectCoordinates(config, explicitTargets);
+    if (coords == null) return ExitCode.usage.code;
     final trialsStr = argResults!.option('trials');
     final trials = trialsStr != null
         ? int.tryParse(trialsStr)
@@ -459,12 +501,18 @@ final class RunCommand({
     MatrixCoordinate coord,
     List<TargetRuntime> defaultTargets,
   ) {
-    final coordRuntime =
+    final pinned = _coordinateRuntime(coord);
+    return pinned == null ? defaultTargets : [pinned];
+  }
+
+  /// The runtime a coordinate pins through its `runtime` (or legacy `target`)
+  /// axis, or `null` when the coordinate leaves the runtime to `--target`.
+  static TargetRuntime? _coordinateRuntime(MatrixCoordinate coord) {
+    final value =
         coord.resolvedValues[BenchmarkCoordinates.runtimeKey] ??
         coord.resolvedValues[BenchmarkCoordinates.targetKey];
-    return (coordRuntime != null && coordRuntime.isNotEmpty)
-        ? TargetRuntime.parseTargets([coordRuntime])
-        : defaultTargets;
+    if (value == null || value.isEmpty) return null;
+    return TargetRuntime.tryParse(value);
   }
 
   static List<TargetRuntime> _effectiveMatrixTargets(

@@ -311,6 +311,77 @@ matrix:
       check(exitCode).equals(ExitCode.success.code);
     });
 
+    test('run --target narrows a runtime-axis matrix to the requested '
+        'runtimes', () async {
+      final configFile = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+  axes:
+    runtime: [jit, aot]
+''');
+      final benchFile = writeSyncBenchmark();
+      final outputFile = File(d.path('narrowed.json'));
+
+      final exitCode = await BenchPressCommandRunner().run([
+        'run',
+        '-c',
+        configFile.path,
+        '-t',
+        'jit',
+        '--trials',
+        '1',
+        '--force-run',
+        '-o',
+        outputFile.path,
+        benchFile.path,
+      ]);
+      check(exitCode).equals(ExitCode.success.code);
+
+      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      check(suite.benchmarks).isNotEmpty();
+      check(
+        because: 'the aot coordinate was not requested and must not run',
+        suite.benchmarks.map((b) => b.target).toSet(),
+      ).deepEquals({'jit'});
+    });
+
+    test('run --target with no matching runtime coordinate is a usage error, '
+        'with and without --dry-run', () async {
+      final configFile = writeBenchPressYaml('''
+matrix:
+  axes:
+    runtime: [jit, aot]
+''');
+      final benchFile = writeSyncBenchmark();
+      final runner = BenchPressCommandRunner();
+
+      final dryRunCode = await runner.run([
+        'run',
+        '--dry-run',
+        '-c',
+        configFile.path,
+        '-t',
+        'wasm',
+        benchFile.path,
+      ]);
+      check(dryRunCode).equals(ExitCode.usage.code);
+
+      final runCode = await runner.run([
+        'run',
+        '-c',
+        configFile.path,
+        '-t',
+        'wasm',
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        benchFile.path,
+      ]);
+      check(runCode).equals(ExitCode.usage.code);
+    });
+
     test('run saves to defaults.output unless -o overrides it', () async {
       final configured = File(d.path('configured.json'));
       final explicit = File(d.path('explicit.json'));
