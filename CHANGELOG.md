@@ -1,5 +1,13 @@
 ## 0.4.2-wip
 
+- Exported `FiellerInterval` and `EnvironmentInfo` from
+  `package:bench_press/bench_press.dart` (alongside `BenchmarkMetrics`).
+  External benchmark harnesses—such as browser and UI drivers that collect trial
+  samples out-of-process via CDP or WebDriver rather than running an in-process
+  `Benchmark` loop—use `bench_press` directly for statistical aggregation
+  (`BenchmarkMetrics.fromSamples`), ratio confidence intervals
+  (`FiellerInterval.compute`), and host telemetry provenance
+  (`EnvironmentInfo.current`).
 - `bench_press run --target` now narrows a `matrix` with a `runtime` axis to the
   requested targets instead of being silently overridden by it, and exits with a
   usage error when no coordinate matches. Coordinates without a runtime axis and

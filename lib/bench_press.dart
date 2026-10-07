@@ -16,6 +16,8 @@ export 'src/harness.dart'
         BenchmarkMatrix,
         BenchmarkVariant;
 export 'src/runner.dart' show BenchmarkResult;
+export 'src/stats/fieller.dart' show FiellerInterval;
 export 'src/stats/metrics.dart' show BenchmarkMetrics;
 export 'src/stats/warmup.dart' show WarmupResult;
+export 'src/telemetry/schema.dart' show EnvironmentInfo;
 export 'src/throughput.dart' show ByteThroughput, ElementThroughput, Throughput;

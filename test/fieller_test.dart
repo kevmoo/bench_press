@@ -1,4 +1,6 @@
-import 'package:bench_press/src/stats/fieller.dart';
+import 'package:bench_press/bench_press.dart';
+import 'package:bench_press/src/stats/fieller.dart'
+    show normalQuantile, studentTQuantile;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
