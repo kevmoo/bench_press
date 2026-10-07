@@ -1,6 +1,6 @@
 ## 0.4.2-wip
 
-- Re-exported `FiellerInterval` and `EnvironmentInfo` from
+- Exported `FiellerInterval` and `EnvironmentInfo` from
   `package:bench_press/bench_press.dart` (alongside `BenchmarkMetrics`).
   External benchmark harnesses—such as browser and UI drivers that collect trial
   samples out-of-process via CDP or WebDriver rather than running an in-process
