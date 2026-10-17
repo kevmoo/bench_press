@@ -182,10 +182,10 @@ When two sample vectors of equal length `n` are paired across a shared external
 confounder (such as process round `p` in multi-process runs), passing
 `paired: true` to `FiellerInterval.compute` includes the sample covariance term
 `-2 * r * cov(A, B) / (n * meanB * meanB)` under the radical with `df = n - 1`
-degrees of freedom. Within a single OS process, `ABBA BAAB` block visits
-already decorrelate trial indices (`r = 0.01–0.04`), so single-process
-comparisons default to Welch's unpaired formulation (`paired: false`) to
-preserve full degrees of freedom.
+degrees of freedom. Within a single OS process, `ABBA BAAB` block visits already
+decorrelate trial indices (`r = 0.01–0.04`), so single-process comparisons
+default to Welch's unpaired formulation (`paired: false`) to preserve full
+degrees of freedom.
 
 ---
 

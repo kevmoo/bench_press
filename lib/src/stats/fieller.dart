@@ -98,19 +98,13 @@ final class const FiellerInterval({
     final vAB = usePaired
         ? _sampleCovariance(sampleA, meanA, sampleB, meanB) / nA
         : 0.0;
-
-    final double df;
-    if (usePaired) {
-      df = (nA - 1.0).clamp(1.0, 10000.0);
-    } else {
-      // Welch-Satterthwaite approximation for degrees of freedom
-      final num = (vA + vB) * (vA + vB);
-      final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
-      final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
-      df = (denomA + denomB > 0.0)
-          ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
-          : (nA + nB - 2.0).clamp(1.0, 10000.0);
-    }
+    final df = _computeDegreesOfFreedom(
+      nA: nA,
+      nB: nB,
+      vA: vA,
+      vB: vB,
+      usePaired: usePaired,
+    );
 
     final p = 1.0 - (1.0 - confidenceLevel) / 2.0;
     final t = studentTQuantile(p, df);
@@ -135,14 +129,15 @@ final class const FiellerInterval({
     //   (V_A - 2*R*V_AB + R^2*V_B) - g*(V_A - V_AB^2 / V_B)
     //   = V_A*(1 - g) + R^2*V_B - 2*R*V_AB + gCov*V_AB.
     final gCov = usePaired ? (t * t * vAB) / (meanB * meanB) : 0.0;
-    final rawDisc = usePaired
-        ? vA * (1.0 - g) +
-              (ratio * ratio * vB) -
-              (2.0 * ratio * vAB) +
-              (gCov * vAB)
-        : vA * (1.0 - g) + (ratio * ratio * vB);
-    final scale = vA + (ratio * ratio * vB);
-    final disc = (rawDisc < 0.0 && rawDisc >= -1e-12 * scale) ? 0.0 : rawDisc;
+    final disc = _computeDiscriminant(
+      vA: vA,
+      vB: vB,
+      vAB: vAB,
+      ratio: ratio,
+      g: g,
+      gCov: gCov,
+      usePaired: usePaired,
+    );
     if (disc < 0.0 || disc.isNaN) {
       return FiellerInterval(
         ratio: ratio,
@@ -170,6 +165,41 @@ final class const FiellerInterval({
       confidenceLevel: confidenceLevel,
       paired: usePaired,
     );
+  }
+
+  static double _computeDegreesOfFreedom({
+    required int nA,
+    required int nB,
+    required double vA,
+    required double vB,
+    required bool usePaired,
+  }) {
+    if (usePaired) {
+      return (nA - 1.0).clamp(1.0, 10000.0);
+    }
+    final num = (vA + vB) * (vA + vB);
+    final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
+    final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
+    return (denomA + denomB > 0.0)
+        ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
+        : (nA + nB - 2.0).clamp(1.0, 10000.0);
+  }
+
+  static double _computeDiscriminant({
+    required double vA,
+    required double vB,
+    required double vAB,
+    required double ratio,
+    required double g,
+    required double gCov,
+    required bool usePaired,
+  }) {
+    final baseDisc = vA * (1.0 - g) + (ratio * ratio * vB);
+    final rawDisc = usePaired
+        ? baseDisc - (2.0 * ratio * vAB) + (gCov * vAB)
+        : baseDisc;
+    final scale = vA + (ratio * ratio * vB);
+    return (rawDisc < 0.0 && rawDisc >= -1e-12 * scale) ? 0.0 : rawDisc;
   }
 
   static double _sampleVariance(List<double> samples, double mean) {
