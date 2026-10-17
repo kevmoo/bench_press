@@ -10,11 +10,27 @@ void main() {
     test('BenchmarkConfig.defaultTrials is 16 across config and defaults', () {
       expect(BenchmarkConfig.defaultTrials, equals(16));
       expect(const BenchmarkConfig().trials, equals(16));
+      final parsed = BenchPressConfig.fromYaml(
+        'matrix:\n  axes:\n    sdk: [stock]\n',
+      ).defaults;
+      expect(parsed.trials, equals(16));
+      expect(parsed.processes, equals(1));
+    });
+
+    test('parses defaults.processes and defaults.forks alias', () {
       expect(
-        BenchPressConfig.fromYaml('matrix:\n  axes:\n    sdk: [stock]\n')
+        BenchPressConfig.fromYaml('defaults:\n  processes: 5\n')
             .defaults
-            .trials,
-        equals(16),
+            .processes,
+        equals(5),
+      );
+      expect(
+        BenchPressConfig.fromYaml('defaults:\n  forks: 4\n').defaults.processes,
+        equals(4),
+      );
+      expect(
+        () => BenchPressConfig.fromYaml('defaults:\n  processes: 0\n'),
+        throwsA(isA<SourceSpanException>()),
       );
     });
 

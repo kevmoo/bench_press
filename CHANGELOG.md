@@ -1,5 +1,13 @@
 ## 0.4.2-wip
 
+- Added multi-process benchmark orchestration (`--processes <P>`, alias
+  `--forks`, and `defaults.processes` in `bench_press.yaml`), compiling each
+  `(coordinate, runtime)` cell once upfront and interleaving process launches in
+  `ABBA BAAB` order across rounds `p = 0 .. P - 1`.
+- Added `BenchmarkMetrics.fromProcesses` and `ProcessVarianceComponents`
+  (exported from `package:bench_press/bench_press.dart` and serialized under
+  `metrics.variance_components`) to decompose between-process and within-process
+  variance using a drift-immune first-difference estimator (`ms_within`).
 - Added `BenchmarkConfig.defaultTrials = 16` and updated the default `trials`
   count across `BenchmarkConfig`, `bench_press.yaml`, and `bench_press run` from
   `15` to `16` so that the four `ABBA BAAB` interleaving visits divide evenly

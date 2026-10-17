@@ -164,6 +164,9 @@ dart run bench_press run -t jit,aot,wasm
 # Override trial count or adaptive scaling ceiling (scales up while CV > 5%)
 dart run bench_press run --trials 20 --max-trials 50
 
+# Spawn 5 independent OS processes per target for cross-process CIs
+dart run bench_press run --processes 5 -t jit,aot,wasm
+
 # Pin benchmark subprocesses to specific Linux CPU cores (taskset -c syntax)
 dart run bench_press run --pin-cpu 2 -t jit,aot
 
@@ -204,6 +207,7 @@ defaults:
   targets: [jit, aot, js, wasm]
   trials: 16
   max_trials: 32
+  processes: 1
   isolate_mode: false
   # Default output path for `run` and `run --diff` (supports leading `~`).
   output: benchmark_results.json
@@ -230,6 +234,37 @@ matrix:
 - **`baseline`**: Marks the reference coordinate (defaults to the first entry of
   each axis). Preview the matrix plan without running via
   `dart run bench_press run --dry-run`.
+
+### Multi-Process Benchmarking (`--processes` / `--forks`)
+
+By default (`--processes 1`), `bench_press` executes each benchmark target in a
+single isolated OS process. Within that process, `Benchmark.compare` and
+`Benchmark.matrix` already interleave variants in four `ABBA BAAB` block visits
+with two discarded transition batches per switch.
+
+When to use `--processes <P>` (or `defaults.processes` in `bench_press.yaml`,
+alias `--forks`):
+
+- **Stay with `--processes 1` (default)** for fast local iteration, CI smoke
+  checks, and intra-file `Benchmark.compare` / `Benchmark.matrix` runs where all
+  variants share a single OS process.
+- **Use `--processes 5` (or `3–10`)** when comparing separate process launches
+  (such as `bench_press.yaml` matrix coordinates across different SDKs or
+  compiler flags, or `bench_press run --diff` across Git commits) or when
+  verifying sub-3% speedups where OS page-frame placement, ASLR layout, or JIT
+  code-cache alignment could shift an entire process by 1–2%.
+- **Compile-once & `ABBA BAAB` process launch order**: `bench_press run`
+  compiles every `(coordinate, runtime)` artifact once upfront, then spawns `P`
+  fresh OS processes per cell in `ABBA BAAB` coordinate traversal order across
+  rounds `p = 0 .. P - 1`.
+- **Hierarchical aggregation & variance decomposition**: Top-level summary
+  metrics and Fieller confidence intervals are computed over the `P` process
+  means (`effectiveSamplesNs`), using paired covariance (`paired: true`) when
+  variants share the same `P` OS process launches and unpaired Welch-Fieller
+  (`paired: false`) across separate process launches. Each multi-process entry
+  also records `metrics.variance_components` (`ProcessVarianceComponents`) using
+  a drift-immune first-difference within-process estimator (`ms_within`,
+  `ms_between`, `var_between`, `var_within`, and `between_process_share`).
 
 ### Pinning to CPUs (`--pin-cpu`, Linux)
 

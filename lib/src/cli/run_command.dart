@@ -87,6 +87,13 @@ final class RunCommand({
             'Maximum measurement trials ceiling for adaptive scaling '
             '(scales up if variance/outliers detected).',
       )
+      ..addOption(
+        'processes',
+        aliases: const ['forks'],
+        help:
+            'Number of independent OS processes to spawn per benchmark target '
+            '(default: 1).',
+      )
       ..addFlag(
         'force-run',
         negatable: false,
@@ -375,14 +382,9 @@ final class RunCommand({
 
     final coords = _selectCoordinates(config, explicitTargets);
     if (coords == null) return ExitCode.usage.code;
-    final trialsStr = argResults!.option('trials');
-    final trials = trialsStr != null
-        ? int.tryParse(trialsStr)
-        : config.defaults.trials;
-    final maxTrialsStr = argResults!.option('max-trials');
-    final maxTrials = maxTrialsStr != null
-        ? int.tryParse(maxTrialsStr)
-        : config.defaults.maxTrials;
+    final processes = _resolveRunProcesses(config);
+    if (processes == null) return ExitCode.usage.code;
+    final (:trials, :maxTrials) = _resolveTrialCounts(config);
     final forceRun = argResults!.flag('force-run');
     final isolateMode =
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
@@ -404,6 +406,7 @@ final class RunCommand({
         defaultTargets: targets,
         trials: trials,
         maxTrials: maxTrials,
+        processes: processes,
         forceRun: forceRun,
         isolateMode: isolateMode,
         compilerFlags: compilerFlags,
@@ -429,6 +432,32 @@ final class RunCommand({
       hasFailures: hasFailures,
       configuredOutput: config.defaults.output,
     );
+  }
+
+  ({int? trials, int? maxTrials}) _resolveTrialCounts(BenchPressConfig config) {
+    final trialsStr = argResults!.option('trials');
+    final trials = trialsStr != null
+        ? int.tryParse(trialsStr)
+        : config.defaults.trials;
+    final maxTrialsStr = argResults!.option('max-trials');
+    final maxTrials = maxTrialsStr != null
+        ? int.tryParse(maxTrialsStr)
+        : config.defaults.maxTrials;
+    return (trials: trials, maxTrials: maxTrials);
+  }
+
+  int? _resolveRunProcesses(BenchPressConfig config) {
+    final procStr = argResults!.option('processes');
+    if (procStr == null) return config.defaults.processes;
+    final parsed = int.tryParse(procStr);
+    if (parsed == null || parsed < 1) {
+      stderr.writeln(
+        'Invalid --processes value "$procStr": '
+        'must be a positive integer (>= 1).',
+      );
+      return null;
+    }
+    return parsed;
   }
 
   int _finishSuiteExecution(
@@ -536,6 +565,7 @@ final class RunCommand({
     required List<TargetRuntime> defaultTargets,
     required int? trials,
     required int? maxTrials,
+    required int processes,
     required bool forceRun,
     required bool isolateMode,
     required List<String> compilerFlags,
@@ -543,54 +573,122 @@ final class RunCommand({
     required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
   }) async {
-    BenchmarkSuiteResult? fileAccumulated;
-    var hasFailures = false;
+    final (:cells, :compileFailed) = await _compileFileCells(
+      discovered: discovered,
+      coords: coords,
+      defaultTargets: defaultTargets,
+      compilerFlags: compilerFlags,
+      cpuAffinity: cpuAffinity,
+      effectiveSdk: effectiveSdk,
+    );
+    var hasFailures = compileFailed;
+    if (cells.isEmpty) {
+      return (suite: null, hasFailures: hasFailures);
+    }
 
-    for (final coord in coords) {
-      final runtimes = _resolveCoordinateTargets(coord, defaultTargets);
-      for (final runtime in runtimes) {
-        final result = await _executeMatrixEntry(
-          discovered: discovered,
-          coord: coord,
-          runtime: runtime,
-          trials: trials,
-          maxTrials: maxTrials,
-          forceRun: forceRun,
-          isolateMode: isolateMode,
-          compilerFlags: compilerFlags,
-          vmFlags: vmFlags,
-          cpuAffinity: cpuAffinity,
-          effectiveSdk: effectiveSdk,
-        );
-        if (result.hasFailures) {
-          hasFailures = true;
-        }
-        if (result.suite != null) {
-          fileAccumulated = _mergeResults(fileAccumulated, result.suite!);
-        }
-      }
+    final cellSuites = [
+      for (var i = 0; i < cells.length; i++) <BenchmarkSuiteResult>[],
+    ];
+    for (var pIdx = 0; pIdx < processes; pIdx++) {
+      final roundFailed = await _executeProcessRound(
+        discovered: discovered,
+        cells: cells,
+        cellSuites: cellSuites,
+        processIndex: pIdx,
+        processes: processes,
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        vmFlags: vmFlags,
+      );
+      if (roundFailed) hasFailures = true;
+    }
+
+    BenchmarkSuiteResult? fileAccumulated;
+    for (final suites in cellSuites) {
+      if (suites.isEmpty) continue;
+      final aggregated = BenchmarkSuiteResult.aggregateProcesses(suites);
+      fileAccumulated = _mergeResults(fileAccumulated, aggregated);
     }
     return (suite: fileAccumulated, hasFailures: hasFailures);
   }
 
-  static BenchmarkSuiteResult _mergeResults(
-    BenchmarkSuiteResult? current,
-    BenchmarkSuiteResult incoming,
-  ) => current == null ? incoming : current.deepMerge(incoming);
-
-  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
-  _executeMatrixEntry({
+  Future<bool> _executeProcessRound({
     required DiscoveredBenchmarkFile discovered,
-    required MatrixCoordinate coord,
-    required TargetRuntime runtime,
+    required List<_CompiledCell> cells,
+    required List<List<BenchmarkSuiteResult>> cellSuites,
+    required int processIndex,
+    required int processes,
     required int? trials,
     required int? maxTrials,
     required bool forceRun,
     required bool isolateMode,
-    required List<String> compilerFlags,
     required List<String> vmFlags,
+  }) async {
+    var hasFailures = false;
+    final reverse =
+        processes > 1 &&
+        cells.length > 1 &&
+        ((processIndex & 1) != ((processIndex >> 1) & 1));
+    for (var step = 0; step < cells.length; step++) {
+      final cellIndex = reverse ? (cells.length - 1 - step) : step;
+      final single = await _executeCompiledCell(
+        discovered: discovered,
+        cell: cells[cellIndex],
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        isolateMode: isolateMode,
+        vmFlags: vmFlags,
+      );
+      if (single.hasFailures) hasFailures = true;
+      if (single.suite != null) {
+        cellSuites[cellIndex].add(single.suite!);
+      }
+    }
+    return hasFailures;
+  }
+
+  Future<({List<_CompiledCell> cells, bool compileFailed})> _compileFileCells({
+    required DiscoveredBenchmarkFile discovered,
+    required List<MatrixCoordinate> coords,
+    required List<TargetRuntime> defaultTargets,
+    required List<String> compilerFlags,
     required CpuAffinity? cpuAffinity,
     required DartSdk effectiveSdk,
+  }) async {
+    final cells = <_CompiledCell>[];
+    var compileFailed = false;
+    final useCache = argResults!['cache'] as bool;
+
+    for (final coord in coords) {
+      final runtimes = _resolveCoordinateTargets(coord, defaultTargets);
+      for (final runtime in runtimes) {
+        final cell = await _compileSingleCell(
+          discovered: discovered,
+          coord: coord,
+          runtime: runtime,
+          compilerFlags: compilerFlags,
+          cpuAffinity: cpuAffinity,
+          effectiveSdk: effectiveSdk,
+          useCache: useCache,
+        );
+        if (cell.failed) compileFailed = true;
+        if (cell.compiled != null) cells.add(cell.compiled!);
+      }
+    }
+    return (cells: cells, compileFailed: compileFailed);
+  }
+
+  Future<({_CompiledCell? compiled, bool failed})> _compileSingleCell({
+    required DiscoveredBenchmarkFile discovered,
+    required MatrixCoordinate coord,
+    required TargetRuntime runtime,
+    required List<String> compilerFlags,
+    required CpuAffinity? cpuAffinity,
+    required DartSdk effectiveSdk,
+    required bool useCache,
   }) async {
     final currentSdk = resolveSdkFromCoordinate(coord, effectiveSdk);
     final execFlags = _resolveFlagsFromCoordinate(coord, compilerFlags);
@@ -606,14 +704,14 @@ final class RunCommand({
     if (currentCompiler.sdk.explicitSdkError == null &&
         !currentCompiler.sdk.isRuntimeAvailable(runtime)) {
       stderr.writeln('Warning: Runtime "$runtime" is not available.');
-      return (suite: null, hasFailures: false);
+      return (compiled: null, failed: false);
     }
 
     final compilation = await currentCompiler.compile(
       sourceFile: discovered.file,
       runtime: runtime,
       compilerFlags: execFlags,
-      useCache: argResults!['cache'] as bool,
+      useCache: useCache,
     );
 
     if (!compilation.success) {
@@ -621,11 +719,37 @@ final class RunCommand({
         'Compilation failed for ${discovered.basename} ($runtime):',
       );
       stderr.writeln(compilation.stderr);
-      return (suite: null, hasFailures: true);
+      return (compiled: null, failed: true);
     }
 
-    final execResult = await currentProcessRunner.execute(
-      compilationResult: compilation,
+    return (
+      compiled: (
+        coord: coord,
+        runtime: runtime,
+        compilation: compilation,
+        processRunner: currentProcessRunner,
+      ),
+      failed: false,
+    );
+  }
+
+  static BenchmarkSuiteResult _mergeResults(
+    BenchmarkSuiteResult? current,
+    BenchmarkSuiteResult incoming,
+  ) => current == null ? incoming : current.deepMerge(incoming);
+
+  Future<({BenchmarkSuiteResult? suite, bool hasFailures})>
+  _executeCompiledCell({
+    required DiscoveredBenchmarkFile discovered,
+    required _CompiledCell cell,
+    required int? trials,
+    required int? maxTrials,
+    required bool forceRun,
+    required bool isolateMode,
+    required List<String> vmFlags,
+  }) async {
+    final execResult = await cell.processRunner.execute(
+      compilationResult: cell.compilation,
       isolateMode: isolateMode,
       trials: trials,
       maxTrials: maxTrials,
@@ -634,7 +758,9 @@ final class RunCommand({
     );
 
     if (!execResult.success || execResult.suiteResult == null) {
-      stderr.writeln('Execution failed for ${discovered.basename} ($runtime):');
+      stderr.writeln(
+        'Execution failed for ${discovered.basename} (${cell.runtime}):',
+      );
       stderr.writeln(execResult.errorMessage ?? execResult.stderr);
       return (suite: null, hasFailures: true);
     }
@@ -642,12 +768,13 @@ final class RunCommand({
     final suiteResult = execResult.suiteResult!;
     if (suiteResult.benchmarks.isEmpty) {
       stderr.writeln(
-        'Benchmark target ${discovered.basename} ($runtime) produced zero '
-        'results.',
+        'Benchmark target ${discovered.basename} (${cell.runtime}) produced '
+        'zero results.',
       );
       return (suite: null, hasFailures: true);
     }
 
+    final coord = cell.coord;
     final taggedBenchmarks = suiteResult.benchmarks.map((b) {
       if (coord.coordinates.isEmpty) return b;
       final hasGroup =
@@ -717,3 +844,10 @@ String expandHomeDirectory(String path) {
       Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
   return home == null ? path : path.replaceFirst('~', home);
 }
+
+typedef _CompiledCell = ({
+  MatrixCoordinate coord,
+  TargetRuntime runtime,
+  CompilationResult compilation,
+  BenchmarkProcessRunner processRunner,
+});

@@ -1198,6 +1198,83 @@ void main() {
       check(aotTuples).contains('`decode_json` (Baseline) | `stock` | `t1`');
       check(aotTuples).contains('`decode_codable` | `stock` | `t1`');
     });
+
+    test('multi-process group table uses paired Fieller when variants share OS '
+        'process launches and unpaired across separate matrix coordinates', () {
+      // Positive cross-process correlation: each process has a shared offset
+      // [0, +2, +4, +6, +8] (CV ~ 3% <= 5%, so both cells are stable).
+      final baseMeans = [100.0, 102.0, 104.0, 106.0, 108.0];
+      final candMeans = [94.0, 96.0, 98.0, 100.0, 102.0];
+
+      BenchmarkEntry multiProcEntry({
+        required String name,
+        required List<double> processMeans,
+        required Map<String, String> coords,
+        required bool isBaseline,
+      }) {
+        final trials = [
+          for (final m in processMeans) [m - 0.5, m + 0.5],
+        ];
+        return BenchmarkEntry(
+          name: name,
+          target: 'jit',
+          mode: 'sync',
+          samples: 10,
+          metrics: BenchmarkMetrics.fromProcesses(trials),
+          rawTrialsNs: [for (final p in trials) ...p],
+          coordinates: BenchmarkCoordinates(coords),
+          isBaseline: isBaseline,
+          processes: processMeans.length,
+          processMeansNs: processMeans,
+          processTrialsNs: trials,
+        );
+      }
+
+      // Same group + same non-group coordinates -> paired Fieller (tight CI:
+      // [1.11x – 1.11x] -> 🚀 🥇 Peak).
+      final sharedGroupReport = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'SharedProcessGroup',
+        target: 'jit',
+        entries: [
+          multiProcEntry(
+            name: 'base',
+            processMeans: baseMeans,
+            coords: const {'group': 'G', 'sdk': 'stock'},
+            isBaseline: true,
+          ),
+          multiProcEntry(
+            name: 'cand',
+            processMeans: candMeans,
+            coords: const {'group': 'G', 'sdk': 'stock'},
+            isBaseline: false,
+          ),
+        ],
+      );
+      check(sharedGroupReport).contains('[1.06x – 1.06x]');
+      check(sharedGroupReport).contains('🚀 🥇 Peak');
+
+      // Different sdk coordinates -> separate OS process launches -> unpaired
+      // Welch-Fieller (wider CI [1.01x – 1.11x]).
+      final separateCoordReport = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'SeparateProcessMatrix',
+        target: 'jit',
+        entries: [
+          multiProcEntry(
+            name: 'work',
+            processMeans: baseMeans,
+            coords: const {'sdk': 'stock'},
+            isBaseline: true,
+          ),
+          multiProcEntry(
+            name: 'work',
+            processMeans: candMeans,
+            coords: const {'sdk': 'fork'},
+            isBaseline: false,
+          ),
+        ],
+      );
+      check(separateCoordReport).contains('[1.01x – 1.11x]');
+    });
   });
 }
 

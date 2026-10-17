@@ -50,17 +50,26 @@ final class const BenchmarkProcessRunner({
   final CpuAffinity? cpuAffinity,
 }) {
   /// Executes a compiled or JIT benchmark [compilationResult].
+  ///
+  /// When [processes] > 1 (and [validate] is false), executes the
+  /// already-compiled artifact `P =` [processes] independent times without
+  /// recompiling and aggregates the per-process telemetry using hierarchical
+  /// process-mean aggregation.
   Future<ProcessExecutionResult> execute({
     required CompilationResult compilationResult,
     bool isolateMode = false,
     int? trials,
     int? maxTrials,
+    int processes = 1,
     bool forceRun = false,
     bool validate = false,
     List<String> vmFlags = const [],
     CpuAffinity? cpuAffinity,
     String? workingDirectory,
   }) async {
+    if (processes < 1) {
+      throw ArgumentError.value(processes, 'processes', 'Must be >= 1.');
+    }
     final runtime = compilationResult.runtime;
     final artifactPath = compilationResult.artifactPath;
     final runnerScriptPath = compilationResult.runnerScriptPath;
@@ -77,9 +86,133 @@ final class const BenchmarkProcessRunner({
       );
     }
 
+    final effectiveProcesses = validate ? 1 : processes;
     final tempDir = Directory.systemTemp.createTempSync('bench_press_exec_');
-    final tempJsonFile = File(p.join(tempDir.path, 'telemetry.json'));
 
+    try {
+      if (effectiveProcesses == 1) {
+        final tempJsonFile = File(p.join(tempDir.path, 'telemetry.json'));
+        return await _executeSingleProcess(
+          runtime: runtime,
+          artifactPath: artifactPath,
+          runnerScriptPath: runnerScriptPath,
+          tempJsonFile: tempJsonFile,
+          isolateMode: isolateMode,
+          trials: trials,
+          maxTrials: maxTrials,
+          forceRun: forceRun,
+          validate: validate,
+          vmFlags: vmFlags,
+          cpuAffinity: cpuAffinity,
+          workingDirectory: workingDirectory,
+        );
+      }
+
+      return await _executeMultipleProcesses(
+        processes: effectiveProcesses,
+        tempDir: tempDir,
+        runtime: runtime,
+        artifactPath: artifactPath,
+        runnerScriptPath: runnerScriptPath,
+        isolateMode: isolateMode,
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
+        workingDirectory: workingDirectory,
+      );
+    } finally {
+      try {
+        tempDir.deleteSync(recursive: true);
+      } on Object {
+        // Ignore temp cleanup errors
+      }
+    }
+  }
+
+  Future<ProcessExecutionResult> _executeMultipleProcesses({
+    required int processes,
+    required Directory tempDir,
+    required TargetRuntime runtime,
+    required String artifactPath,
+    required String? runnerScriptPath,
+    required bool isolateMode,
+    required int? trials,
+    required int? maxTrials,
+    required bool forceRun,
+    required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
+    required String? workingDirectory,
+  }) async {
+    final totalStopwatch = Stopwatch()..start();
+    final processSuites = <BenchmarkSuiteResult>[];
+    final stdoutBuf = StringBuffer();
+    final stderrBuf = StringBuffer();
+
+    for (var procIdx = 0; procIdx < processes; procIdx++) {
+      final tempJsonFile = File(
+        p.join(tempDir.path, 'telemetry_process_$procIdx.json'),
+      );
+      final procResult = await _executeSingleProcess(
+        runtime: runtime,
+        artifactPath: artifactPath,
+        runnerScriptPath: runnerScriptPath,
+        tempJsonFile: tempJsonFile,
+        isolateMode: isolateMode,
+        trials: trials,
+        maxTrials: maxTrials,
+        forceRun: forceRun,
+        validate: false,
+        vmFlags: vmFlags,
+        cpuAffinity: cpuAffinity,
+        workingDirectory: workingDirectory,
+      );
+      if (procResult.stdout.isNotEmpty) stdoutBuf.write(procResult.stdout);
+      if (procResult.stderr.isNotEmpty) stderrBuf.write(procResult.stderr);
+
+      if (!procResult.success || procResult.suiteResult == null) {
+        totalStopwatch.stop();
+        return ProcessExecutionResult(
+          success: false,
+          runtime: runtime,
+          exitCode: procResult.exitCode == 0 ? 1 : procResult.exitCode,
+          executionDuration: totalStopwatch.elapsed,
+          stdout: stdoutBuf.toString(),
+          stderr: stderrBuf.toString(),
+          errorMessage: procResult.errorMessage,
+        );
+      }
+      processSuites.add(procResult.suiteResult!);
+    }
+    totalStopwatch.stop();
+
+    final aggregated = BenchmarkSuiteResult.aggregateProcesses(processSuites);
+    return ProcessExecutionResult(
+      success: true,
+      runtime: runtime,
+      exitCode: 0,
+      suiteResult: aggregated,
+      executionDuration: totalStopwatch.elapsed,
+      stdout: stdoutBuf.toString(),
+      stderr: stderrBuf.toString(),
+    );
+  }
+
+  Future<ProcessExecutionResult> _executeSingleProcess({
+    required TargetRuntime runtime,
+    required String artifactPath,
+    required String? runnerScriptPath,
+    required File tempJsonFile,
+    required bool isolateMode,
+    required int? trials,
+    required int? maxTrials,
+    required bool forceRun,
+    required bool validate,
+    required List<String> vmFlags,
+    required CpuAffinity? cpuAffinity,
+    required String? workingDirectory,
+  }) async {
     final benchArgs = <String>[
       '--json-output',
       tempJsonFile.path,
@@ -165,12 +298,6 @@ final class const BenchmarkProcessRunner({
         stderr: 'Execution exception: $e',
         errorMessage: e.toString(),
       );
-    } finally {
-      try {
-        tempDir.deleteSync(recursive: true);
-      } on Object {
-        // Ignore temp cleanup errors
-      }
     }
   }
 

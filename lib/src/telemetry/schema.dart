@@ -164,7 +164,42 @@ final class const BenchmarkEntry({
 
   /// Declared throughput processed per invocation (bytes or element count).
   final Throughput? throughput,
+
+  /// The number of independent OS processes aggregated into this entry
+  /// (default: 1).
+  final int processes = 1,
+
+  /// Per-process arithmetic mean latencies in nanoseconds when [processes] > 1.
+  final List<double> processMeansNs = const [],
+
+  /// Per-process raw trial sample latencies in nanoseconds when
+  /// [processes] > 1.
+  final List<List<double>> processTrialsNs = const [],
 }) {
+  /// Returns the statistically independent top-level samples for confidence
+  /// interval estimation: [processMeansNs] when [processes] > 1 (hierarchical
+  /// process means), or [rawTrialsNs] when [processes] == 1.
+  List<double> get effectiveSamplesNs {
+    if (processes > 1) {
+      if (processMeansNs.isNotEmpty) return processMeansNs;
+      if (processTrialsNs.isNotEmpty) {
+        return [
+          for (final proc in processTrialsNs)
+            if (proc.isNotEmpty) _meanOf(proc),
+        ];
+      }
+    }
+    return rawTrialsNs;
+  }
+
+  static double _meanOf(List<double> values) {
+    var sum = 0.0;
+    for (final v in values) {
+      sum += v;
+    }
+    return sum / values.length;
+  }
+
   /// Unique composite key identifying this workload and its matrix coordinate.
   String get key {
     if (coordinates.isEmpty) {
@@ -194,6 +229,9 @@ final class const BenchmarkEntry({
           : this.coordinates,
       isBaseline: isBaseline ?? this.isBaseline,
       throughput: throughput,
+      processes: processes,
+      processMeansNs: processMeansNs,
+      processTrialsNs: processTrialsNs,
     );
   }
 
@@ -230,6 +268,96 @@ final class const BenchmarkEntry({
     );
   }
 
+  /// Aggregates [processEntries] from `P` independent OS processes into a
+  /// single hierarchical [BenchmarkEntry].
+  factory fromProcesses(List<BenchmarkEntry> processEntries) {
+    if (processEntries.isEmpty) {
+      throw ArgumentError.value(
+        processEntries,
+        'processEntries',
+        'Cannot aggregate an empty list of process entries.',
+      );
+    }
+    if (processEntries.length == 1) return processEntries.single;
+
+    final first = processEntries.first;
+    final processMeans = List<double>.unmodifiable([
+      for (final e in processEntries)
+        e.rawTrialsNs.isNotEmpty ? _meanOf(e.rawTrialsNs) : e.metrics.meanNs,
+    ]);
+    final processTrials = List<List<double>>.unmodifiable([
+      for (final e in processEntries)
+        e.rawTrialsNs.isNotEmpty
+            ? List<double>.unmodifiable(e.rawTrialsNs)
+            : List<double>.unmodifiable([e.metrics.meanNs]),
+    ]);
+    final pooledRawTrials = List<double>.unmodifiable([
+      for (final e in processEntries) ...e.rawTrialsNs,
+    ]);
+    final totalSamples = processEntries.fold<int>(
+      0,
+      (sum, e) => sum + e.samples,
+    );
+    final allStable = processEntries.every(
+      (e) => (e.warmup?['is_stable'] as bool?) ?? e.metrics.isStable,
+    );
+    final metrics = BenchmarkMetrics.fromProcesses(
+      processTrials,
+      isStable: allStable,
+    );
+
+    return BenchmarkEntry(
+      name: first.name,
+      target: first.target,
+      mode: first.mode,
+      samples: totalSamples,
+      metrics: metrics,
+      rawTrialsNs: pooledRawTrials,
+      warmup: _aggregateWarmupMaps(processEntries, allStable: allStable),
+      calibratedBatchIterations: first.calibratedBatchIterations,
+      coordinates: first.coordinates,
+      isBaseline: first.isBaseline,
+      throughput: first.throughput,
+      processes: processEntries.length,
+      processMeansNs: processMeans,
+      processTrialsNs: processTrials,
+    );
+  }
+
+  static Map<String, Object?>? _aggregateWarmupMaps(
+    List<BenchmarkEntry> forkEntries, {
+    required bool allStable,
+  }) {
+    if (forkEntries.every((e) => e.warmup == null)) return null;
+    var totalIterations = 0;
+    var maxConvergedAt = 0;
+    var maxBestMmd = 0.0;
+    var totalElapsedSec = 0.0;
+    final estimates = <double>[];
+    for (final e in forkEntries) {
+      final w = e.warmup;
+      if (w == null) continue;
+      totalIterations += (w['total_iterations'] as num?)?.toInt() ?? 0;
+      final conv = (w['converged_at'] as num?)?.toInt() ?? 0;
+      if (conv > maxConvergedAt) maxConvergedAt = conv;
+      final mmd = (w['best_mmd'] as num?)?.toDouble() ?? 0.0;
+      if (mmd.isFinite && mmd > maxBestMmd) maxBestMmd = mmd;
+      totalElapsedSec += (w['elapsed_seconds'] as num?)?.toDouble() ?? 0.0;
+      final est = (w['estimated_op_ns'] as num?)?.toDouble();
+      if (est != null && est.isFinite && est > 0) {
+        estimates.add(est);
+      }
+    }
+    return {
+      'is_stable': allStable,
+      'total_iterations': totalIterations,
+      'converged_at': maxConvergedAt,
+      'best_mmd': maxBestMmd,
+      'elapsed_seconds': totalElapsedSec,
+      if (estimates.isNotEmpty) 'estimated_op_ns': _meanOf(estimates),
+    };
+  }
+
   /// Converts the entry to a canonical JSON map.
   Map<String, Object?> toJson() => {
     'name': name,
@@ -241,6 +369,9 @@ final class const BenchmarkEntry({
     if (isBaseline) 'is_baseline': isBaseline,
     if (throughput != null) 'throughput': throughput!.toJson(),
     if (rawTrialsNs.isNotEmpty) 'raw_trials_ns': rawTrialsNs,
+    if (processes > 1) 'processes': processes,
+    if (processMeansNs.isNotEmpty) 'process_means_ns': processMeansNs,
+    if (processTrialsNs.isNotEmpty) 'process_trials_ns': processTrialsNs,
     if (warmup != null) 'warmup': warmup,
     if (calibratedBatchIterations != null)
       'calibrated_batch_iterations': calibratedBatchIterations,
@@ -279,6 +410,20 @@ final class const BenchmarkEntry({
       rawName,
     );
     final throughput = _parseThroughput(json['throughput'], rawName);
+    final processTrials = _parseProcessTrials(
+      json['process_trials_ns'] ?? json['fork_trials_ns'],
+      rawName,
+    );
+    final processMeans = _parseProcessMeans(
+      json['process_means_ns'] ?? json['fork_means_ns'],
+      processTrials,
+      rawName,
+    );
+    final processes = _parseProcesses(
+      json['processes'] ?? json['forks'],
+      processMeans.length,
+      rawName,
+    );
 
     return BenchmarkEntry(
       name: rawName,
@@ -292,6 +437,9 @@ final class const BenchmarkEntry({
       coordinates: coordinates,
       isBaseline: isBaseline,
       throughput: throughput,
+      processes: processes,
+      processMeansNs: processMeans,
+      processTrialsNs: processTrials,
     );
   }
 
@@ -393,6 +541,62 @@ final class const BenchmarkEntry({
         ),
       };
 
+  static int _parseProcesses(
+    Object? value,
+    int processMeansLength,
+    String name,
+  ) => switch (value) {
+    null => processMeansLength > 1 ? processMeansLength : 1,
+    final int p when p >= 1 => p,
+    final other => throw FormatException(
+      'Invalid "processes": $other in benchmark "$name" '
+      '(expected positive integer >= 1)',
+    ),
+  };
+
+  static List<double> _parseProcessMeans(
+    Object? value,
+    List<List<double>> processTrials,
+    String name,
+  ) {
+    if (value == null) {
+      if (processTrials.length > 1) {
+        return [
+          for (final proc in processTrials)
+            if (proc.isNotEmpty) _meanOf(proc),
+        ];
+      }
+      return const <double>[];
+    }
+    if (value is! List) {
+      throw FormatException(
+        'Invalid "process_means_ns" in benchmark "$name": expected List, '
+        'got ${value.runtimeType}',
+      );
+    }
+    return [
+      for (final e in value)
+        if (e is num)
+          e.toDouble()
+        else
+          throw FormatException(
+            'Invalid process mean value: $e in benchmark "$name" '
+            '(expected num)',
+          ),
+    ];
+  }
+
+  static List<List<double>> _parseProcessTrials(Object? value, String name) {
+    if (value == null) return const <List<double>>[];
+    if (value is! List) {
+      throw FormatException(
+        'Invalid "process_trials_ns" in benchmark "$name": expected List, '
+        'got ${value.runtimeType}',
+      );
+    }
+    return [for (final proc in value) _parseRawTrials(proc, name)];
+  }
+
   @override
   String toString() =>
       'BenchmarkEntry($key: ${metrics.meanNs.toStringAsFixed(1)} ns, '
@@ -428,6 +632,38 @@ final class const BenchmarkSuiteResult({
       timestamp: timestamp ?? DateTime.now().toUtc(),
       environment: environment ?? EnvironmentInfo.current(),
       benchmarks: entries,
+    );
+  }
+
+  /// Aggregates [processSuites] from `P` independent OS process invocations
+  /// into a single hierarchical [BenchmarkSuiteResult].
+  factory aggregateProcesses(List<BenchmarkSuiteResult> processSuites) {
+    if (processSuites.isEmpty) {
+      throw ArgumentError.value(
+        processSuites,
+        'processSuites',
+        'Cannot aggregate an empty list of process suites.',
+      );
+    }
+    if (processSuites.length == 1) return processSuites.single;
+
+    final grouped = <String, List<BenchmarkEntry>>{};
+    for (final suite in processSuites) {
+      for (final entry in suite.benchmarks) {
+        grouped.putIfAbsent(entry.key, () => <BenchmarkEntry>[]).add(entry);
+      }
+    }
+
+    final aggregatedEntries = <BenchmarkEntry>[
+      for (final entries in grouped.values)
+        BenchmarkEntry.fromProcesses(entries),
+    ];
+    final last = processSuites.last;
+    return BenchmarkSuiteResult(
+      version: currentTelemetrySchemaVersion,
+      timestamp: last.timestamp,
+      environment: last.environment,
+      benchmarks: aggregatedEntries,
     );
   }
 

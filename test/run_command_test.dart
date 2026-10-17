@@ -613,5 +613,48 @@ matrix:
 
       check(exitCode).equals(ExitCode.software.code);
     });
+
+    test('run subcommand executes --processes (and --forks alias) across '
+        'multiple OS process rounds and rejects invalid values', () async {
+      final benchFile = writeSyncBenchmark(
+        subDir: 'benchmark',
+        fileName: 'proc_bench.dart',
+        className: 'ProcBenchmark',
+        name: 'proc_workload',
+        body: 'Blackhole.consume(42);',
+      );
+      final outputFile = File(d.path('proc_results.json'));
+      final runner = BenchPressCommandRunner();
+
+      final badCode = await runner.run([
+        'run',
+        '--processes',
+        '0',
+        benchFile.path,
+      ]);
+      check(badCode).equals(ExitCode.usage.code);
+
+      final exitCode = await runner.run([
+        'run',
+        '-t',
+        'jit',
+        '--trials',
+        '2',
+        '--processes',
+        '2',
+        '--force-run',
+        '-o',
+        outputFile.path,
+        benchFile.path,
+      ]);
+      check(exitCode).equals(ExitCode.success.code);
+      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final entry = suite.benchmarks.single;
+      check(entry.processes).equals(2);
+      check(entry.processMeansNs.length).equals(2);
+      check(entry.processTrialsNs.length).equals(2);
+      check(entry.samples).equals(4);
+      check(entry.metrics.varianceComponents).isNotNull();
+    });
   });
 }

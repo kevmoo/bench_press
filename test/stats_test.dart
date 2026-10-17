@@ -181,5 +181,56 @@ void main() {
       check(BenchmarkMetrics.computeIqr([])).equals(0.0);
       check(BenchmarkMetrics.computeIqr([1.0, 2.0, 3.0, 4.0, 5.0])).equals(2.0);
     });
+
+    test(
+      'ProcessVarianceComponents.compute uses drift-immune first differences '
+      'and BenchmarkMetrics.fromProcesses attaches varianceComponents',
+      () {
+        check(ProcessVarianceComponents.compute([])).isNull();
+        check(
+          ProcessVarianceComponents.compute([
+            [100.0, 101.0],
+          ]),
+        ).isNull();
+
+        // 3 processes with distinct process offsets (+0, +10, +20 ns) and
+        // tiny step-to-step differences (alternating ±1 ns => diff = ±2 ns,
+        // so msWithin = 0.5 * 4 = 2.0).
+        final processTrials = [
+          [99.5, 100.5, 99.5, 100.5],
+          [109.5, 110.5, 109.5, 110.5],
+          [119.5, 120.5, 119.5, 120.5],
+        ];
+        final metrics = BenchmarkMetrics.fromProcesses(processTrials);
+        check((metrics.meanNs - 110.0).abs()).isLessThan(1e-9);
+        check((metrics.stddevNs - 10.0).abs()).isLessThan(1e-9);
+
+        final vc = metrics.varianceComponents;
+        check(vc).isNotNull();
+        check(vc!.processes).equals(3);
+        check(vc.meanTrialsPerProcess).equals(4.0);
+        check((vc.msWithin - 0.5).abs()).isLessThan(1e-9);
+        check((vc.msBetween - 400.0).abs()).isLessThan(1e-9);
+        check((vc.varBetween - 99.875).abs()).isLessThan(1e-9);
+        check(vc.betweenProcessShare).isGreaterThan(0.99);
+        check(vc.toString()).contains('ProcessVarianceComponents(processes: 3');
+
+        final roundTrip = BenchmarkMetrics.fromJson(metrics.toJson());
+        check(roundTrip.varianceComponents).isNotNull();
+        check(roundTrip.varianceComponents!.processes).equals(3);
+        check(
+          (roundTrip.varianceComponents!.betweenProcessShare -
+                  vc.betweenProcessShare)
+              .abs(),
+        ).isLessThan(1e-9);
+
+        check(BenchmarkMetrics.fromProcesses([]).meanNs).equals(0.0);
+        check(
+          BenchmarkMetrics.fromProcesses([
+            [50.0, 50.0],
+          ]).varianceComponents,
+        ).isNull();
+      },
+    );
   });
 }

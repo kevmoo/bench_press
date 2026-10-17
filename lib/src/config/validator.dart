@@ -12,6 +12,13 @@ class ConfigValidator() {
       }
     }
 
+    if (config.defaults.processes < 1) {
+      throw FormatException(
+        'Invalid default processes: ${config.defaults.processes}. '
+        'Must be >= 1.',
+      );
+    }
+
     // 2. Validate matrix
     final coords = config.generateCoordinates();
 
