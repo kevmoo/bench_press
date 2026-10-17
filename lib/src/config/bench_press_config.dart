@@ -96,9 +96,7 @@ class DefaultsConfig({
       maxTrials = maxTrialsNode.value as int;
     }
 
-    final processes = _parseProcesses(
-      map.nodes['processes'] ?? map.nodes['forks'],
-    );
+    final processes = _parseProcesses(map.nodes['processes']);
     final threshold = _parseThreshold(map.nodes['threshold']);
 
     final isolateNode = map.nodes['isolate_mode'];
@@ -119,19 +117,11 @@ class DefaultsConfig({
   }
 
   /// Parses a relative equivalence threshold from a CLI option string (such as
-  /// `'0.02'` or `'2%'`), returning `null` if invalid or outside `[0.0, 1.0)`.
+  /// `'0.02'`), returning `null` if invalid or outside `[0.0, 1.0)`.
   static double? tryParseThreshold(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return null;
-    final double? parsed;
-    if (trimmed.endsWith('%')) {
-      final numPart = double.tryParse(
-        trimmed.substring(0, trimmed.length - 1).trim(),
-      );
-      parsed = numPart != null ? numPart / 100.0 : null;
-    } else {
-      parsed = double.tryParse(trimmed);
-    }
+    final parsed = double.tryParse(trimmed);
     if (parsed == null || !parsed.isFinite || parsed < 0.0 || parsed >= 1.0) {
       return null;
     }
@@ -154,13 +144,10 @@ class DefaultsConfig({
     if (value is num) {
       final d = value.toDouble();
       if (d.isFinite && d >= 0.0 && d < 1.0) return d;
-    } else if (value is String) {
-      final parsed = tryParseThreshold(value);
-      if (parsed != null) return parsed;
     }
     throw SourceSpanException(
       'threshold must be a relative fraction >= 0.0 and < 1.0 '
-      '(e.g. 0.02 or "2%").',
+      '(e.g. 0.02).',
       node.span,
     );
   }

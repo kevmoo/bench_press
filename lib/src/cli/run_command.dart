@@ -89,7 +89,6 @@ final class RunCommand({
       )
       ..addOption(
         'processes',
-        aliases: const ['forks'],
         help:
             'Number of independent OS processes to spawn per benchmark target '
             '(default: 1).',
@@ -98,7 +97,7 @@ final class RunCommand({
         'threshold',
         help:
             'Practical significance / equivalence threshold as a relative '
-            'fraction (e.g. 0.02 or 2% for ±2%, default: 0).',
+            'fraction (e.g. 0.02 for ±2%, default: 0).',
       )
       ..addFlag(
         'force-run',
@@ -476,7 +475,7 @@ final class RunCommand({
     if (parsed == null) {
       stderr.writeln(
         'Invalid --threshold value "$threshStr": '
-        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02 or 2%).',
+        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02).',
       );
       return null;
     }

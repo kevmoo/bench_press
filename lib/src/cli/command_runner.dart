@@ -377,7 +377,7 @@ final class ReportCommand() extends Command<int> {
         defaultsTo: '0',
         help:
             'Practical significance / equivalence threshold as a relative '
-            'fraction (e.g. 0.02 or 2% for ±2%).',
+            'fraction (e.g. 0.02 for ±2%).',
       )
       ..addOption(
         'from-json',
@@ -404,7 +404,7 @@ final class ReportCommand() extends Command<int> {
     if (threshold == null) {
       stderr.writeln(
         'Invalid --threshold value "$thresholdRaw": '
-        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02 or 2%).',
+        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02).',
       );
       return ExitCode.usage.code;
     }
@@ -470,7 +470,7 @@ final class DiffCommand() extends Command<int> {
         defaultsTo: '0',
         help:
             'Practical significance / equivalence threshold as a relative '
-            'fraction (e.g. 0.02 or 2% for ±2%).',
+            'fraction (e.g. 0.02 for ±2%).',
       )
       ..addOption(
         'baseline',
@@ -566,7 +566,7 @@ final class DiffCommand() extends Command<int> {
     if (threshold == null) {
       stderr.writeln(
         'Invalid --threshold value "$thresholdRaw": '
-        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02 or 2%).',
+        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02).',
       );
       return ExitCode.usage.code;
     }

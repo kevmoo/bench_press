@@ -17,7 +17,7 @@ void main() {
       expect(parsed.processes, equals(1));
     });
 
-    test('parses defaults.processes and defaults.forks alias', () {
+    test('parses defaults.processes and rejects < 1', () {
       expect(
         BenchPressConfig.fromYaml('defaults:\n  processes: 5\n')
             .defaults
@@ -25,34 +25,23 @@ void main() {
         equals(5),
       );
       expect(
-        BenchPressConfig.fromYaml('defaults:\n  forks: 4\n').defaults.processes,
-        equals(4),
-      );
-      expect(
         () => BenchPressConfig.fromYaml('defaults:\n  processes: 0\n'),
         throwsA(isA<SourceSpanException>()),
       );
     });
 
-    test('parses defaults.threshold as fraction or percentage', () {
+    test('parses defaults.threshold as relative fraction in [0.0, 1.0)', () {
       expect(
         BenchPressConfig.fromYaml('defaults:\n  threshold: 0.02\n')
             .defaults
             .threshold,
         closeTo(0.02, 1e-9),
       );
-      expect(
-        BenchPressConfig.fromYaml('defaults:\n  threshold: 2%\n')
-            .defaults
-            .threshold,
-        closeTo(0.02, 1e-9),
-      );
       expect(DefaultsConfig.tryParseThreshold('0.05'), closeTo(0.05, 1e-9));
-      expect(DefaultsConfig.tryParseThreshold('5%'), closeTo(0.05, 1e-9));
       expect(DefaultsConfig.tryParseThreshold('0'), equals(0.0));
       expect(DefaultsConfig.tryParseThreshold('-0.01'), isNull);
       expect(DefaultsConfig.tryParseThreshold('1.0'), isNull);
-      expect(DefaultsConfig.tryParseThreshold('100%'), isNull);
+      expect(DefaultsConfig.tryParseThreshold('5%'), isNull);
       expect(DefaultsConfig.tryParseThreshold('abc'), isNull);
       expect(
         () => BenchPressConfig.fromYaml('defaults:\n  threshold: -0.1\n'),

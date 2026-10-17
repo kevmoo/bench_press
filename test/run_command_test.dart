@@ -614,8 +614,8 @@ matrix:
       check(exitCode).equals(ExitCode.software.code);
     });
 
-    test('run subcommand executes --processes (and --forks alias) across '
-        'multiple OS process rounds and rejects invalid values', () async {
+    test('run subcommand executes --processes across multiple OS process '
+        'rounds and rejects invalid values', () async {
       final benchFile = writeSyncBenchmark(
         subDir: 'benchmark',
         fileName: 'proc_bench.dart',
@@ -659,7 +659,7 @@ matrix:
       final badThresholdCode = await runner.run([
         'run',
         '--threshold',
-        '150%',
+        '1.5',
         benchFile.path,
       ]);
       check(badThresholdCode).equals(ExitCode.usage.code);
@@ -671,7 +671,7 @@ matrix:
         '--trials',
         '2',
         '--threshold',
-        '2%',
+        '0.02',
         '--force-run',
         '--no-save',
         benchFile.path,

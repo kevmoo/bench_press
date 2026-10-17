@@ -240,15 +240,14 @@ matrix:
   each axis). Preview the matrix plan without running via
   `dart run bench_press run --dry-run`.
 
-### Multi-Process Benchmarking (`--processes` / `--forks`)
+### Multi-Process Benchmarking (`--processes`)
 
 By default (`--processes 1`), `bench_press` executes each benchmark target in a
 single isolated OS process. Within that process, `Benchmark.compare` and
 `Benchmark.matrix` already interleave variants in four `ABBA BAAB` block visits
 with two discarded transition batches per switch.
 
-When to use `--processes <P>` (or `defaults.processes` in `bench_press.yaml`,
-alias `--forks`):
+When to use `--processes <P>` (or `defaults.processes` in `bench_press.yaml`):
 
 - **Stay with `--processes 1` (default)** for fast local iteration, CI smoke
   checks, and intra-file `Benchmark.compare` / `Benchmark.matrix` runs where all
@@ -280,14 +279,14 @@ contains `1.00x` is reported as `➖ ⚪ Neutral`, and point estimates clearing
 
 When you want to separate statistically significant micro-movements from
 practically meaningful changes—or prove that a refactoring did not regress
-performance beyond a known tolerance—pass `--threshold <delta>` (as a fraction
-like `0.02` or percentage like `2%`, or set `defaults.threshold` in
+performance beyond a known tolerance—pass `--threshold <delta>` (as a relative
+fraction in `[0.0, 1.0)` like `0.02` for ±2%, or set `defaults.threshold` in
 `bench_press.yaml`) to `run`, `report`, or `diff`:
 
 - **`🚀 Faster` / `🚀 🥇 Peak`**: The entire 95% Fieller CI lies at or above
-  `1.0 + threshold` (for example `>= 1.02x` at `--threshold 2%`).
+  `1.0 + threshold` (for example `>= 1.02x` at `--threshold 0.02`).
 - **`⚠️ Regression` / `⚠️ 🔴 Slow`**: The entire 95% Fieller CI lies at or below
-  `1.0 / (1.0 + threshold)` (for example `<= 0.9804x` at `--threshold 2%`).
+  `1.0 / (1.0 + threshold)` (for example `<= 0.9804x` at `--threshold 0.02`).
 - **`✅ Equivalent` (Schuirmann TOST)**: The 90% Fieller CI (corresponding to
   two one-sided tests at `alpha = 0.05` per side) lies completely inside
   `[1.0 / (1.0 + threshold), 1.0 + threshold]`, proving equivalence within the
