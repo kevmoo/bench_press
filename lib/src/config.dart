@@ -1,7 +1,9 @@
 /// Configuration options governing benchmark execution, warmup, and sampling.
 final class const BenchmarkConfig({
-  /// The number of measurement trials to record after warmup completes.
-  final int trials = 15,
+  /// The number of measurement trials to record after warmup completes
+  /// (default: [defaultTrials], i.e. 4 visits of 4 trials across `ABBA BAAB`
+  /// groups).
+  final int trials = defaultTrials,
 
   /// The maximum number of measurement trials permitted when adaptive trial
   /// scaling is active.
@@ -33,4 +35,8 @@ final class const BenchmarkConfig({
 
   /// Optional logger callback to intercept benchmark diagnostics and warnings.
   final void Function(String message)? logger,
-});
+}) {
+  /// Default number of measurement trials per benchmark (16 = 4 visits of 4
+  /// trials across `ABBA BAAB` groups).
+  static const int defaultTrials = 16;
+}

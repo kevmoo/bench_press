@@ -6,6 +6,7 @@ import 'package:io/io.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import '../config.dart' show BenchmarkConfig;
 import '../config/bench_press_config.dart';
 import '../config/validator.dart';
 import '../telemetry/git_diff.dart';
@@ -76,7 +77,9 @@ final class RunCommand({
       )
       ..addOption(
         'trials',
-        help: 'Number of measurement trials per benchmark (default: 15).',
+        help:
+            'Number of measurement trials per benchmark '
+            '(default: ${BenchmarkConfig.defaultTrials}).',
       )
       ..addOption(
         'max-trials',
@@ -288,7 +291,7 @@ final class RunCommand({
         BenchPressConfig(
           defaults: DefaultsConfig(
             targets: ['jit'],
-            trials: 15,
+            trials: BenchmarkConfig.defaultTrials,
             maxTrials: null,
             isolateMode: false,
           ),
