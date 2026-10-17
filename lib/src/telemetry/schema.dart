@@ -411,16 +411,16 @@ final class const BenchmarkEntry({
     );
     final throughput = _parseThroughput(json['throughput'], rawName);
     final processTrials = _parseProcessTrials(
-      json['process_trials_ns'] ?? json['fork_trials_ns'],
+      json['process_trials_ns'],
       rawName,
     );
     final processMeans = _parseProcessMeans(
-      json['process_means_ns'] ?? json['fork_means_ns'],
+      json['process_means_ns'],
       processTrials,
       rawName,
     );
     final processes = _parseProcesses(
-      json['processes'] ?? json['forks'],
+      json['processes'],
       processMeans.length,
       rawName,
     );

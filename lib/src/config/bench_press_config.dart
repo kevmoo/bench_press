@@ -94,9 +94,7 @@ class DefaultsConfig({
       maxTrials = maxTrialsNode.value as int;
     }
 
-    final processes = _parseProcesses(
-      map.nodes['processes'] ?? map.nodes['forks'],
-    );
+    final processes = _parseProcesses(map.nodes['processes']);
 
     final isolateNode = map.nodes['isolate_mode'];
     var isolateMode = false;

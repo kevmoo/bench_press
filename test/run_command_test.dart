@@ -614,8 +614,8 @@ matrix:
       check(exitCode).equals(ExitCode.software.code);
     });
 
-    test('run subcommand executes --processes (and --forks alias) across '
-        'multiple OS process rounds and rejects invalid values', () async {
+    test('run subcommand executes --processes across multiple OS process '
+        'rounds and rejects invalid values', () async {
       final benchFile = writeSyncBenchmark(
         subDir: 'benchmark',
         fileName: 'proc_bench.dart',

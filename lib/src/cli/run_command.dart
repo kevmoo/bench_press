@@ -89,7 +89,6 @@ final class RunCommand({
       )
       ..addOption(
         'processes',
-        aliases: const ['forks'],
         help:
             'Number of independent OS processes to spawn per benchmark target '
             '(default: 1).',

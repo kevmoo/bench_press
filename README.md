@@ -235,15 +235,14 @@ matrix:
   each axis). Preview the matrix plan without running via
   `dart run bench_press run --dry-run`.
 
-### Multi-Process Benchmarking (`--processes` / `--forks`)
+### Multi-Process Benchmarking (`--processes`)
 
 By default (`--processes 1`), `bench_press` executes each benchmark target in a
 single isolated OS process. Within that process, `Benchmark.compare` and
 `Benchmark.matrix` already interleave variants in four `ABBA BAAB` block visits
 with two discarded transition batches per switch.
 
-When to use `--processes <P>` (or `defaults.processes` in `bench_press.yaml`,
-alias `--forks`):
+When to use `--processes <P>` (or `defaults.processes` in `bench_press.yaml`):
 
 - **Stay with `--processes 1` (default)** for fast local iteration, CI smoke
   checks, and intra-file `Benchmark.compare` / `Benchmark.matrix` runs where all

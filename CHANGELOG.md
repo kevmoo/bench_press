@@ -1,7 +1,7 @@
 ## 0.4.2-wip
 
-- Added multi-process benchmark orchestration (`--processes <P>`, alias
-  `--forks`, and `defaults.processes` in `bench_press.yaml`), compiling each
+- Added multi-process benchmark orchestration (`--processes <P>` and
+  `defaults.processes` in `bench_press.yaml`), compiling each
   `(coordinate, runtime)` cell once upfront and interleaving process launches in
   `ABBA BAAB` order across rounds `p = 0 .. P - 1`.
 - Added `BenchmarkMetrics.fromProcesses` and `ProcessVarianceComponents`

@@ -17,16 +17,12 @@ void main() {
       expect(parsed.processes, equals(1));
     });
 
-    test('parses defaults.processes and defaults.forks alias', () {
+    test('parses defaults.processes and rejects < 1', () {
       expect(
         BenchPressConfig.fromYaml('defaults:\n  processes: 5\n')
             .defaults
             .processes,
         equals(5),
-      );
-      expect(
-        BenchPressConfig.fromYaml('defaults:\n  forks: 4\n').defaults.processes,
-        equals(4),
       );
       expect(
         () => BenchPressConfig.fromYaml('defaults:\n  processes: 0\n'),
