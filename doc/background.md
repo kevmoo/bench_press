@@ -255,9 +255,27 @@ flowchart TD
    `.js`).
 3. **Execution**: Executes each target in an isolated subprocess to guarantee
    clean heap state, capturing structured JSON streams enclosed within delimiter
-   markers (`<<<BENCH_PRESS_JSON_START>>>`).
+   markers (`<<<BENCH_PRESS_JSON_START>>>`). When `--processes P` (`P > 1`) is
+   configured, all `(coordinate, runtime)` artifacts are compiled once upfront
+   and executed across `P` process rounds in `ABBA BAAB` coordinate order
+   (`reverse = (p & 1) != ((p >> 1) & 1)`).
 4. **Aggregation**: Deep-merges results into a canonical `BenchmarkSuiteResult`
-   keyed by workload name, runtime target, and matrix coordinates.
+   keyed by workload name, runtime target, and matrix coordinates. For
+   multi-process runs (`P > 1`), `BenchmarkEntry.fromProcesses` and
+   `BenchmarkMetrics.fromProcesses` aggregate the `P` process means for
+   top-level Fieller confidence intervals and compute
+   `ProcessVarianceComponents` using the drift-immune first-difference
+   within-process estimator:
+
+   ```dart
+   // First-difference within-process estimator (immune to slow intra-process drift):
+   final msWithin = 0.5 * mean([
+     for (final trials in processTrialsNs)
+       for (var t = 0; t < trials.length - 1; t++)
+         (trials[t + 1] - trials[t]) * (trials[t + 1] - trials[t]),
+   ]);
+   final varBetween = math.max(0.0, (msBetween - msWithin) / meanTrialsPerProcess);
+   ```
 
 ---
 

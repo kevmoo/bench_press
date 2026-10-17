@@ -47,6 +47,7 @@ class DefaultsConfig({
   required final List<String> targets,
   required final int trials,
   final int? maxTrials,
+  final int processes = 1,
   final String output = defaultTelemetryFileName,
   required final bool isolateMode,
 }) {
@@ -56,6 +57,7 @@ class DefaultsConfig({
         targets: ['jit', 'aot'],
         trials: BenchmarkConfig.defaultTrials,
         maxTrials: null,
+        processes: 1,
         isolateMode: false,
       );
     }
@@ -92,6 +94,8 @@ class DefaultsConfig({
       maxTrials = maxTrialsNode.value as int;
     }
 
+    final processes = _parseProcesses(map.nodes['processes']);
+
     final isolateNode = map.nodes['isolate_mode'];
     var isolateMode = false;
     if (isolateNode != null) {
@@ -102,8 +106,19 @@ class DefaultsConfig({
       targets: targets,
       trials: trials,
       maxTrials: maxTrials,
+      processes: processes,
       output: _parseOutput(map.nodes['output']),
       isolateMode: isolateMode,
+    );
+  }
+
+  static int _parseProcesses(YamlNode? node) {
+    if (node == null) return 1;
+    final value = node.value;
+    if (value is int && value >= 1) return value;
+    throw SourceSpanException(
+      'processes must be a positive integer (>= 1).',
+      node.span,
     );
   }
 

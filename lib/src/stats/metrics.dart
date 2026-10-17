@@ -1,5 +1,147 @@
 import 'dart:math' as math;
 
+/// One-way variance decomposition across `P` independent OS processes.
+///
+/// Uses a first-difference within-process estimator (`msWithin`) so slow
+/// thermal or clock drift inside a process does not inflate within-process
+/// noise and mask between-process variance.
+final class const ProcessVarianceComponents({
+  /// Number of independent OS processes (`P >= 2`).
+  required final int processes,
+
+  /// Arithmetic mean of trials per process (`k`).
+  required final double meanTrialsPerProcess,
+
+  /// Between-process mean square (`MS_between` in ns^2).
+  required final double msBetween,
+
+  /// Drift-immune first-difference within-process mean square
+  /// (`MS_within` in ns^2).
+  required final double msWithin,
+
+  /// Estimated between-process variance
+  /// (`max(0, (msBetween - msWithin) / k)` in ns^2).
+  required final double varBetween,
+
+  /// Estimated within-process variance (`msWithin` in ns^2).
+  required final double varWithin,
+
+  /// Fraction of total variance attributable to process-to-process noise
+  /// (`0.0 .. 1.0`).
+  required final double betweenProcessShare,
+}) {
+  /// Computes variance components from per-process trial vectors
+  /// [processSamplesNs].
+  ///
+  /// Returns `null` when fewer than 2 non-empty processes are provided or when
+  /// within-process degrees of freedom are zero (`diffCount == 0`, i.e. every
+  /// process has only 1 trial).
+  static ProcessVarianceComponents? compute(
+    List<List<double>> processSamplesNs,
+  ) {
+    final nonEmpty = [
+      for (final p in processSamplesNs)
+        if (p.isNotEmpty) p,
+    ];
+    final pCount = nonEmpty.length;
+    if (pCount < 2) return null;
+
+    var totalTrials = 0;
+    var totalTrialSq = 0.0;
+    var weightedSum = 0.0;
+    final processMeans = <double>[];
+    var diffSqSum = 0.0;
+    var diffCount = 0;
+
+    for (final trials in nonEmpty) {
+      final n = trials.length;
+      totalTrials += n;
+      totalTrialSq += n * n;
+      final pMean = BenchmarkMetrics._meanOf(trials);
+      processMeans.add(pMean);
+      weightedSum += n * pMean;
+      for (var t = 0; t < n - 1; t++) {
+        final d = trials[t + 1] - trials[t];
+        diffSqSum += d * d;
+        diffCount++;
+      }
+    }
+    if (diffCount == 0) return null;
+
+    final kMean = totalTrials / pCount;
+    final k0 = (totalTrials - (totalTrialSq / totalTrials)) / (pCount - 1);
+    final weightedGrandMean = weightedSum / totalTrials;
+    var betweenSqSum = 0.0;
+    for (var i = 0; i < pCount; i++) {
+      final diff = processMeans[i] - weightedGrandMean;
+      betweenSqSum += nonEmpty[i].length * diff * diff;
+    }
+
+    final msBetween = betweenSqSum / (pCount - 1);
+    final msWithin = 0.5 * (diffSqSum / diffCount);
+    final varWithin = msWithin;
+    final varBetween = k0 > 0.0
+        ? math.max(0.0, (msBetween - msWithin) / k0)
+        : 0.0;
+    final totalVar = varBetween + varWithin;
+    final share = totalVar > 0.0 ? (varBetween / totalVar) : 0.0;
+
+    return ProcessVarianceComponents(
+      processes: pCount,
+      meanTrialsPerProcess: kMean,
+      msBetween: msBetween,
+      msWithin: msWithin,
+      varBetween: varBetween,
+      varWithin: varWithin,
+      betweenProcessShare: share,
+    );
+  }
+
+  /// Converts the variance components to a JSON-compatible map.
+  Map<String, Object?> toJson() => {
+    'processes': processes,
+    'mean_trials_per_process': meanTrialsPerProcess,
+    'ms_between': msBetween,
+    'ms_within': msWithin,
+    'var_between': varBetween,
+    'var_within': varWithin,
+    'between_process_share': betweenProcessShare,
+  };
+
+  /// Constructs a [ProcessVarianceComponents] instance from a JSON map.
+  factory fromJson(Map<String, Object?> json) {
+    if (json case {
+      'processes': final int processes,
+      'mean_trials_per_process': final num meanTrials,
+      'ms_between': final num msBetween,
+      'ms_within': final num msWithin,
+      'var_between': final num varBetween,
+      'var_within': final num varWithin,
+      'between_process_share': final num share,
+    }) {
+      return ProcessVarianceComponents(
+        processes: processes,
+        meanTrialsPerProcess: meanTrials.toDouble(),
+        msBetween: msBetween.toDouble(),
+        msWithin: msWithin.toDouble(),
+        varBetween: varBetween.toDouble(),
+        varWithin: varWithin.toDouble(),
+        betweenProcessShare: share.toDouble(),
+      );
+    }
+    throw const FormatException(
+      'Invalid or incomplete ProcessVarianceComponents JSON',
+    );
+  }
+
+  @override
+  String toString() =>
+      'ProcessVarianceComponents(processes: $processes, '
+      'varBetween: ${varBetween.toStringAsFixed(3)}, '
+      'varWithin: ${varWithin.toStringAsFixed(3)}, '
+      'betweenShare: ${(betweenProcessShare * 100).toStringAsFixed(1)}%)';
+}
+
 /// Statistical summary metrics computed from a set of measurement trials.
 final class const BenchmarkMetrics({
   /// Arithmetic mean of per-operation latency in nanoseconds.
@@ -48,6 +190,10 @@ final class const BenchmarkMetrics({
   /// Whether the warmup phase reached steady-state convergence before
   /// measurement began and measurement distribution is stable.
   required final bool isStable,
+
+  /// Optional one-way variance decomposition across `P >= 2` independent OS
+  /// processes.
+  final ProcessVarianceComponents? varianceComponents,
 }) {
   /// Maximum acceptable Coefficient of Variation (CV) for a benchmark to be
   /// considered stable (default: 5%).
@@ -59,6 +205,7 @@ final class const BenchmarkMetrics({
     List<double> samplesNs, {
     bool isStable = true,
     double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+    ProcessVarianceComponents? varianceComponents,
   }) {
     if (samplesNs.isEmpty) {
       return BenchmarkMetrics(
@@ -76,18 +223,14 @@ final class const BenchmarkMetrics({
         p99Ns: 0.0,
         opsPerSec: 0.0,
         isStable: isStable,
+        varianceComponents: varianceComponents,
       );
     }
 
     final sorted = List<double>.of(samplesNs)..sort();
     final n = sorted.length;
 
-    var sum = 0.0;
-    for (final s in sorted) {
-      sum += s;
-    }
-    final mean = sum / n;
-
+    final mean = _meanOf(sorted);
     final median = n.isOdd
         ? sorted[n ~/ 2]
         : (sorted[n ~/ 2 - 1] + sorted[n ~/ 2]) / 2.0;
@@ -133,7 +276,59 @@ final class const BenchmarkMetrics({
       p99Ns: p99,
       opsPerSec: opsPerSec,
       isStable: effectiveStable,
+      varianceComponents: varianceComponents,
     );
+  }
+
+  /// Computes distribution summary metrics and one-way variance components from
+  /// multi-process trial samples [processSamplesNs].
+  ///
+  /// When [processSamplesNs] contains a single process (`P = 1`), delegates
+  /// directly to [BenchmarkMetrics.fromSamples] on that process's trials. When
+  /// `P > 1`, reduces each non-empty process `p` to its arithmetic mean and
+  /// computes summary metrics across the `P` process means so that [meanNs] is
+  /// the grand mean and [stddevNs] / [cv] reflect between-process dispersion,
+  /// while populating [varianceComponents] via
+  /// [ProcessVarianceComponents.compute].
+  factory fromProcesses(
+    List<List<double>> processSamplesNs, {
+    bool isStable = true,
+    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+  }) {
+    final nonEmpty = [
+      for (final p in processSamplesNs)
+        if (p.isNotEmpty) p,
+    ];
+    if (nonEmpty.isEmpty) {
+      return BenchmarkMetrics.fromSamples(
+        const <double>[],
+        isStable: isStable,
+        maxCvThreshold: maxCvThreshold,
+      );
+    }
+    if (nonEmpty.length == 1) {
+      return BenchmarkMetrics.fromSamples(
+        nonEmpty.single,
+        isStable: isStable,
+        maxCvThreshold: maxCvThreshold,
+      );
+    }
+    final processMeans = <double>[for (final p in nonEmpty) _meanOf(p)];
+    final components = ProcessVarianceComponents.compute(nonEmpty);
+    return BenchmarkMetrics.fromSamples(
+      processMeans,
+      isStable: isStable,
+      maxCvThreshold: maxCvThreshold,
+      varianceComponents: components,
+    );
+  }
+
+  static double _meanOf(List<double> values) {
+    var sum = 0.0;
+    for (final v in values) {
+      sum += v;
+    }
+    return sum / values.length;
   }
 
   /// Calculates the Median Absolute Deviation (MAD) of a sequence.
@@ -192,6 +387,8 @@ final class const BenchmarkMetrics({
     'p99_ns': p99Ns,
     'ops_per_sec': opsPerSec,
     'is_stable': isStable,
+    if (varianceComponents != null)
+      'variance_components': varianceComponents!.toJson(),
   };
 
   /// Constructs a [BenchmarkMetrics] instance from a JSON-compatible map.
@@ -209,6 +406,15 @@ final class const BenchmarkMetrics({
     }) {
       final isStable = (json['is_stable'] as bool?) ?? true;
       final isRobustStable = (json['is_robust_stable'] as bool?) ?? isStable;
+      final rawVarComp = json['variance_components'];
+      final varianceComponents = switch (rawVarComp) {
+        null => null,
+        final Map<String, Object?> m => ProcessVarianceComponents.fromJson(m),
+        final other => throw FormatException(
+          'Invalid "variance_components" in BenchmarkMetrics: '
+          'expected Map, got ${other.runtimeType}',
+        ),
+      };
       return BenchmarkMetrics(
         meanNs: mean.toDouble(),
         medianNs: median.toDouble(),
@@ -224,6 +430,7 @@ final class const BenchmarkMetrics({
         p99Ns: p99.toDouble(),
         opsPerSec: opsPerSec.toDouble(),
         isStable: isStable,
+        varianceComponents: varianceComponents,
       );
     }
     throw const FormatException('Invalid or incomplete BenchmarkMetrics JSON');

@@ -401,6 +401,63 @@ void main() {
       check(BenchmarkEntry.fromJson(decoded).warmup?['estimated_op_ns'])
           .equals(estimate);
     });
+
+    test('BenchmarkEntry.fromProcesses and '
+        'BenchmarkSuiteResult.aggregateProcesses aggregate multi-process runs '
+        'and round-trip JSON', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      final p1 = _createEntry('work', 'aot', 100.0);
+      final p2 = _createEntry('work', 'aot', 102.0);
+      final p3 = _createEntry('work', 'aot', 98.0);
+
+      final suite1 = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [p1],
+      );
+      final suite2 = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:01.000Z'),
+        environment: env,
+        benchmarks: [p2],
+      );
+      final suite3 = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:02.000Z'),
+        environment: env,
+        benchmarks: [p3],
+      );
+
+      final aggregated = BenchmarkSuiteResult.aggregateProcesses([
+        suite1,
+        suite2,
+        suite3,
+      ]);
+      final entry = aggregated.benchmarks.single;
+      check(entry.processes).equals(3);
+      check(entry.processMeansNs.length).equals(3);
+      check(entry.processTrialsNs.length).equals(3);
+      check(entry.effectiveSamplesNs).deepEquals(entry.processMeansNs);
+      check(entry.metrics.varianceComponents).isNotNull();
+
+      final roundTrip = BenchmarkSuiteResult.fromJsonString(
+        aggregated.toFormattedJson(),
+      );
+      final rtEntry = roundTrip.benchmarks.single;
+      check(rtEntry.processes).equals(3);
+      check(rtEntry.processMeansNs).deepEquals(entry.processMeansNs);
+      check(rtEntry.processTrialsNs.length).equals(3);
+      check(rtEntry.metrics.varianceComponents).isNotNull();
+
+      // Single-process passthrough and empty-list ArgumentError:
+      check(identical(BenchmarkEntry.fromProcesses([p1]), p1)).isTrue();
+      check(() => BenchmarkEntry.fromProcesses(const []))
+          .throws<ArgumentError>();
+      check(() => BenchmarkSuiteResult.aggregateProcesses(const []))
+          .throws<ArgumentError>();
+    });
   });
 }
 

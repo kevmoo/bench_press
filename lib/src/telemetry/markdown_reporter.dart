@@ -933,7 +933,7 @@ abstract final class MarkdownReporter() {
         ? (baseMean / curMean)
         : 1.0;
 
-    final verdict = _computeFiellerVerdict(base, cur);
+    final verdict = _computeFiellerVerdict(base, cur, isDelta: true);
     final isUnresolved = gate && !verdict.resolved;
 
     final (statusStr, trend) = isUnresolved
@@ -1050,8 +1050,9 @@ abstract final class MarkdownReporter() {
 
   static _Verdict _computeFiellerVerdict(
     BenchmarkEntry base,
-    BenchmarkEntry cur,
-  ) {
+    BenchmarkEntry cur, {
+    bool isDelta = false,
+  }) {
     // Same stability test as the "✅ Stable" badge in `### All Benchmarks`,
     // so both tables judge each cell's stability the same way.
     final baseUnstable = !base.metrics.isStable;
@@ -1068,12 +1069,20 @@ abstract final class MarkdownReporter() {
         ],
       );
     }
-    if (base.rawTrialsNs.length < 2 || cur.rawTrialsNs.length < 2) {
+    final sampleA = base.effectiveSamplesNs;
+    final sampleB = cur.effectiveSamplesNs;
+    if (sampleA.length < 2 || sampleB.length < 2) {
       return _unboundedVerdict;
     }
+    final usePaired =
+        !isDelta &&
+        base.processes > 1 &&
+        base.processes == cur.processes &&
+        _sharedProcessLaunchCoordinates(base, cur);
     final interval = FiellerInterval.compute(
-      sampleA: base.rawTrialsNs,
-      sampleB: cur.rawTrialsNs,
+      sampleA: sampleA,
+      sampleB: sampleB,
+      paired: usePaired,
     );
     if (!interval.isValid ||
         interval.lowerBound.isNaN ||
@@ -1089,6 +1098,25 @@ abstract final class MarkdownReporter() {
       matrixCiString: '[${low}x – ${high}x]',
       reasons: const [],
     );
+  }
+
+  /// Returns `true` when [a] and [b] executed inside the same `P` shared OS
+  /// process launches (same target and identical matrix coordinates except for
+  /// intra-file `group`).
+  static bool _sharedProcessLaunchCoordinates(
+    BenchmarkEntry a,
+    BenchmarkEntry b,
+  ) {
+    if (a.target != b.target) return false;
+    for (final entry in a.coordinates.entries) {
+      if (entry.key == BenchmarkCoordinates.groupKey) continue;
+      if (b.coordinates[entry.key] != entry.value) return false;
+    }
+    for (final key in b.coordinates.keys) {
+      if (key == BenchmarkCoordinates.groupKey) continue;
+      if (!a.coordinates.containsKey(key)) return false;
+    }
+    return true;
   }
 
   static const _Verdict _unboundedVerdict = (

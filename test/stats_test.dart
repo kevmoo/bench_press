@@ -181,5 +181,86 @@ void main() {
       check(BenchmarkMetrics.computeIqr([])).equals(0.0);
       check(BenchmarkMetrics.computeIqr([1.0, 2.0, 3.0, 4.0, 5.0])).equals(2.0);
     });
+
+    test(
+      'ProcessVarianceComponents.compute uses drift-immune first differences '
+      'and BenchmarkMetrics.fromProcesses attaches varianceComponents',
+      () {
+        check(ProcessVarianceComponents.compute([])).isNull();
+        check(
+          ProcessVarianceComponents.compute([
+            [100.0, 101.0],
+          ]),
+        ).isNull();
+        // 1 trial per process -> 0 within-process degrees of freedom -> null.
+        check(
+          ProcessVarianceComponents.compute([
+            [100.0],
+            [110.0],
+          ]),
+        ).isNull();
+
+        // msBetween < msWithin clamps varBetween and betweenProcessShare to 0.
+        final clamped = ProcessVarianceComponents.compute([
+          [90.0, 110.0, 90.0, 110.0],
+          [90.0, 110.0, 90.0, 110.0],
+        ])!;
+        check(clamped.msBetween).equals(0.0);
+        check(clamped.msWithin).equals(200.0);
+        check(clamped.varBetween).equals(0.0);
+        check(clamped.betweenProcessShare).equals(0.0);
+
+        // Unbalanced trial counts (N_1 = 2 at mean 100, N_2 = 6 at mean 200):
+        // weighted grand mean = (200 + 1200) / 8 = 175.0,
+        // SS_between = 2 * (-75)^2 + 6 * (25)^2 = 11250 + 3750 = 15000,
+        // k0 = (8 - (4 + 36) / 8) / 1 = 3.0.
+        final unbalanced = ProcessVarianceComponents.compute([
+          [99.0, 101.0],
+          [199.0, 201.0, 199.0, 201.0, 199.0, 201.0],
+        ])!;
+        check((unbalanced.msBetween - 15000.0).abs()).isLessThan(1e-9);
+        check((unbalanced.msWithin - 2.0).abs()).isLessThan(1e-9);
+        check((unbalanced.varBetween - ((15000.0 - 2.0) / 3.0)).abs())
+            .isLessThan(1e-9);
+
+        // 3 processes with distinct process offsets (+0, +10, +20 ns) and
+        // tiny step-to-step differences (alternating ±1 ns => diff = ±2 ns,
+        // so msWithin = 0.5 * 4 = 2.0).
+        final processTrials = [
+          [99.5, 100.5, 99.5, 100.5],
+          [109.5, 110.5, 109.5, 110.5],
+          [119.5, 120.5, 119.5, 120.5],
+        ];
+        final metrics = BenchmarkMetrics.fromProcesses(processTrials);
+        check((metrics.meanNs - 110.0).abs()).isLessThan(1e-9);
+        check((metrics.stddevNs - 10.0).abs()).isLessThan(1e-9);
+
+        final vc = metrics.varianceComponents;
+        check(vc).isNotNull();
+        check(vc!.processes).equals(3);
+        check(vc.meanTrialsPerProcess).equals(4.0);
+        check((vc.msWithin - 0.5).abs()).isLessThan(1e-9);
+        check((vc.msBetween - 400.0).abs()).isLessThan(1e-9);
+        check((vc.varBetween - 99.875).abs()).isLessThan(1e-9);
+        check(vc.betweenProcessShare).isGreaterThan(0.99);
+        check(vc.toString()).contains('ProcessVarianceComponents(processes: 3');
+
+        final roundTrip = BenchmarkMetrics.fromJson(metrics.toJson());
+        check(roundTrip.varianceComponents).isNotNull();
+        check(roundTrip.varianceComponents!.processes).equals(3);
+        check(
+          (roundTrip.varianceComponents!.betweenProcessShare -
+                  vc.betweenProcessShare)
+              .abs(),
+        ).isLessThan(1e-9);
+
+        check(BenchmarkMetrics.fromProcesses([]).meanNs).equals(0.0);
+        check(
+          BenchmarkMetrics.fromProcesses([
+            [50.0, 50.0],
+          ]).varianceComponents,
+        ).isNull();
+      },
+    );
   });
 }
