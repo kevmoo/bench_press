@@ -180,6 +180,10 @@ dart run bench_press validate
 dart run bench_press report --from-json benchmark_results.json
 dart run bench_press diff baseline.json benchmark_results.json
 
+# Require a ±2% practical significance / TOST equivalence band
+dart run bench_press diff --threshold 2% baseline.json benchmark_results.json
+dart run bench_press run --threshold 0.02 --diff origin/main benchmark/
+
 # Run a single benchmark script directly with entrypoint flags
 dart run benchmark/json_benchmark.dart --validate
 dart run benchmark/json_benchmark.dart --trials 5 --target-batch-ms 50
@@ -208,6 +212,7 @@ defaults:
   trials: 16
   max_trials: 32
   processes: 1
+  threshold: 0.02
   isolate_mode: false
   # Default output path for `run` and `run --diff` (supports leading `~`).
   output: benchmark_results.json
@@ -265,6 +270,32 @@ alias `--forks`):
   also records `metrics.variance_components` (`ProcessVarianceComponents`) using
   a drift-immune first-difference within-process estimator (`ms_within`,
   `ms_between`, `var_between`, `var_within`, and `between_process_share`).
+
+### Practical Significance & Equivalence Testing (`--threshold`)
+
+By default (`--threshold 0`), any resolved comparison whose 95% Fieller CI
+contains `1.00x` is reported as `➖ ⚪ Neutral`, and point estimates clearing
+`±5%` (`>= 1.05x` or `<= 0.95x`) with a non-straddling 95% CI are flagged as
+`🚀 Faster` (`🚀 🥇 Peak`) or `⚠️ Regression` (`⚠️ 🔴 Slow`).
+
+When you want to separate statistically significant micro-movements from
+practically meaningful changes—or prove that a refactoring did not regress
+performance beyond a known tolerance—pass `--threshold <delta>` (as a fraction
+like `0.02` or percentage like `2%`, or set `defaults.threshold` in
+`bench_press.yaml`) to `run`, `report`, or `diff`:
+
+- **`🚀 Faster` / `🚀 🥇 Peak`**: The entire 95% Fieller CI lies at or above
+  `1.0 + threshold` (for example `>= 1.02x` at `--threshold 2%`).
+- **`⚠️ Regression` / `⚠️ 🔴 Slow`**: The entire 95% Fieller CI lies at or below
+  `1.0 / (1.0 + threshold)` (for example `<= 0.9804x` at `--threshold 2%`).
+- **`✅ Equivalent` (Schuirmann TOST)**: The 90% Fieller CI (corresponding to
+  two one-sided tests at `alpha = 0.05` per side) lies completely inside
+  `[1.0 / (1.0 + threshold), 1.0 + threshold]`, proving equivalence within the
+  practical margin.
+- **`➖ ⚪ Inconclusive`**: The confidence interval straddles the equivalence
+  boundary without proving either a directional change beyond `threshold` or
+  equivalence within `±threshold` (add `--processes` or `--trials` to tighten
+  the interval).
 
 ### Pinning to CPUs (`--pin-cpu`, Linux)
 

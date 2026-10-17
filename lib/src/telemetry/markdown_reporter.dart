@@ -12,6 +12,7 @@ abstract final class MarkdownReporter() {
     BenchmarkSuiteResult suite, {
     String? title,
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final buffer = StringBuffer();
     final heading = title ?? 'Benchmark Suite Results';
@@ -38,7 +39,9 @@ abstract final class MarkdownReporter() {
         );
 
     if (isLegacyGrouped) {
-      buffer.write(_renderLegacyGroupedSuite(suite, gate: gate));
+      buffer.write(
+        _renderLegacyGroupedSuite(suite, gate: gate, threshold: threshold),
+      );
       return buffer.toString().trimRight();
     }
 
@@ -60,6 +63,7 @@ abstract final class MarkdownReporter() {
           entries: workload.value,
           title: defaultTitle,
           gate: gate,
+          threshold: threshold,
         ),
       );
       buffer.writeln();
@@ -72,6 +76,7 @@ abstract final class MarkdownReporter() {
   static String _renderLegacyGroupedSuite(
     BenchmarkSuiteResult suite, {
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final buffer = StringBuffer();
     final suiteSummary = renderSuiteSummaryTable(suite, gate: gate);
@@ -79,7 +84,11 @@ abstract final class MarkdownReporter() {
       buffer.writeln(suiteSummary);
       buffer.writeln();
     }
-    final groupTables = renderAllGroupComparisonTables(suite, gate: gate);
+    final groupTables = renderAllGroupComparisonTables(
+      suite,
+      gate: gate,
+      threshold: threshold,
+    );
     if (groupTables.isNotEmpty) {
       buffer.write(groupTables);
     }
@@ -249,6 +258,7 @@ abstract final class MarkdownReporter() {
     required List<BenchmarkEntry> entries,
     String? title,
     bool gate = true,
+    double threshold = 0.0,
   }) {
     if (entries.isEmpty) return '';
 
@@ -310,6 +320,7 @@ abstract final class MarkdownReporter() {
           gate,
           stats,
           includeNameCol: includeNameCol,
+          threshold: threshold,
         ),
       );
       _recordDrift(
@@ -382,6 +393,7 @@ abstract final class MarkdownReporter() {
     bool gate,
     _DeltaStats stats, {
     required bool includeNameCol,
+    double threshold = 0.0,
   }) {
     final curMeanNs = entry.metrics.meanNs;
     final prefixCols = <String>[
@@ -414,8 +426,9 @@ abstract final class MarkdownReporter() {
     final isUnresolved = gate && !verdict.resolved;
     final movement = _classifyMovement(
       speedup,
+      verdict,
       isDelta: false,
-      straddlesOne: verdict.straddlesOne,
+      threshold: threshold,
     );
     _tally(stats, verdict, speedup, movement.$2, unresolved: isUnresolved);
 
@@ -467,6 +480,7 @@ abstract final class MarkdownReporter() {
   static String renderAllGroupComparisonTables(
     BenchmarkSuiteResult suite, {
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final buffer = StringBuffer();
     final map = <(String, String), List<BenchmarkEntry>>{};
@@ -492,6 +506,7 @@ abstract final class MarkdownReporter() {
           target: key.$2,
           entries: entries,
           gate: gate,
+          threshold: threshold,
         ),
       );
       buffer.writeln();
@@ -506,6 +521,7 @@ abstract final class MarkdownReporter() {
     required List<BenchmarkEntry> entries,
     String? title,
     bool gate = true,
+    double threshold = 0.0,
   }) {
     if (entries.isEmpty) return '';
     final strippedEntries = entries.map((e) {
@@ -519,6 +535,7 @@ abstract final class MarkdownReporter() {
       entries: strippedEntries,
       title: title ?? legacyHeading,
       gate: gate,
+      threshold: threshold,
     );
   }
 
@@ -590,6 +607,7 @@ abstract final class MarkdownReporter() {
     String baselineLabel = 'Baseline',
     String currentLabel = 'Current',
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final buffer = StringBuffer();
     final heading = title ?? 'Before vs. After Delta Comparison';
@@ -608,6 +626,7 @@ abstract final class MarkdownReporter() {
           baselineLabel: baselineLabel,
           currentLabel: currentLabel,
           gate: gate,
+          threshold: threshold,
         ),
       );
     }
@@ -689,6 +708,7 @@ abstract final class MarkdownReporter() {
     required String baselineLabel,
     required String currentLabel,
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final buffer = StringBuffer();
     final hasThroughput = matched.any(
@@ -705,6 +725,7 @@ abstract final class MarkdownReporter() {
         cur,
         hasThroughput: hasThroughput,
         gate: gate,
+        threshold: threshold,
       );
       buffer.writeln(rowStr);
       _tally(
@@ -924,6 +945,7 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry cur, {
     bool hasThroughput = false,
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final baseMean = base.metrics.meanNs;
     final curMean = cur.metrics.meanNs;
@@ -940,8 +962,9 @@ abstract final class MarkdownReporter() {
         ? ('❓ Unresolved', 0)
         : _classifyMovement(
             speedup,
+            verdict,
             isDelta: true,
-            straddlesOne: verdict.straddlesOne,
+            threshold: threshold,
           );
 
     final baseStr = _formatLatency(baseMean);
@@ -973,9 +996,14 @@ abstract final class MarkdownReporter() {
   }
 
   /// Renders a Markdown summary report directly from a stored JSON file.
-  static String renderFromFile(File file, {String? title, bool gate = true}) {
+  static String renderFromFile(
+    File file, {
+    String? title,
+    bool gate = true,
+    double threshold = 0.0,
+  }) {
     final suite = BenchmarkSuiteResult.loadFromFile(file);
-    return renderSuite(suite, title: title, gate: gate);
+    return renderSuite(suite, title: title, gate: gate, threshold: threshold);
   }
 
   /// Renders a Markdown summary report directly from a stored JSON file path.
@@ -983,7 +1011,13 @@ abstract final class MarkdownReporter() {
     String path, {
     String? title,
     bool gate = true,
-  }) => renderFromFile(File(path), title: title, gate: gate);
+    double threshold = 0.0,
+  }) => renderFromFile(
+    File(path),
+    title: title,
+    gate: gate,
+    threshold: threshold,
+  );
 
   /// Renders an isolated delta comparison table comparing two stored JSON
   /// files.
@@ -994,6 +1028,7 @@ abstract final class MarkdownReporter() {
     String baselineLabel = 'Baseline',
     String currentLabel = 'Current',
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final baseline = BenchmarkSuiteResult.loadFromFile(baselineFile);
     final current = BenchmarkSuiteResult.loadFromFile(currentFile);
@@ -1004,23 +1039,54 @@ abstract final class MarkdownReporter() {
       baselineLabel: baselineLabel,
       currentLabel: currentLabel,
       gate: gate,
+      threshold: threshold,
     );
   }
 
-  /// Classifies [speedup] against the ±5% band.
+  /// Classifies [speedup] and [verdict] against the ±5% default band or an
+  /// explicit equivalence [threshold].
   ///
-  /// A resolved 95% CI that contains 1.00x ([straddlesOne]) is always
-  /// Neutral: the data cannot tell faster from slower, whatever the point
-  /// estimate says.
+  /// When [threshold] is `0.0` (the default), a resolved 95% CI that contains
+  /// 1.00x (`verdict.straddlesOne`) is always Neutral: the data cannot tell
+  /// faster from slower, whatever the point estimate says.
+  ///
+  /// When [threshold] > `0.0`, directional claims (`🚀 Faster` / `⚠️ Regression`)
+  /// require the 95% CI to clear `1.0 + threshold` or `1.0 / (1.0 + threshold)`,
+  /// and `✅ Equivalent` requires the 90% Fieller CI (Schuirmann TOST at
+  /// `alpha = 0.05` per side) to lie completely within
+  /// `[1.0 / (1.0 + threshold), 1.0 + threshold]`.
   static (String, int) _classifyMovement(
-    double speedup, {
+    double speedup,
+    _Verdict verdict, {
     bool isDelta = false,
-    bool straddlesOne = false,
+    double threshold = 0.0,
   }) {
-    if (straddlesOne) return ('➖ ⚪ Neutral', 0);
+    if (threshold > 0.0) {
+      return _classifyThresholdMovement(verdict, threshold, isDelta: isDelta);
+    }
+    if (verdict.straddlesOne) return ('➖ ⚪ Neutral', 0);
     if (speedup >= 1.05) return (isDelta ? '🚀 Faster' : '🚀 🥇 Peak', 1);
     if (speedup <= 0.95) return (isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow', -1);
     return ('➖ ⚪ Neutral', 0);
+  }
+
+  static (String, int) _classifyThresholdMovement(
+    _Verdict verdict,
+    double threshold, {
+    required bool isDelta,
+  }) {
+    final upperEq = 1.0 + threshold;
+    final lowerEq = 1.0 / upperEq;
+    if (verdict.lowerBound >= upperEq) {
+      return (isDelta ? '🚀 Faster' : '🚀 🥇 Peak', 1);
+    }
+    if (verdict.upperBound <= lowerEq) {
+      return (isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow', -1);
+    }
+    if (verdict.lowerBound90 >= lowerEq && verdict.upperBound90 <= upperEq) {
+      return ('✅ Equivalent', 0);
+    }
+    return ('➖ ⚪ Inconclusive', 0);
   }
 
   static String _formatLatency(double ns) => switch (ns) {
@@ -1061,6 +1127,10 @@ abstract final class MarkdownReporter() {
       return (
         resolved: false,
         straddlesOne: false,
+        lowerBound: double.nan,
+        upperBound: double.nan,
+        lowerBound90: double.nan,
+        upperBound90: double.nan,
         ciString: '[N/A]',
         matrixCiString: '[N/A]',
         reasons: [
@@ -1089,11 +1159,21 @@ abstract final class MarkdownReporter() {
         interval.upperBound.isNaN) {
       return _unboundedVerdict;
     }
+    final interval90 = FiellerInterval.compute(
+      sampleA: sampleA,
+      sampleB: sampleB,
+      confidenceLevel: 0.90,
+      paired: usePaired,
+    );
     final low = interval.lowerBound.toStringAsFixed(2);
     final high = interval.upperBound.toStringAsFixed(2);
     return (
       resolved: true,
       straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
+      lowerBound: interval.lowerBound,
+      upperBound: interval.upperBound,
+      lowerBound90: interval90.lowerBound,
+      upperBound90: interval90.upperBound,
       ciString: '[$low x, $high x]',
       matrixCiString: '[${low}x – ${high}x]',
       reasons: const [],
@@ -1122,6 +1202,10 @@ abstract final class MarkdownReporter() {
   static const _Verdict _unboundedVerdict = (
     resolved: false,
     straddlesOne: false,
+    lowerBound: double.nan,
+    upperBound: double.nan,
+    lowerBound90: double.nan,
+    upperBound90: double.nan,
     ciString: '[N/A]',
     matrixCiString: '[N/A]',
     reasons: ['unbounded CI'],
@@ -1139,6 +1223,10 @@ typedef _Verdict = ({
 
   /// Whether the resolved 95% CI contains 1.00x (no detectable change).
   bool straddlesOne,
+  double lowerBound,
+  double upperBound,
+  double lowerBound90,
+  double upperBound90,
   String ciString,
   String matrixCiString,
   List<String> reasons,

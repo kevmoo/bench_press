@@ -19,6 +19,15 @@ class ConfigValidator() {
       );
     }
 
+    if (!config.defaults.threshold.isFinite ||
+        config.defaults.threshold < 0.0 ||
+        config.defaults.threshold >= 1.0) {
+      throw FormatException(
+        'Invalid default threshold: ${config.defaults.threshold}. '
+        'Must be >= 0.0 and < 1.0.',
+      );
+    }
+
     // 2. Validate matrix
     final coords = config.generateCoordinates();
 

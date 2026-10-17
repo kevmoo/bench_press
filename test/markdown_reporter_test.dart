@@ -1275,6 +1275,86 @@ void main() {
       );
       check(separateCoordReport).contains('[1.01x – 1.11x]');
     });
+
+    test('threshold > 0 classifies Faster, Regression, Equivalent (TOST), and '
+        'Inconclusive across matrix and delta tables', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      BenchmarkEntry entry(
+        String name,
+        double meanNs, {
+        double spread = 0.2,
+        bool isBaseline = false,
+      }) => _createGroupEntryWithSamples(
+        name: name,
+        target: 'jit',
+        meanNs: meanNs,
+        samples: [
+          meanNs - spread,
+          meanNs - spread / 2,
+          meanNs,
+          meanNs + spread / 2,
+          meanNs + spread,
+        ],
+        group: 'ThreshGroup',
+        isBaseline: isBaseline,
+      );
+
+      final base = entry('base', 100.0, isBaseline: true);
+      // ~1.005x with tiny spread -> 90% CI well within [0.9804, 1.02] at
+      // threshold = 0.02 -> ✅ Equivalent.
+      final equiv = entry('equiv', 99.5, spread: 0.2);
+      // ~1.04x with tiny spread -> 95% CI > 1.02 at threshold = 0.02 ->
+      // 🚀 🥇 Peak / 🚀 Faster (even though < 1.05 default heuristic).
+      final faster = entry('faster', 96.0, spread: 0.2);
+      // ~0.96x with tiny spread -> 95% CI < 0.9804 at threshold = 0.02 ->
+      // ⚠️ 🔴 Slow / ⚠️ Regression.
+      final slower = entry('slower', 104.2, spread: 0.2);
+      // ~1.018x with wider spread -> straddles 1.02 boundary ->
+      // ➖ ⚪ Inconclusive.
+      final inconclusive = entry('inconclusive', 98.2, spread: 1.5);
+
+      final matrixReport = MarkdownReporter.renderGroupComparisonTable(
+        groupName: 'ThreshGroup',
+        target: 'jit',
+        entries: [base, equiv, faster, slower, inconclusive],
+        threshold: 0.02,
+      );
+      check(matrixReport).contains('| `equiv` |');
+      check(matrixReport).contains('✅ Equivalent');
+      check(matrixReport).contains('🚀 🥇 Peak');
+      check(matrixReport).contains('⚠️ 🔴 Slow');
+      check(matrixReport).contains('➖ ⚪ Inconclusive');
+
+      // Delta table check at threshold = 0.02:
+      final baseSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [
+          entry('equiv', 100.0),
+          entry('faster', 100.0),
+          entry('slower', 100.0),
+          entry('inconclusive', 100.0),
+        ],
+      );
+      final curSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+        environment: env,
+        benchmarks: [equiv, faster, slower, inconclusive],
+      );
+      final deltaReport = MarkdownReporter.renderDeltaTable(
+        baseline: baseSuite,
+        current: curSuite,
+        threshold: 0.02,
+      );
+      check(deltaReport).contains('✅ Equivalent');
+      check(deltaReport).contains('🚀 Faster');
+      check(deltaReport).contains('⚠️ Regression');
+      check(deltaReport).contains('➖ ⚪ Inconclusive');
+    });
   });
 }
 
