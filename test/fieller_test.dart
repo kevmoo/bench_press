@@ -188,5 +188,64 @@ void main() {
       final t = studentTQuantile(0.975, 0.5);
       check((t - 12.7062).abs()).isLessThan(0.01);
     });
+
+    test('paired Fieller narrows CI under positive covariance and widens under '
+        'negative covariance', () {
+      // Positively correlated samples (shared linear ramp across 8 trials)
+      final sampleB = [96.0, 97.0, 98.0, 99.0, 101.0, 102.0, 103.0, 104.0];
+      final sampleA = [48.2, 48.4, 49.1, 49.4, 50.6, 50.9, 51.6, 51.8];
+
+      final unpaired = FiellerInterval.compute(
+        sampleA: sampleA,
+        sampleB: sampleB,
+      );
+      final pairedPos = FiellerInterval.compute(
+        sampleA: sampleA,
+        sampleB: sampleB,
+        paired: true,
+      );
+      final pairedNeg = FiellerInterval.compute(
+        sampleA: sampleA.reversed.toList(),
+        sampleB: sampleB,
+        paired: true,
+      );
+
+      check(unpaired.paired).isFalse();
+      check(pairedPos.paired).isTrue();
+      check(pairedNeg.paired).isTrue();
+      check(pairedPos.isValid).isTrue();
+      check(pairedNeg.isValid).isTrue();
+      check(pairedPos.toJson()['paired']).equals(true);
+      check(unpaired.toJson().containsKey('paired')).isFalse();
+      check(pairedPos.upperBound - pairedPos.lowerBound)
+          .isLessThan(unpaired.upperBound - unpaired.lowerBound);
+      check(pairedNeg.upperBound - pairedNeg.lowerBound)
+          .isGreaterThan(unpaired.upperBound - unpaired.lowerBound);
+    });
+
+    test('paired Fieller handles perfectly collinear samples (r = 1.0) and '
+        'falls back to unpaired when sample lengths differ', () {
+      final sampleB = [100.0, 102.0, 104.0, 106.0, 108.0];
+      final sampleA = [50.0, 51.0, 52.0, 53.0, 54.0];
+
+      final collinear = FiellerInterval.compute(
+        sampleA: sampleA,
+        sampleB: sampleB,
+        paired: true,
+      );
+      check(collinear.isValid).isTrue();
+      check(collinear.paired).isTrue();
+      check((collinear.ratio - 0.5).abs()).isLessThan(1e-9);
+      check((collinear.lowerBound - 0.5).abs()).isLessThan(1e-6);
+      check((collinear.upperBound - 0.5).abs()).isLessThan(1e-6);
+
+      final mismatched = FiellerInterval.compute(
+        sampleA: [...sampleA, 55.0],
+        sampleB: sampleB,
+        paired: true,
+      );
+      check(mismatched.isValid).isTrue();
+      check(mismatched.paired).isFalse();
+    });
   });
 }

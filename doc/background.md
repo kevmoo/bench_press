@@ -178,6 +178,15 @@ A resolved interval that contains `1.00x` is reported as `➖ ⚪ Neutral`
 whatever the point estimate, because the data cannot tell a speedup from a
 slowdown.
 
+When two sample vectors of equal length `n` are paired across a shared external
+confounder (such as process round `p` in multi-process runs), passing
+`paired: true` to `FiellerInterval.compute` includes the sample covariance term
+`-2 * r * cov(A, B) / (n * meanB * meanB)` under the radical with `df = n - 1`
+degrees of freedom. Within a single OS process, `ABBA BAAB` block visits already
+decorrelate trial indices (`r = 0.01–0.04`), so single-process comparisons
+default to Welch's unpaired formulation (`paired: false`) to preserve full
+degrees of freedom.
+
 ---
 
 ### `ABBA BAAB` Trial Interleaving in `BenchmarkGroup`
@@ -208,9 +217,12 @@ from measurement across the group:
    switch, `0.4.0` roughly doubled per-cell `robust_cv`. So each visit records a
    block of trials per variant, sized so that four visits cover `trials`
    (keeping the four-visit drift cancellation), and whenever the variant changes
-   two batches run and are thrown away before the measured ones. On Wasm this
-   brings the per-cell spread back to what sequential execution gives, at about
-   +20% wall-clock over sequential.
+   two batches run and are thrown away before the measured ones. By default,
+   `BenchmarkConfig.defaultTrials = 16` divides evenly across the four
+   `ABBA BAAB` visits (`[4, 4, 4, 4]` trials per visit) so that no final visit
+   receives a truncated block weight. On Wasm this brings the per-cell spread
+   back to what sequential execution gives, at about +20% wall-clock over
+   sequential.
 
 ---
 

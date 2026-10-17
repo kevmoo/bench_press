@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:source_span/source_span.dart';
 import 'package:yaml/yaml.dart';
 
+import '../config.dart' show BenchmarkConfig;
 import '../telemetry/schema.dart' show defaultTelemetryFileName;
 
 class BenchPressConfig({
@@ -53,7 +54,7 @@ class DefaultsConfig({
     if (map == null) {
       return DefaultsConfig(
         targets: ['jit', 'aot'],
-        trials: 15,
+        trials: BenchmarkConfig.defaultTrials,
         maxTrials: null,
         isolateMode: false,
       );
@@ -68,7 +69,7 @@ class DefaultsConfig({
     }
 
     final trialsNode = map.nodes['trials'];
-    var trials = 15;
+    var trials = BenchmarkConfig.defaultTrials;
     if (trialsNode != null) {
       if (trialsNode.value is! int) {
         throw SourceSpanException(

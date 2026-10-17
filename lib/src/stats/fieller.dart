@@ -2,10 +2,10 @@ import 'dart:math' as math;
 
 import 'warmup.dart';
 
-/// Represents Fieller's confidence interval for a ratio of two independent
-/// means ($\mu_A / \mu_B$).
+/// Represents Fieller's confidence interval for a ratio of two means
+/// (`meanA / meanB`).
 final class const FiellerInterval({
-  /// Point estimate ratio of means ($\bar{x}_A / \bar{x}_B$).
+  /// Point estimate ratio of means (`meanA / meanB`).
   required final double ratio,
 
   /// Lower bound of the confidence interval.
@@ -14,26 +14,41 @@ final class const FiellerInterval({
   /// Upper bound of the confidence interval.
   required final double upperBound,
 
-  /// Fieller's $g$ parameter ($t^2 \cdot V_B / \bar{x}_B^2$).
+  /// Fieller's `g` parameter (`t^2 * vB / meanB^2`).
   ///
-  /// For a valid bounded interval, $g < 1.0$ is required.
+  /// For a valid bounded interval, `g < 1.0` is required.
   required final double g,
 
-  /// Whether the confidence interval is finite and valid ($g < 1.0$ and
+  /// Whether the confidence interval is finite and valid (`g < 1.0` and
   /// non-degenerate denominator).
   required final bool isValid,
 
   /// The nominal confidence level (default: 0.95).
   final double confidenceLevel = 0.95,
+
+  /// Whether this interval was computed using paired sample covariance
+  /// (`df = n - 1`).
+  final bool paired = false,
 }) {
   /// Computes Fieller's confidence interval for the ratio of means of two
-  /// independent sample distributions [sampleA] and [sampleB].
+  /// sample distributions [sampleA] and [sampleB].
+  ///
+  /// When [paired] is `true` and `sampleA.length == sampleB.length`, applies
+  /// the bivariate (covariance-aware) Fieller's theorem using the paired
+  /// sample covariance `vAB = cov(sampleA, sampleB) / n` and `df = n - 1`
+  /// degrees of freedom. If [paired] is `false` or sample lengths differ, uses
+  /// the unpaired Welch-Satterthwaite approximation.
   factory compute({
     required List<double> sampleA,
     required List<double> sampleB,
     double confidenceLevel = 0.95,
+    bool paired = false,
   }) {
-    if (sampleA.length < 2 || sampleB.length < 2) {
+    final nA = sampleA.length;
+    final nB = sampleB.length;
+    final usePaired = paired && nA == nB;
+
+    if (nA < 2 || nB < 2) {
       return FiellerInterval(
         ratio: double.nan,
         lowerBound: double.nan,
@@ -41,11 +56,9 @@ final class const FiellerInterval({
         g: double.infinity,
         isValid: false,
         confidenceLevel: confidenceLevel,
+        paired: usePaired,
       );
     }
-
-    final nA = sampleA.length;
-    final nB = sampleB.length;
 
     final meanA = AdaptiveWarmupDetector.computeMean(sampleA);
     final meanB = AdaptiveWarmupDetector.computeMean(sampleB);
@@ -58,6 +71,7 @@ final class const FiellerInterval({
         g: double.infinity,
         isValid: false,
         confidenceLevel: confidenceLevel,
+        paired: usePaired,
       );
     }
 
@@ -77,16 +91,20 @@ final class const FiellerInterval({
         g: 0.0,
         isValid: true,
         confidenceLevel: confidenceLevel,
+        paired: usePaired,
       );
     }
 
-    // Welch-Satterthwaite approximation for degrees of freedom
-    final num = (vA + vB) * (vA + vB);
-    final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
-    final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
-    final df = (denomA + denomB > 0.0)
-        ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
-        : (nA + nB - 2.0).clamp(1.0, 10000.0);
+    final vAB = usePaired
+        ? _sampleCovariance(sampleA, meanA, sampleB, meanB) / nA
+        : 0.0;
+    final df = _computeDegreesOfFreedom(
+      nA: nA,
+      nB: nB,
+      vA: vA,
+      vB: vB,
+      usePaired: usePaired,
+    );
 
     final p = 1.0 - (1.0 - confidenceLevel) / 2.0;
     final t = studentTQuantile(p, df);
@@ -101,11 +119,26 @@ final class const FiellerInterval({
         g: g,
         isValid: false,
         confidenceLevel: confidenceLevel,
+        paired: usePaired,
       );
     }
 
-    final disc = vA * (1.0 - g) + (ratio * ratio * vB);
-    if (disc < 0.0) {
+    // In bivariate Fieller's theorem with covariance V_AB,
+    // g * (V_AB / V_B) = t^2 * V_AB / meanB^2, and the discriminant under the
+    // radical is:
+    //   (V_A - 2*R*V_AB + R^2*V_B) - g*(V_A - V_AB^2 / V_B)
+    //   = V_A*(1 - g) + R^2*V_B - 2*R*V_AB + gCov*V_AB.
+    final gCov = usePaired ? (t * t * vAB) / (meanB * meanB) : 0.0;
+    final disc = _computeDiscriminant(
+      vA: vA,
+      vB: vB,
+      vAB: vAB,
+      ratio: ratio,
+      g: g,
+      gCov: gCov,
+      usePaired: usePaired,
+    );
+    if (disc < 0.0 || disc.isNaN) {
       return FiellerInterval(
         ratio: ratio,
         lowerBound: ratio,
@@ -113,13 +146,15 @@ final class const FiellerInterval({
         g: g,
         isValid: false,
         confidenceLevel: confidenceLevel,
+        paired: usePaired,
       );
     }
 
     final margin = (t / meanB.abs()) * math.sqrt(disc);
     final oneMinusG = 1.0 - g;
-    final lower = (ratio - margin) / oneMinusG;
-    final upper = (ratio + margin) / oneMinusG;
+    final centerNum = ratio - gCov;
+    final lower = (centerNum - margin) / oneMinusG;
+    final upper = (centerNum + margin) / oneMinusG;
 
     return FiellerInterval(
       ratio: ratio,
@@ -128,7 +163,43 @@ final class const FiellerInterval({
       g: g,
       isValid: true,
       confidenceLevel: confidenceLevel,
+      paired: usePaired,
     );
+  }
+
+  static double _computeDegreesOfFreedom({
+    required int nA,
+    required int nB,
+    required double vA,
+    required double vB,
+    required bool usePaired,
+  }) {
+    if (usePaired) {
+      return (nA - 1.0).clamp(1.0, 10000.0);
+    }
+    final num = (vA + vB) * (vA + vB);
+    final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
+    final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
+    return (denomA + denomB > 0.0)
+        ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
+        : (nA + nB - 2.0).clamp(1.0, 10000.0);
+  }
+
+  static double _computeDiscriminant({
+    required double vA,
+    required double vB,
+    required double vAB,
+    required double ratio,
+    required double g,
+    required double gCov,
+    required bool usePaired,
+  }) {
+    final baseDisc = vA * (1.0 - g) + (ratio * ratio * vB);
+    final rawDisc = usePaired
+        ? baseDisc - (2.0 * ratio * vAB) + (gCov * vAB)
+        : baseDisc;
+    final scale = vA + (ratio * ratio * vB);
+    return (rawDisc < 0.0 && rawDisc >= -1e-12 * scale) ? 0.0 : rawDisc;
   }
 
   static double _sampleVariance(List<double> samples, double mean) {
@@ -141,6 +212,21 @@ final class const FiellerInterval({
     return sumSq / (samples.length - 1);
   }
 
+  static double _sampleCovariance(
+    List<double> sampleA,
+    double meanA,
+    List<double> sampleB,
+    double meanB,
+  ) {
+    final n = sampleA.length;
+    if (n <= 1 || n != sampleB.length) return 0.0;
+    var sumCross = 0.0;
+    for (var i = 0; i < n; i++) {
+      sumCross += (sampleA[i] - meanA) * (sampleB[i] - meanB);
+    }
+    return sumCross / (n - 1);
+  }
+
   /// Converts to JSON map.
   Map<String, Object?> toJson() => {
     'ratio': ratio,
@@ -149,6 +235,7 @@ final class const FiellerInterval({
     'g': g,
     'is_valid': isValid,
     'confidence_level': confidenceLevel,
+    if (paired) 'paired': paired,
   };
 
   @override

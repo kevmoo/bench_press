@@ -1,11 +1,23 @@
 import 'dart:io';
 
+import 'package:bench_press/bench_press.dart';
 import 'package:bench_press/src/config/bench_press_config.dart';
 import 'package:source_span/source_span.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('BenchPressConfig', () {
+    test('BenchmarkConfig.defaultTrials is 16 across config and defaults', () {
+      expect(BenchmarkConfig.defaultTrials, equals(16));
+      expect(const BenchmarkConfig().trials, equals(16));
+      expect(
+        BenchPressConfig.fromYaml('matrix:\n  axes:\n    sdk: [stock]\n')
+            .defaults
+            .trials,
+        equals(16),
+      );
+    });
+
     test('parses defaults and matrix axes', () {
       final yaml = '''
 defaults:

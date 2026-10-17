@@ -43,7 +43,7 @@ final class JsonDecodeBenchmark extends Benchmark {
   JsonDecodeBenchmark(this._payload)
     : super(
         'json_decode',
-        config: const BenchmarkConfig(trials: 15, maxTrials: 30),
+        config: const BenchmarkConfig(trials: 16, maxTrials: 32),
       );
 
   @override
@@ -202,8 +202,8 @@ compiler flags, and runtimes:
 ```yaml
 defaults:
   targets: [jit, aot, js, wasm]
-  trials: 15
-  max_trials: 30
+  trials: 16
+  max_trials: 32
   isolate_mode: false
   # Default output path for `run` and `run --diff` (supports leading `~`).
   output: benchmark_results.json

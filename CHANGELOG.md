@@ -1,5 +1,12 @@
 ## 0.4.2-wip
 
+- Added `BenchmarkConfig.defaultTrials = 16` and updated the default `trials`
+  count across `BenchmarkConfig`, `bench_press.yaml`, and `bench_press run` from
+  `15` to `16` so that the four `ABBA BAAB` interleaving visits divide evenly
+  into `[4, 4, 4, 4]` trials per visit.
+- Added `paired` (`bool`, default `false`) to `FiellerInterval` and
+  `FiellerInterval.compute` to compute covariance-adjusted Fieller confidence
+  intervals (`df = n - 1`) when comparing equal-length paired sample vectors.
 - Exported `FiellerInterval` and `EnvironmentInfo` from
   `package:bench_press/bench_press.dart` (alongside `BenchmarkMetrics`).
   External benchmark harnesses—such as browser and UI drivers that collect trial
