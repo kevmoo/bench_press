@@ -655,6 +655,28 @@ matrix:
       check(entry.processTrialsNs.length).equals(2);
       check(entry.samples).equals(4);
       check(entry.metrics.varianceComponents).isNotNull();
+
+      final badThresholdCode = await runner.run([
+        'run',
+        '--threshold',
+        '150%',
+        benchFile.path,
+      ]);
+      check(badThresholdCode).equals(ExitCode.usage.code);
+
+      final thresholdCode = await runner.run([
+        'run',
+        '-t',
+        'jit',
+        '--trials',
+        '2',
+        '--threshold',
+        '2%',
+        '--force-run',
+        '--no-save',
+        benchFile.path,
+      ]);
+      check(thresholdCode).equals(ExitCode.success.code);
     });
   });
 }
