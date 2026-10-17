@@ -54,7 +54,10 @@ final class const BenchmarkProcessRunner({
   /// When [processes] > 1 (and [validate] is false), executes the
   /// already-compiled artifact `P =` [processes] independent times without
   /// recompiling and aggregates the per-process telemetry using hierarchical
-  /// process-mean aggregation.
+  /// process-mean aggregation. (`RunCommand` coordinates multi-process rounds
+  /// externally so process launches interleave across matrix coordinates in
+  /// `ABBA BAAB` order, while `processes > 1` here is a sequential helper for
+  /// single-target callers.)
   Future<ProcessExecutionResult> execute({
     required CompilationResult compilationResult,
     bool isolateMode = false,

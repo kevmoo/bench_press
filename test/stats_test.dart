@@ -192,6 +192,36 @@ void main() {
             [100.0, 101.0],
           ]),
         ).isNull();
+        // 1 trial per process -> 0 within-process degrees of freedom -> null.
+        check(
+          ProcessVarianceComponents.compute([
+            [100.0],
+            [110.0],
+          ]),
+        ).isNull();
+
+        // msBetween < msWithin clamps varBetween and betweenProcessShare to 0.
+        final clamped = ProcessVarianceComponents.compute([
+          [90.0, 110.0, 90.0, 110.0],
+          [90.0, 110.0, 90.0, 110.0],
+        ])!;
+        check(clamped.msBetween).equals(0.0);
+        check(clamped.msWithin).equals(200.0);
+        check(clamped.varBetween).equals(0.0);
+        check(clamped.betweenProcessShare).equals(0.0);
+
+        // Unbalanced trial counts (N_1 = 2 at mean 100, N_2 = 6 at mean 200):
+        // weighted grand mean = (200 + 1200) / 8 = 175.0,
+        // SS_between = 2 * (-75)^2 + 6 * (25)^2 = 11250 + 3750 = 15000,
+        // k0 = (8 - (4 + 36) / 8) / 1 = 3.0.
+        final unbalanced = ProcessVarianceComponents.compute([
+          [99.0, 101.0],
+          [199.0, 201.0, 199.0, 201.0, 199.0, 201.0],
+        ])!;
+        check((unbalanced.msBetween - 15000.0).abs()).isLessThan(1e-9);
+        check((unbalanced.msWithin - 2.0).abs()).isLessThan(1e-9);
+        check((unbalanced.varBetween - ((15000.0 - 2.0) / 3.0)).abs())
+            .isLessThan(1e-9);
 
         // 3 processes with distinct process offsets (+0, +10, +20 ns) and
         // tiny step-to-step differences (alternating ±1 ns => diff = ±2 ns,

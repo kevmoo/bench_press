@@ -450,6 +450,13 @@ void main() {
       check(rtEntry.processMeansNs).deepEquals(entry.processMeansNs);
       check(rtEntry.processTrialsNs.length).equals(3);
       check(rtEntry.metrics.varianceComponents).isNotNull();
+
+      // Single-process passthrough and empty-list ArgumentError:
+      check(identical(BenchmarkEntry.fromProcesses([p1]), p1)).isTrue();
+      check(() => BenchmarkEntry.fromProcesses(const []))
+          .throws<ArgumentError>();
+      check(() => BenchmarkSuiteResult.aggregateProcesses(const []))
+          .throws<ArgumentError>();
     });
   });
 }

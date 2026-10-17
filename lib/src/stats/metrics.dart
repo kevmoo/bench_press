@@ -33,7 +33,9 @@ final class const ProcessVarianceComponents({
   /// Computes variance components from per-process trial vectors
   /// [processSamplesNs].
   ///
-  /// Returns `null` when fewer than 2 non-empty processes are provided.
+  /// Returns `null` when fewer than 2 non-empty processes are provided or when
+  /// within-process degrees of freedom are zero (`diffCount == 0`, i.e. every
+  /// process has only 1 trial).
   static ProcessVarianceComponents? compute(
     List<List<double>> processSamplesNs,
   ) {
@@ -45,33 +47,41 @@ final class const ProcessVarianceComponents({
     if (pCount < 2) return null;
 
     var totalTrials = 0;
+    var totalTrialSq = 0.0;
+    var weightedSum = 0.0;
     final processMeans = <double>[];
     var diffSqSum = 0.0;
     var diffCount = 0;
 
     for (final trials in nonEmpty) {
-      totalTrials += trials.length;
-      processMeans.add(BenchmarkMetrics._meanOf(trials));
-      for (var t = 0; t < trials.length - 1; t++) {
+      final n = trials.length;
+      totalTrials += n;
+      totalTrialSq += n * n;
+      final pMean = BenchmarkMetrics._meanOf(trials);
+      processMeans.add(pMean);
+      weightedSum += n * pMean;
+      for (var t = 0; t < n - 1; t++) {
         final d = trials[t + 1] - trials[t];
         diffSqSum += d * d;
         diffCount++;
       }
     }
+    if (diffCount == 0) return null;
 
     final kMean = totalTrials / pCount;
-    final grandMean = BenchmarkMetrics._meanOf(processMeans);
+    final k0 = (totalTrials - (totalTrialSq / totalTrials)) / (pCount - 1);
+    final weightedGrandMean = weightedSum / totalTrials;
     var betweenSqSum = 0.0;
     for (var i = 0; i < pCount; i++) {
-      final diff = processMeans[i] - grandMean;
+      final diff = processMeans[i] - weightedGrandMean;
       betweenSqSum += nonEmpty[i].length * diff * diff;
     }
 
     final msBetween = betweenSqSum / (pCount - 1);
-    final msWithin = diffCount > 0 ? 0.5 * (diffSqSum / diffCount) : 0.0;
+    final msWithin = 0.5 * (diffSqSum / diffCount);
     final varWithin = msWithin;
-    final varBetween = kMean > 0.0
-        ? math.max(0.0, (msBetween - msWithin) / kMean)
+    final varBetween = k0 > 0.0
+        ? math.max(0.0, (msBetween - msWithin) / k0)
         : 0.0;
     final totalVar = varBetween + varWithin;
     final share = totalVar > 0.0 ? (varBetween / totalVar) : 0.0;
