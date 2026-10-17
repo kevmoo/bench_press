@@ -373,6 +373,13 @@ final class ReportCommand() extends Command<int> {
             'publish them anyway (exploration only).',
       )
       ..addOption(
+        'threshold',
+        defaultsTo: '0',
+        help:
+            'Practical significance / equivalence threshold as a relative '
+            'fraction (e.g. 0.02 for ±2%).',
+      )
+      ..addOption(
         'from-json',
         abbr: 'f',
         defaultsTo: defaultTelemetryFileName,
@@ -392,6 +399,16 @@ final class ReportCommand() extends Command<int> {
         ? argResults!.rest.first
         : (argResults!.option('from-json')!);
 
+    final thresholdRaw = argResults!.option('threshold')!;
+    final threshold = DefaultsConfig.tryParseThreshold(thresholdRaw);
+    if (threshold == null) {
+      stderr.writeln(
+        'Invalid --threshold value "$thresholdRaw": '
+        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02).',
+      );
+      return ExitCode.usage.code;
+    }
+
     final file = File(inputPath);
     if (!file.existsSync()) {
       stderr.writeln('Telemetry file "$inputPath" does not exist.');
@@ -407,6 +424,7 @@ final class ReportCommand() extends Command<int> {
         file,
         title: title,
         gate: gate,
+        threshold: threshold,
       );
       if (outputPath != null && outputPath.isNotEmpty) {
         final outFile = File(outputPath);
@@ -446,6 +464,13 @@ final class DiffCommand() extends Command<int> {
             'Withhold speedup ratios whose confidence interval is unbounded '
             'or whose samples are not stable. Pass --no-gate to '
             'publish them anyway (exploration only).',
+      )
+      ..addOption(
+        'threshold',
+        defaultsTo: '0',
+        help:
+            'Practical significance / equivalence threshold as a relative '
+            'fraction (e.g. 0.02 for ±2%).',
       )
       ..addOption(
         'baseline',
@@ -536,6 +561,15 @@ final class DiffCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
+    final thresholdRaw = argResults!.option('threshold')!;
+    final threshold = DefaultsConfig.tryParseThreshold(thresholdRaw);
+    if (threshold == null) {
+      stderr.writeln(
+        'Invalid --threshold value "$thresholdRaw": '
+        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02).',
+      );
+      return ExitCode.usage.code;
+    }
 
     final currentFile = File(current);
     if (!currentFile.existsSync()) {
@@ -551,6 +585,7 @@ final class DiffCommand() extends Command<int> {
         currentFile: currentFile,
         title: title,
         gate: gate,
+        threshold: threshold,
       );
     } else {
       final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
@@ -560,6 +595,7 @@ final class DiffCommand() extends Command<int> {
         current: currentSuite,
         title: title,
         gate: gate,
+        threshold: threshold,
       );
     }
 

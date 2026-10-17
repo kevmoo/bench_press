@@ -48,6 +48,7 @@ class DefaultsConfig({
   required final int trials,
   final int? maxTrials,
   final int processes = 1,
+  final double threshold = 0.0,
   final String output = defaultTelemetryFileName,
   required final bool isolateMode,
 }) {
@@ -58,6 +59,7 @@ class DefaultsConfig({
         trials: BenchmarkConfig.defaultTrials,
         maxTrials: null,
         processes: 1,
+        threshold: 0.0,
         isolateMode: false,
       );
     }
@@ -95,6 +97,7 @@ class DefaultsConfig({
     }
 
     final processes = _parseProcesses(map.nodes['processes']);
+    final threshold = _parseThreshold(map.nodes['threshold']);
 
     final isolateNode = map.nodes['isolate_mode'];
     var isolateMode = false;
@@ -107,9 +110,22 @@ class DefaultsConfig({
       trials: trials,
       maxTrials: maxTrials,
       processes: processes,
+      threshold: threshold,
       output: _parseOutput(map.nodes['output']),
       isolateMode: isolateMode,
     );
+  }
+
+  /// Parses a relative equivalence threshold from a CLI option string (such as
+  /// `'0.02'`), returning `null` if invalid or outside `[0.0, 1.0)`.
+  static double? tryParseThreshold(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final parsed = double.tryParse(trimmed);
+    if (parsed == null || !parsed.isFinite || parsed < 0.0 || parsed >= 1.0) {
+      return null;
+    }
+    return parsed;
   }
 
   static int _parseProcesses(YamlNode? node) {
@@ -118,6 +134,20 @@ class DefaultsConfig({
     if (value is int && value >= 1) return value;
     throw SourceSpanException(
       'processes must be a positive integer (>= 1).',
+      node.span,
+    );
+  }
+
+  static double _parseThreshold(YamlNode? node) {
+    if (node == null) return 0.0;
+    final value = node.value;
+    if (value is num) {
+      final d = value.toDouble();
+      if (d.isFinite && d >= 0.0 && d < 1.0) return d;
+    }
+    throw SourceSpanException(
+      'threshold must be a relative fraction >= 0.0 and < 1.0 '
+      '(e.g. 0.02).',
       node.span,
     );
   }

@@ -154,6 +154,7 @@ abstract final class GitDiffReporter() {
     String? workingDirectory,
     String? title,
     bool gate = true,
+    double threshold = 0.0,
   }) {
     final diff = loadDiff(
       gitRef: gitRef,
@@ -170,6 +171,7 @@ abstract final class GitDiffReporter() {
         baselineLabel: 'Git ($gitRef)',
         currentLabel: 'Current',
         gate: gate,
+        threshold: threshold,
       );
     } else {
       final buffer = StringBuffer();

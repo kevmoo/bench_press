@@ -1,5 +1,13 @@
 ## 0.4.2-wip
 
+- Added opt-in practical-significance and Schuirmann TOST equivalence gating
+  (`--threshold <delta>` on `bench_press run`, `report`, and `diff`, plus
+  `defaults.threshold` in `bench_press.yaml`, accepting relative fractions in
+  `[0.0, 1.0)` such as `0.02` for ±2%). When `threshold > 0`, directional claims
+  require the 95% Fieller CI to clear `1.0 + threshold` or
+  `1.0 / (1.0 + threshold)`, `✅ Equivalent` requires the 90% Fieller CI to lie
+  completely inside `[1.0 / (1.0 + threshold), 1.0 + threshold]`, and intervals
+  straddling the equivalence boundary render as `➖ ⚪ Inconclusive`.
 - Added multi-process benchmark orchestration (`--processes <P>` and
   `defaults.processes` in `bench_press.yaml`), compiling each
   `(coordinate, runtime)` cell once upfront and interleaving process launches in

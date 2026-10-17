@@ -599,5 +599,28 @@ matrix:
       ]);
       check(code).equals(0);
     });
+
+    test(
+      'report and diff reject invalid --threshold with exit code 64',
+      () async {
+        final runner = BenchPressCommandRunner();
+        final reportCode = await runner.run([
+          'report',
+          '--threshold',
+          '150%',
+          'nonexistent.json',
+        ]);
+        check(reportCode).equals(64);
+
+        final diffCode = await runner.run([
+          'diff',
+          '--threshold',
+          '-0.05',
+          'a.json',
+          'b.json',
+        ]);
+        check(diffCode).equals(64);
+      },
+    );
   });
 }

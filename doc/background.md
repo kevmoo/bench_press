@@ -187,6 +187,25 @@ decorrelate trial indices (`r = 0.01–0.04`), so single-process comparisons
 default to Welch's unpaired formulation (`paired: false`) to preserve full
 degrees of freedom.
 
+When an explicit practical-significance / equivalence threshold `threshold > 0`
+is configured (`--threshold <delta>` or `defaults.threshold`),
+`MarkdownReporter` combines two Fieller intervals against
+`upperEq = 1.0 + threshold` and `lowerEq = 1.0 / (1.0 + threshold)`:
+
+```dart
+if (interval95.lowerBound >= upperEq) {
+  return isDelta ? '🚀 Faster' : '🚀 🥇 Peak';
+}
+if (interval95.upperBound <= lowerEq) {
+  return isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow';
+}
+// Schuirmann's Two One-Sided Tests (TOST) at alpha = 0.05 per side:
+if (interval90.lowerBound >= lowerEq && interval90.upperBound <= upperEq) {
+  return '✅ Equivalent';
+}
+return '➖ ⚪ Inconclusive';
+```
+
 ---
 
 ### `ABBA BAAB` Trial Interleaving in `BenchmarkGroup`

@@ -30,6 +30,29 @@ void main() {
       );
     });
 
+    test('parses defaults.threshold as relative fraction in [0.0, 1.0)', () {
+      expect(
+        BenchPressConfig.fromYaml('defaults:\n  threshold: 0.02\n')
+            .defaults
+            .threshold,
+        closeTo(0.02, 1e-9),
+      );
+      expect(DefaultsConfig.tryParseThreshold('0.05'), closeTo(0.05, 1e-9));
+      expect(DefaultsConfig.tryParseThreshold('0'), equals(0.0));
+      expect(DefaultsConfig.tryParseThreshold('-0.01'), isNull);
+      expect(DefaultsConfig.tryParseThreshold('1.0'), isNull);
+      expect(DefaultsConfig.tryParseThreshold('5%'), isNull);
+      expect(DefaultsConfig.tryParseThreshold('abc'), isNull);
+      expect(
+        () => BenchPressConfig.fromYaml('defaults:\n  threshold: -0.1\n'),
+        throwsA(isA<SourceSpanException>()),
+      );
+      expect(
+        () => BenchPressConfig.fromYaml('defaults:\n  threshold: 1.2\n'),
+        throwsA(isA<SourceSpanException>()),
+      );
+    });
+
     test('parses defaults and matrix axes', () {
       final yaml = '''
 defaults:

@@ -93,6 +93,12 @@ final class RunCommand({
             'Number of independent OS processes to spawn per benchmark target '
             '(default: 1).',
       )
+      ..addOption(
+        'threshold',
+        help:
+            'Practical significance / equivalence threshold as a relative '
+            'fraction (e.g. 0.02 for ±2%, default: 0).',
+      )
       ..addFlag(
         'force-run',
         negatable: false,
@@ -383,6 +389,8 @@ final class RunCommand({
     if (coords == null) return ExitCode.usage.code;
     final processes = _resolveRunProcesses(config);
     if (processes == null) return ExitCode.usage.code;
+    final threshold = _resolveRunThreshold(config);
+    if (threshold == null) return ExitCode.usage.code;
     final (:trials, :maxTrials) = _resolveTrialCounts(config);
     final forceRun = argResults!.flag('force-run');
     final isolateMode =
@@ -430,6 +438,7 @@ final class RunCommand({
       suite,
       hasFailures: hasFailures,
       configuredOutput: config.defaults.output,
+      threshold: threshold,
     );
   }
 
@@ -459,10 +468,25 @@ final class RunCommand({
     return parsed;
   }
 
+  double? _resolveRunThreshold(BenchPressConfig config) {
+    final threshStr = argResults!.option('threshold');
+    if (threshStr == null) return config.defaults.threshold;
+    final parsed = DefaultsConfig.tryParseThreshold(threshStr);
+    if (parsed == null) {
+      stderr.writeln(
+        'Invalid --threshold value "$threshStr": '
+        'must be a relative fraction >= 0.0 and < 1.0 (e.g. 0.02).',
+      );
+      return null;
+    }
+    return parsed;
+  }
+
   int _finishSuiteExecution(
     BenchmarkSuiteResult suite, {
     required bool hasFailures,
     required String configuredOutput,
+    required double threshold,
   }) {
     final noSave = argResults!.flag('no-save');
     final outputPath =
@@ -484,6 +508,7 @@ final class RunCommand({
         finalSuite,
         title: title,
         gate: gate,
+        threshold: threshold,
       );
     } else if (File(diffRef).existsSync()) {
       try {
@@ -495,6 +520,7 @@ final class RunCommand({
           baselineLabel: 'Baseline ($diffRef)',
           currentLabel: 'Current',
           gate: gate,
+          threshold: threshold,
         );
       } on Object catch (e) {
         stderr.writeln('Warning: Failed to load baseline from "$diffRef": $e');
@@ -508,6 +534,7 @@ final class RunCommand({
             current: finalSuite,
             title: title,
             gate: gate,
+            threshold: threshold,
           ),
     );
 
