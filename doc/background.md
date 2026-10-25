@@ -283,18 +283,33 @@ flowchart TD
    multi-process runs (`P > 1`), `BenchmarkEntry.fromProcesses` and
    `BenchmarkMetrics.fromProcesses` aggregate the `P` process means for
    top-level Fieller confidence intervals and compute
-   `ProcessVarianceComponents` using the drift-immune first-difference
-   within-process estimator:
+   `ProcessVarianceComponents` (surfaced as `Processes` and
+   `Between-Process Share` in `MarkdownReporter.renderSummaryTable` and
+   serialized under `metrics.variance_components`) using the drift-immune
+   first-difference within-process estimator:
 
    ```dart
-   // First-difference within-process estimator (immune to slow intra-process drift):
+   // 1. Within-process variance from consecutive trial differences
+   //    (immune to slow intra-process thermal/frequency drift):
    final msWithin = 0.5 * mean([
      for (final trials in processTrialsNs)
        for (var t = 0; t < trials.length - 1; t++)
          (trials[t + 1] - trials[t]) * (trials[t + 1] - trials[t]),
    ]);
-   final varBetween = math.max(0.0, (msBetween - msWithin) / meanTrialsPerProcess);
+   final varWithin = msWithin;
+
+   // 2. Between-process variance (ASLR, page placement, cache alignment shifts
+   //    across OS process launches, weighted by Satterthwaite's k0):
+   final varBetween = math.max(0.0, (msBetween - msWithin) / k0);
+
+   // 3. Fraction of total variance caused by process launches (0.0 to 1.0):
+   final betweenProcessShare = varBetween / (varBetween + varWithin);
    ```
+
+   When `betweenProcessShare` is high (`>= 0.50`, or `>= 50%` in the Markdown
+   summary table), process-launch layout shifts dominate trial-to-trial jitter:
+   adding `--trials` inside one process will not tighten confidence intervals,
+   whereas increasing `--processes` averages over fresh OS process layouts.
 
 ---
 

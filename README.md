@@ -265,10 +265,20 @@ When to use `--processes <P>` (or `defaults.processes` in `bench_press.yaml`):
   metrics and Fieller confidence intervals are computed over the `P` process
   means (`effectiveSamplesNs`), using paired covariance (`paired: true`) when
   variants share the same `P` OS process launches and unpaired Welch-Fieller
-  (`paired: false`) across separate process launches. Each multi-process entry
-  also records `metrics.variance_components` (`ProcessVarianceComponents`) using
-  a drift-immune first-difference within-process estimator (`ms_within`,
-  `ms_between`, `var_between`, `var_within`, and `between_process_share`).
+  (`paired: false`) across separate process launches.
+- **Interpreting `Between-Process Share` (`between_process_share`)**: When
+  `--processes > 1`, the `### All Benchmarks` Markdown table adds `Processes`
+  and `Between-Process Share` columns (and JSON telemetry records
+  `metrics.variance_components`: `ms_within`, `ms_between`, `var_within`,
+  `var_between`, and
+  `between_process_share = var_between / (var_between + var_within)`):
+  - **Near `0%` (`0%–20%`)**: Separate OS process launches landed on nearly the
+    same speed; most noise is trial-to-trial jitter inside one process, so
+    `--processes 1` or more `--trials` is sufficient.
+  - **High (`>= 50%`)**: Process-launch shifts (ASLR memory layout, OS page
+    placement, cache alignment) dominate total variance. Running more `--trials`
+    inside a single process will not narrow the confidence interval—increase
+    `--processes` instead.
 
 ### Practical Significance & Equivalence Testing (`--threshold`)
 
