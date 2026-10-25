@@ -120,29 +120,30 @@ complexity.
 `bench_press` implements an adaptive self-stopping detector:
 
 1. **Sliding Window Sampling**: Collects measurement trials across consecutive
-   sliding windows of size $W$ (default: 10), evaluated at half-window strides
-   (windowSize ~/ 2).
+   sliding windows of size `W` (default: 10), evaluated at half-window strides
+   (`windowSize ~/ 2`).
 2. **Maximum Mean Discrepancy (MMD)**: Evaluates the statistical distance
    between consecutive sliding windows using a Gaussian Radial Basis Function
    (RBF) kernel:
 
-   $$
-   k(x, y) = \exp\left(-\frac{\|x - y\|^2}{2\sigma^2}\right)
-   $$
+   ```dart
+   double rbfKernel(double x, double y, double sigma) =>
+       math.exp(-((x - y) * (x - y)) / (2.0 * sigma * sigma));
+   ```
 
-   where bandwidth $\sigma$ is computed dynamically using the median pairwise
+   where bandwidth `sigma` is computed dynamically using the median pairwise
    distance heuristic (with mean absolute difference fallback on ties).
 
 3. **Standard Error of the Mean (SEM) Relative Error Check**: Primary
    convergence condition requiring that sample uncertainty is sufficiently
    narrow relative to the mean:
 
-   $$
-   1.96 \times \text{SEM} \le \text{maxSemRelativeError} \times \bar{x}
-   $$
+   ```dart
+   final converged = 1.96 * sem <= maxSemRelativeError * mean;
+   ```
 
 4. **Stationarity Verification**: Secondary check ensuring distribution shift
-   between windows is bounded ($\text{MMD} \le 0.25$).
+   between windows is bounded (`mmd <= 0.25`).
 5. **Bounded Patience Budget**: Limits warmup exploration to a configurable
    budget (default: 200 trials). If convergence is not reached within budget,
    the runner selects the historically best MMD window and flags the benchmark
@@ -152,27 +153,32 @@ complexity.
 
 ### Ratio Confidence Intervals via Fieller's Theorem
 
-When comparing two benchmark executions (Baseline $A$ vs. Candidate $B$),
+When comparing two benchmark executions (Baseline `A` vs. Candidate `B`),
 standard arithmetic error propagation fails because the ratio of two normally
 distributed random variables follows a non-Gaussian distribution.
 
 `bench_press` computes exact 95% confidence intervals on the speedup ratio
-$R = \bar{x}_A / \bar{x}_B$ using **Fieller's Theorem**:
+`r = meanA / meanB` using **Fieller's Theorem**:
 
-$$
-\text{CI}_{0.95} = \frac{R \pm t_{\text{crit}} \sqrt{(1 - g) \frac{s_A^2}{n_A \bar{x}_B^2} + \frac{s_B^2 R^2}{n_B \bar{x}_B^2}}}{1 - g}
-$$
+```dart
+final vA = varA / (nA * meanB * meanB);
+final vB = varB / (nB * meanB * meanB);
+final g = tCrit * tCrit * vB;
+// If g >= 1.0, denominator variance is too high for a bounded interval.
+final halfWidth = tCrit * math.sqrt((1.0 - g) * vA + r * r * vB);
+final lowerBound = (r - halfWidth) / (1.0 - g);
+final upperBound = (r + halfWidth) / (1.0 - g);
+```
 
-where $g = \frac{t_{\text{crit}}^2 s_B^2}{n_B \bar{x}_B^2}$. If $g \ge 1$
-(indicating the denominator variance is too high for a bounded ratio), or if
-either sample is not stable (`isStable`: warmup converged and either CV `<= 5%`
-or robust stability holds; the same test behind the `✅ Stable` badge),
-`bench_press` gates the published speedup ratio as `unresolved`
-(`❓ Unresolved`, overrideable via `--no-gate`). Because every candidate row in
-a group or matrix comparison table is evaluated against the table's baseline
-entry, a single unstable baseline (`baseline samples unstable`) gates all
-candidate speedup ratios in that table even when individual candidate samples
-are stable.
+If `g >= 1.0` (indicating the denominator variance is too high for a bounded
+ratio), or if either sample is not stable (`isStable`: warmup converged and
+either CV `<= 5%` or robust stability holds; the same test behind the
+`✅ Stable` badge), `bench_press` gates the published speedup ratio as
+`unresolved` (`❓ Unresolved`, overrideable via `--no-gate`). Because every
+candidate row in a group or matrix comparison table is evaluated against the
+table's baseline entry, a single unstable baseline (`baseline samples unstable`)
+gates all candidate speedup ratios in that table even when individual candidate
+samples are stable.
 
 A resolved interval that contains `1.00x` is reported as `➖ ⚪ Neutral`
 whatever the point estimate, because the data cannot tell a speedup from a
@@ -210,9 +216,9 @@ return '➖ ⚪ Inconclusive';
 
 ### `ABBA BAAB` Trial Interleaving in `BenchmarkGroup`
 
-Running all $N$ trials of variant $A$ back-to-back before variant $B$ starts
+Running all `N` trials of variant `A` back-to-back before variant `B` starts
 exposes group comparisons to time-varying host bias: a thermal ramp or a short
-neighbor spike during $B$'s window shifts $B$'s mean while leaving each
+neighbor spike during `B`'s window shifts `B`'s mean while leaving each
 variant's within-run dispersion tight.
 
 `BenchmarkGroup.report` and `BenchmarkRunner.runVariants` decouple calibration
@@ -222,7 +228,7 @@ from measurement across the group:
    calibration, adaptive warmup, `warmupComplete`, and post-warmup batch
    recalibration before any measurement trial runs.
 2. **Interleaved Measurement Rounds (`ABBA BAAB`)**: Measurement batches run in
-   lockstep rounds $r = 0, 1, \dots$ across all variants in the group, reversing
+   lockstep rounds `r = 0, 1, ...` across all variants in the group, reversing
    variant traversal order when `(r & 1) != ((r >> 1) & 1)` (`AB`, `BA`, `BA`,
    `AB`, ...). Every pair of rounds cancels linear drift and every four-round
    block cancels both linear and quadratic drift, while a transient host spike
