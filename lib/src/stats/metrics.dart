@@ -27,7 +27,13 @@ final class const ProcessVarianceComponents({
   required final double varWithin,
 
   /// Fraction of total variance attributable to process-to-process noise
-  /// (`0.0 .. 1.0`).
+  /// (`varBetween / (varBetween + varWithin)` in `0.0 .. 1.0`, rendered as
+  /// `Between-Process Share` in Markdown summary tables).
+  ///
+  /// Values near `0.0` indicate that nearly all variance comes from
+  /// within-process trial jitter; values `>= 0.50` indicate that OS
+  /// process-launch shifts (ASLR, page placement, cache alignment) dominate and
+  /// require more `--processes` rather than more `--trials` per process.
   required final double betweenProcessShare,
 }) {
   /// Computes variance components from per-process trial vectors

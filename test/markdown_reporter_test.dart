@@ -1328,6 +1328,7 @@ void main() {
       check(matrixReport).contains('🚀 🥇 Peak');
       check(matrixReport).contains('⚠️ 🔴 Slow');
       check(matrixReport).contains('➖ ⚪ Inconclusive');
+      check(matrixReport).contains('➖ **1** Neutral | ⚪ **1** Inconclusive');
 
       // Delta table check at threshold = 0.02:
       final baseSuite = BenchmarkSuiteResult(
@@ -1354,6 +1355,64 @@ void main() {
       check(deltaReport).contains('🚀 Faster');
       check(deltaReport).contains('⚠️ Regression');
       check(deltaReport).contains('➖ ⚪ Inconclusive');
+      check(deltaReport).contains('➖ **1** Neutral | ⚪ **1** Inconclusive');
+    });
+
+    test('renderSummaryTable surfaces Processes and Between-Process Share '
+        'columns when any entry has processes > 1', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.14.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      final procTrials = [
+        [98.0, 99.0, 100.0, 99.0],
+        [102.0, 103.0, 104.0, 103.0],
+        [99.0, 100.0, 101.0, 100.0],
+      ];
+      final multiMetrics = BenchmarkMetrics.fromProcesses(procTrials);
+      final multiEntry = BenchmarkEntry(
+        name: 'multi_proc_bench',
+        target: 'jit',
+        mode: 'sync',
+        samples: 12,
+        metrics: multiMetrics,
+        rawTrialsNs: [for (final p in procTrials) ...p],
+        processes: 3,
+        processMeansNs: const [99.0, 103.0, 100.0],
+        processTrialsNs: procTrials,
+      );
+      final singleEntry = BenchmarkEntry(
+        name: 'single_proc_bench',
+        target: 'jit',
+        mode: 'sync',
+        samples: 4,
+        metrics: BenchmarkMetrics.fromSamples(const [
+          100.0,
+          100.0,
+          100.0,
+          100.0,
+        ]),
+        rawTrialsNs: const [100.0, 100.0, 100.0, 100.0],
+      );
+
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+        environment: env,
+        benchmarks: [multiEntry, singleEntry],
+      );
+      final summary = MarkdownReporter.renderSummaryTable(suite);
+      check(summary).contains(
+        '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
+        'StdDev | Processes | Between-Process Share | Stability |',
+      );
+      final sharePct =
+          multiMetrics.varianceComponents!.betweenProcessShare * 100.0;
+      final expectedShare = '${sharePct.toStringAsFixed(1)}%';
+      check(summary).contains('| multi_proc_bench | `jit` |');
+      check(summary).contains('| 3 | $expectedShare | ✅ Stable |');
+      check(summary).contains('| single_proc_bench | `jit` |');
+      check(summary).contains('| 1 | - | ✅ Stable |');
     });
   });
 }

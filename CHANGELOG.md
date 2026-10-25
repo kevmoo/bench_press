@@ -1,4 +1,4 @@
-## 0.4.2-wip
+## 0.4.2
 
 - Added opt-in practical-significance and Schuirmann TOST equivalence gating
   (`--threshold <delta>` on `bench_press run`, `report`, and `diff`, plus
@@ -7,15 +7,18 @@
   require the 95% Fieller CI to clear `1.0 + threshold` or
   `1.0 / (1.0 + threshold)`, `✅ Equivalent` requires the 90% Fieller CI to lie
   completely inside `[1.0 / (1.0 + threshold), 1.0 + threshold]`, and intervals
-  straddling the equivalence boundary render as `➖ ⚪ Inconclusive`.
+  straddling the equivalence boundary render as `➖ ⚪ Inconclusive` (with a
+  separate `⚪ N Inconclusive` count in the comparison summary footer).
 - Added multi-process benchmark orchestration (`--processes <P>` and
   `defaults.processes` in `bench_press.yaml`), compiling each
   `(coordinate, runtime)` cell once upfront and interleaving process launches in
   `ABBA BAAB` order across rounds `p = 0 .. P - 1`.
 - Added `BenchmarkMetrics.fromProcesses` and `ProcessVarianceComponents`
-  (exported from `package:bench_press/bench_press.dart` and serialized under
-  `metrics.variance_components`) to decompose between-process and within-process
-  variance using a drift-immune first-difference estimator (`ms_within`).
+  (exported from `package:bench_press/bench_press.dart`, serialized under
+  `metrics.variance_components`, and surfaced as `Processes` and
+  `Between-Process Share` columns in `MarkdownReporter.renderSummaryTable` when
+  `processes > 1`) to decompose between-process and within-process variance
+  using a drift-immune first-difference estimator (`ms_within`).
 - Added `BenchmarkConfig.defaultTrials = 16` and updated the default `trials`
   count across `BenchmarkConfig`, `bench_press.yaml`, and `bench_press run` from
   `15` to `16` so that the four `ABBA BAAB` interleaving visits divide evenly
