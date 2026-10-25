@@ -1,4 +1,4 @@
-## 0.4.2-wip
+## 0.4.2
 
 - Added opt-in practical-significance and Schuirmann TOST equivalence gating
   (`--threshold <delta>` on `bench_press run`, `report`, and `diff`, plus
