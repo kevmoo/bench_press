@@ -430,7 +430,7 @@ abstract final class MarkdownReporter() {
       isDelta: false,
       threshold: threshold,
     );
-    _tally(stats, verdict, speedup, movement.$2, unresolved: isUnresolved);
+    _tally(stats, verdict, speedup, movement, unresolved: isUnresolved);
 
     if (isUnresolved) {
       final cols = [
@@ -551,51 +551,64 @@ abstract final class MarkdownReporter() {
     }
 
     final hasThroughput = suite.benchmarks.any((b) => b.throughput != null);
-
-    if (hasThroughput) {
-      buffer.writeln(
-        '| Benchmark | Target | Ops/sec | Throughput | Mean Latency | '
-        'Median | Min | StdDev | Stability |',
-      );
-      buffer.writeln(
-        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: |',
-      );
-    } else {
-      buffer.writeln(
-        '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
-        'StdDev | Stability |',
-      );
-      buffer.writeln(
-        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |',
-      );
-    }
+    final hasMultiProcess = suite.benchmarks.any((b) => b.processes > 1);
+    final headers = <String>[
+      'Benchmark',
+      'Target',
+      'Ops/sec',
+      if (hasThroughput) 'Throughput',
+      'Mean Latency',
+      'Median',
+      'Min',
+      'StdDev',
+      if (hasMultiProcess) ...['Processes', 'Between-Process Share'],
+      'Stability',
+    ];
+    final alignments = <String>[
+      ':---',
+      ':---',
+      for (var i = 2; i < headers.length; i++) ':---:',
+    ];
+    buffer.writeln('| ${headers.join(' | ')} |');
+    buffer.writeln('| ${alignments.join(' | ')} |');
 
     for (final b in suite.benchmarks) {
-      final m = b.metrics;
-      final opsStr = _formatOps(m.opsPerSec);
-      final tpStr = b.throughput?.formatRate(m.meanNs) ?? '-';
-      final meanStr = _formatLatency(m.meanNs);
-      final medianStr = _formatLatency(m.medianNs);
-      final minStr = _formatLatency(m.minNs);
-      final cvPct = (m.cv * 100).toStringAsFixed(1);
-      final stdDevStr = '±${_formatLatency(m.stddevNs)} ($cvPct%)';
-      final statusStr = m.isStable ? '✅ Stable' : '⚠️ Unstable';
-
-      if (hasThroughput) {
-        buffer.writeln(
-          '| ${b.name} | `${b.target}` | $opsStr | $tpStr | $meanStr | '
-          '$medianStr | $minStr | $stdDevStr | $statusStr |',
-        );
-      } else {
-        buffer.writeln(
-          '| ${b.name} | `${b.target}` | $opsStr | $meanStr | $medianStr | '
-          '$minStr | $stdDevStr | $statusStr |',
-        );
-      }
+      buffer.writeln(
+        _formatSummaryRow(
+          b,
+          hasThroughput: hasThroughput,
+          hasMultiProcess: hasMultiProcess,
+        ),
+      );
     }
 
     return buffer.toString();
+  }
+
+  static String _formatSummaryRow(
+    BenchmarkEntry b, {
+    required bool hasThroughput,
+    required bool hasMultiProcess,
+  }) {
+    final m = b.metrics;
+    final cvPct = (m.cv * 100).toStringAsFixed(1);
+    final vc = m.varianceComponents;
+    final shareStr = vc != null
+        ? '${(vc.betweenProcessShare * 100.0).toStringAsFixed(1)}%'
+        : '-';
+    final cols = <String>[
+      b.name,
+      '`${b.target}`',
+      _formatOps(m.opsPerSec),
+      if (hasThroughput) b.throughput?.formatRate(m.meanNs) ?? '-',
+      _formatLatency(m.meanNs),
+      _formatLatency(m.medianNs),
+      _formatLatency(m.minNs),
+      '±${_formatLatency(m.stddevNs)} ($cvPct%)',
+      if (hasMultiProcess) ...['${b.processes}', shareStr],
+      m.isStable ? '✅ Stable' : '⚠️ Unstable',
+    ];
+    return '| ${cols.join(' | ')} |';
   }
 
   /// Renders an isolated Before-vs-After delta comparison table comparing
@@ -720,7 +733,7 @@ abstract final class MarkdownReporter() {
     _writeDeltaHeader(buffer, hasThroughput, baselineLabel, currentLabel);
 
     for (final (base, cur) in matched) {
-      final (rowStr, speedup, trend, verdict) = _formatDeltaRow(
+      final (rowStr, speedup, movement, verdict) = _formatDeltaRow(
         base,
         cur,
         hasThroughput: hasThroughput,
@@ -732,7 +745,7 @@ abstract final class MarkdownReporter() {
         stats,
         verdict,
         speedup,
-        trend,
+        movement,
         unresolved: gate && !verdict.resolved,
       );
       final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
@@ -774,13 +787,13 @@ abstract final class MarkdownReporter() {
   }
 
   /// Adds one comparison to [stats]: unresolved cells record their reasons;
-  /// resolved cells join the geometric mean and the faster/slower/neutral
-  /// counts by [trend].
+  /// resolved cells join the geometric mean and the faster/slower/neutral/
+  /// inconclusive counts by [movement].
   static void _tally(
     _DeltaStats stats,
     _Verdict verdict,
     double speedup,
-    int trend, {
+    (String, int) movement, {
     required bool unresolved,
   }) {
     if (unresolved) {
@@ -790,9 +803,14 @@ abstract final class MarkdownReporter() {
     }
     stats.logSum += math.log(speedup);
     stats.includedInGeoMean++;
+    final (status, trend) = movement;
     if (trend > 0) stats.fasterCount++;
     if (trend < 0) stats.slowerCount++;
-    if (trend == 0) stats.neutralCount++;
+    if (status == '➖ ⚪ Inconclusive') {
+      stats.inconclusiveCount++;
+    } else if (trend == 0) {
+      stats.neutralCount++;
+    }
   }
 
   /// Emits a banner for any declared byte throughput that exceeds memory
@@ -921,6 +939,9 @@ abstract final class MarkdownReporter() {
     if (stats.includedInGeoMean > 0) {
       final geomean = math.exp(stats.logSum / stats.includedInGeoMean);
       final geomeanStr = geomean.toStringAsFixed(2);
+      final inconclusiveStr = stats.inconclusiveCount > 0
+          ? ' | ⚪ **${stats.inconclusiveCount}** Inconclusive'
+          : '';
       final unresolvedStr = stats.unresolvedCount > 0
           ? ' | ❓ **${stats.unresolvedCount}** Unresolved '
                 '(excluded from GeoMean)'
@@ -929,7 +950,8 @@ abstract final class MarkdownReporter() {
         '> **Summary**: Geometric Mean Speedup: **${geomeanStr}x** | '
         '🚀 **${stats.fasterCount}** Faster | '
         '⚠️ **${stats.slowerCount}** Slower | '
-        '➖ **${stats.neutralCount}** Neutral$unresolvedStr',
+        '➖ **${stats.neutralCount}** Neutral'
+        '$inconclusiveStr$unresolvedStr',
       );
     } else {
       buffer.writeln(
@@ -940,7 +962,7 @@ abstract final class MarkdownReporter() {
     }
   }
 
-  static (String, double, int, _Verdict) _formatDeltaRow(
+  static (String, double, (String, int), _Verdict) _formatDeltaRow(
     BenchmarkEntry base,
     BenchmarkEntry cur, {
     bool hasThroughput = false,
@@ -958,7 +980,7 @@ abstract final class MarkdownReporter() {
     final verdict = _computeFiellerVerdict(base, cur, isDelta: true);
     final isUnresolved = gate && !verdict.resolved;
 
-    final (statusStr, trend) = isUnresolved
+    final movement = isUnresolved
         ? ('❓ Unresolved', 0)
         : _classifyMovement(
             speedup,
@@ -966,6 +988,7 @@ abstract final class MarkdownReporter() {
             isDelta: true,
             threshold: threshold,
           );
+    final statusStr = movement.$1;
 
     final baseStr = _formatLatency(baseMean);
     final curStr = _formatLatency(curMean);
@@ -985,14 +1008,14 @@ abstract final class MarkdownReporter() {
       final row =
           '| $label | `${cur.target}` | $tpStr | $baseStr | '
           '$curStr | $diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
-      return (row, speedup, trend, verdict);
+      return (row, speedup, movement, verdict);
     }
 
     final row =
         '| $label | `${cur.target}` | $baseStr | $curStr | '
         '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
 
-    return (row, speedup, trend, verdict);
+    return (row, speedup, movement, verdict);
   }
 
   /// Renders a Markdown summary report directly from a stored JSON file.
@@ -1236,6 +1259,7 @@ final class _DeltaStats() {
   int fasterCount = 0;
   int slowerCount = 0;
   int neutralCount = 0;
+  int inconclusiveCount = 0;
   int unresolvedCount = 0;
   double logSum = 0.0;
   int includedInGeoMean = 0;
