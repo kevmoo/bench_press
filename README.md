@@ -25,7 +25,7 @@ Add `bench_press` to your `pubspec.yaml`:
 
 ```yaml
 dev_dependencies:
-  bench_press: ^0.4.0
+  bench_press: ^0.4.2
 ```
 
 ### 1. Write a Benchmark (`Benchmark` & `AsyncBenchmark`)
@@ -181,7 +181,7 @@ dart run bench_press report --from-json benchmark_results.json
 dart run bench_press diff baseline.json benchmark_results.json
 
 # Require a ±2% practical significance / TOST equivalence band
-dart run bench_press diff --threshold 2% baseline.json benchmark_results.json
+dart run bench_press diff --threshold 0.02 baseline.json benchmark_results.json
 dart run bench_press run --threshold 0.02 --diff origin/main benchmark/
 
 # Run a single benchmark script directly with entrypoint flags
