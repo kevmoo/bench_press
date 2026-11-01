@@ -234,7 +234,12 @@ from measurement across the group:
    block cancels both linear and quadratic drift, while a transient host spike
    widens dispersion across the group instead of biasing a single variant. When
    `--max-trials` is set, lockstep rounds continue across all variants while any
-   variant's CV exceeds 5%.
+   variant's CV exceeds 5%. When `--stop-at-ci` is set, rounds stop early once
+   every variant has at least 8 trials and a 95% CI half-width (`1.96 × SEM`)
+   within that fraction of its mean. Stopping on interval width rather than on
+   the observed effect avoids the false-positive inflation of
+   stop-on-significance; the 8-trial floor limits the slight under-coverage from
+   favoring runs that look quiet early.
 3. **Blocks and Discarded Batches on Every Switch**: The first batches after a
    change of variant carry engine state left by the previous variant (heap
    shape, caches, tiering) and are measurably slower and noisier: on Wasm the

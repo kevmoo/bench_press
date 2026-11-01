@@ -120,7 +120,8 @@ abstract final class BenchmarkRunner() {
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
-      for (var i = 0; i < config.trials; i++) {
+      while (trials.length < config.trials &&
+          !_hasTightInterval(trials, config)) {
         final measurement = (runBatch ?? BatchRunner.runSync)(
           benchmark,
           calibrated.iterations,
@@ -206,7 +207,8 @@ abstract final class BenchmarkRunner() {
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
-      for (var i = 0; i < config.trials; i++) {
+      while (trials.length < config.trials &&
+          !_hasTightInterval(trials, config)) {
         final measurement = await (runBatch ?? BatchRunner.runAsync)(
           benchmark,
           calibrated.iterations,
@@ -266,6 +268,8 @@ abstract final class BenchmarkRunner() {
   ///
   /// When [BenchmarkConfig.maxTrials] is set, lockstep rounds continue across
   /// all variants while any variant's CV exceeds the stability threshold.
+  /// When [BenchmarkConfig.stopAtCi] is set, rounds stop early once every
+  /// variant's interval is tight enough.
   static Future<List<BenchmarkResult>> runVariants(
     List<BenchmarkVariant> variants, {
     BenchmarkConfig config = const BenchmarkConfig(),
@@ -377,7 +381,8 @@ abstract final class BenchmarkRunner() {
     final block = math.max(1, (config.trials / 4).ceil());
     var visit = 0;
     _PreparedVariant? last;
-    while (prepared.any((p) => p.trials.length < config.trials)) {
+    while (prepared.any((p) => p.trials.length < config.trials) &&
+        !prepared.every((p) => _hasTightInterval(p.trials, config))) {
       last = await _runInterleavedVisit(
         prepared,
         visit++,
@@ -541,7 +546,7 @@ abstract final class BenchmarkRunner() {
     if (trials.length >= maxTrials) {
       return false;
     }
-    if (trials.length < 2) {
+    if (trials.length < 2 || _hasTightInterval(trials, config)) {
       return false;
     }
     final metrics = BenchmarkMetrics.fromSamples(trials);
@@ -549,6 +554,30 @@ abstract final class BenchmarkRunner() {
     // indicating high variance or transient bimodal outliers (such as GC
     // pauses).
     return metrics.cv > BenchmarkMetrics.maxCvThreshold;
+  }
+
+  /// Trials recorded before [BenchmarkConfig.stopAtCi] may end collection.
+  ///
+  /// Stopping on interval width favors runs that happen to look quiet early,
+  /// so the interval can under-cover slightly; a floor keeps that small. Eight
+  /// trials are two visits of the default `ABBA BAAB` blocks, enough to cancel
+  /// linear drift.
+  static const int _minTrialsBeforeStop = 8;
+
+  /// Whether [trials] already meet [BenchmarkConfig.stopAtCi]: the 95%
+  /// confidence interval half-width (`1.96 × SEM`) is within that fraction of
+  /// the mean.
+  @visibleForTesting
+  static bool hasTightInterval(List<double> trials, BenchmarkConfig config) =>
+      _hasTightInterval(trials, config);
+
+  static bool _hasTightInterval(List<double> trials, BenchmarkConfig config) {
+    if (config.stopAtCi <= 0.0 || trials.length < _minTrialsBeforeStop) {
+      return false;
+    }
+    final metrics = BenchmarkMetrics.fromSamples(trials);
+    final halfWidth = 1.96 * metrics.stddevNs / math.sqrt(trials.length);
+    return halfWidth <= config.stopAtCi * metrics.meanNs;
   }
 }
 

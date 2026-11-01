@@ -397,6 +397,130 @@ void main() {
     });
   });
 
+  group('BenchmarkRunner.hasTightInterval', () {
+    final tight = [for (var i = 0; i < 8; i++) i.isEven ? 100.0 : 101.0];
+    final wide = [for (var i = 0; i < 8; i++) i.isEven ? 90.0 : 110.0];
+
+    test('returns false when stopAtCi is not set', () {
+      check(BenchmarkRunner.hasTightInterval(tight, const BenchmarkConfig()))
+          .isFalse();
+    });
+
+    test('returns false before 8 trials', () {
+      check(
+        BenchmarkRunner.hasTightInterval(
+          tight.sublist(0, 7),
+          const BenchmarkConfig(stopAtCi: 0.01),
+        ),
+      ).isFalse();
+    });
+
+    test('compares 1.96 x SEM against stopAtCi x mean', () {
+      // tight: mean 100.5, SD ~0.53, half-width ~0.37 (0.37%).
+      check(
+        BenchmarkRunner.hasTightInterval(
+          tight,
+          const BenchmarkConfig(stopAtCi: 0.01),
+        ),
+      ).isTrue();
+      check(
+        BenchmarkRunner.hasTightInterval(
+          tight,
+          const BenchmarkConfig(stopAtCi: 0.003),
+        ),
+      ).isFalse();
+      // wide: mean 100, SD ~10.7, half-width ~7.4 (7.4%).
+      check(
+        BenchmarkRunner.hasTightInterval(
+          wide,
+          const BenchmarkConfig(stopAtCi: 0.05),
+        ),
+      ).isFalse();
+      check(
+        BenchmarkRunner.hasTightInterval(
+          wide,
+          const BenchmarkConfig(stopAtCi: 0.08),
+        ),
+      ).isTrue();
+    });
+
+    test('suppresses scaling toward maxTrials once met', () {
+      final spiky = [...tight, 200.0];
+      const config = BenchmarkConfig(trials: 8, maxTrials: 32);
+      check(BenchmarkRunner.shouldScaleTrials(spiky, config)).isTrue();
+      check(
+        BenchmarkRunner.shouldScaleTrials(
+          spiky,
+          const BenchmarkConfig(trials: 8, maxTrials: 32, stopAtCi: 0.5),
+        ),
+      ).isFalse();
+    });
+  });
+
+  group('BenchmarkConfig.stopAtCi', () {
+    BenchmarkConfig config(double stopAtCi) => BenchmarkConfig(
+      stopAtCi: stopAtCi,
+      minWarmupIterations: 5,
+      maxWarmupIterations: 5,
+      targetBatchDuration: const Duration(milliseconds: 1),
+      forceRun: true,
+    );
+
+    BatchMeasurement measure(int iters, double perOpNs) => BatchMeasurement(
+      iterations: iters,
+      totalElapsedMicroseconds: (perOpNs * iters / 1000.0).round(),
+      perOpNanoseconds: perOpNs,
+    );
+
+    test('run stops after 8 trials once the interval is tight', () {
+      final result = BenchmarkRunner.run(
+        _CountingBenchmark('tight', config: config(0.01)),
+        runBatch: (b, iters) => measure(iters, 100.0),
+      );
+      check(result.rawTrialLatenciesNs.length).equals(8);
+    });
+
+    test('run keeps collecting all trials while the interval is wide', () {
+      var batch = 0;
+      final result = BenchmarkRunner.run(
+        _CountingBenchmark('wide', config: config(0.01)),
+        runBatch: (b, iters) => measure(iters, (batch++).isEven ? 90.0 : 110.0),
+      );
+      check(result.rawTrialLatenciesNs.length)
+          .equals(BenchmarkConfig.defaultTrials);
+    });
+
+    test('runAsync stops after 8 trials once the interval is tight', () async {
+      final result = await BenchmarkRunner.runAsync(
+        _AsyncCountingBenchmark('tight_async', config: config(0.01)),
+        runBatch: (b, iters) async => measure(iters, 100.0),
+      );
+      check(result.rawTrialLatenciesNs.length).equals(8);
+    });
+
+    test(
+      'runVariants stops every variant at the end of the same visit',
+      () async {
+        void spin() {
+          final sw = Stopwatch()..start();
+          while (sw.elapsedMicroseconds < 200) {}
+          Blackhole.consume(1);
+        }
+
+        final results = await BenchmarkRunner.runVariants(
+          [
+            BenchmarkVariant('a', spin, isBaseline: true),
+            BenchmarkVariant('b', spin),
+          ],
+          // Blocks of 4: the first check after two visits sees 8 trials each.
+          config: config(0.5),
+        );
+        check(results.map((r) => r.rawTrialLatenciesNs.length))
+            .deepEquals([8, 8]);
+      },
+    );
+  });
+
   group('Change 3: Post-warmup recalibration', () {
     test('runSync and runAsync recalibrate after warmupComplete, report the '
         'post-warmup calibratedBatch, and log >10x swings', () async {

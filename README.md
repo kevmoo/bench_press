@@ -164,6 +164,10 @@ dart run bench_press run -t jit,aot,wasm
 # Override trial count or adaptive scaling ceiling (scales up while CV > 5%)
 dart run bench_press run --trials 20 --max-trials 50
 
+# Stop a cell early once its 95% CI half-width is within 1% of the mean
+# (opt-in; checked once a cell has at least 8 trials)
+dart run bench_press run --stop-at-ci 0.01
+
 # Spawn 5 independent OS processes per target for cross-process CIs
 dart run bench_press run --processes 5 -t jit,aot,wasm
 

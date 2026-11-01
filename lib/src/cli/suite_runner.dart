@@ -78,6 +78,12 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
       'max-trials',
       help: 'Override maximum measurement trials ceiling for adaptive scaling',
     )
+    ..addOption(
+      'stop-at-ci',
+      help:
+          'Stop collecting trials once the 95% CI half-width is within this '
+          'fraction of the mean (e.g. 0.01)',
+    )
     ..addOption('min-warmup', help: 'Override minimum warmup iterations')
     ..addOption('max-warmup', help: 'Override maximum warmup iterations')
     ..addOption('target-batch-ms', help: 'Override target batch duration (ms)')
@@ -189,6 +195,7 @@ BenchmarkConfig _resolveConfig(
 
   final trials = int.tryParse(parsed.option('trials') ?? '');
   final maxTrials = int.tryParse(parsed.option('max-trials') ?? '');
+  final stopAtCi = double.tryParse(parsed.option('stop-at-ci') ?? '');
   final minWarmup = int.tryParse(parsed.option('min-warmup') ?? '');
   final maxWarmup = int.tryParse(parsed.option('max-warmup') ?? '');
   final batchMs = int.tryParse(parsed.option('target-batch-ms') ?? '');
@@ -199,6 +206,7 @@ BenchmarkConfig _resolveConfig(
   return BenchmarkConfig(
     trials: trials ?? base.trials,
     maxTrials: maxTrials ?? base.maxTrials,
+    stopAtCi: stopAtCi ?? base.stopAtCi,
     minWarmupIterations: minWarmup ?? base.minWarmupIterations,
     maxWarmupIterations: maxWarmup ?? base.maxWarmupIterations,
     targetBatchDuration: batchMs != null

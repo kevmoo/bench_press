@@ -11,6 +11,16 @@ final class const BenchmarkConfig({
   /// If null or <= [trials], exactly [trials] are executed without scaling.
   final int? maxTrials,
 
+  /// Opt-in early stopping target as a relative fraction of the mean (e.g.
+  /// 0.01 for 1%; default: 0.0, disabled).
+  ///
+  /// Once at least 8 trials are recorded, collection stops as soon as the 95%
+  /// confidence interval half-width (`1.96 × SEM`) is within this fraction of
+  /// the mean. Interleaved variants stop together, at the end of a visit, once
+  /// every variant meets the target. Once met, it also ends scaling toward
+  /// [maxTrials].
+  final double stopAtCi = 0.0,
+
   /// The minimum number of warmup iterations to execute before evaluating
   /// convergence.
   final int minWarmupIterations = 10,
