@@ -17,6 +17,7 @@ import 'cpu_affinity.dart';
 import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
+import 'suite_runner.dart' show invalidStopAtCiMessage, parseStopAtCi;
 
 /// The `run` subcommand orchestrating multi-runtime benchmark execution.
 final class RunCommand({
@@ -469,14 +470,8 @@ final class RunCommand({
   double? _resolveStopAtCi() {
     final raw = argResults!.option('stop-at-ci');
     if (raw == null) return 0.0;
-    final parsed = double.tryParse(raw.trim());
-    if (parsed == null || !(parsed > 0.0 && parsed < 1.0)) {
-      stderr.writeln(
-        'Invalid --stop-at-ci value "$raw": '
-        'must be a relative fraction > 0.0 and < 1.0 (e.g. 0.01).',
-      );
-      return null;
-    }
+    final parsed = parseStopAtCi(raw);
+    if (parsed == null) stderr.writeln(invalidStopAtCiMessage(raw));
     return parsed;
   }
 

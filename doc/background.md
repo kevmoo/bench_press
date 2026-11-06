@@ -235,11 +235,14 @@ from measurement across the group:
    widens dispersion across the group instead of biasing a single variant. When
    `--max-trials` is set, lockstep rounds continue across all variants while any
    variant's CV exceeds 5%. When `--stop-at-ci` is set, rounds stop early once
-   every variant has at least 8 trials and a 95% CI half-width (`1.96 × SEM`)
-   within that fraction of its mean. Stopping on interval width rather than on
-   the observed effect avoids the false-positive inflation of
-   stop-on-significance; the 8-trial floor limits the slight under-coverage from
-   favoring runs that look quiet early.
+   every variant has at least 8 trials and a 95% CI half-width
+   (`t(0.975, n - 1) × SEM`, Student's t) within that fraction of its mean. The
+   stop is only taken after an even number of rounds, so it always ends on a
+   complete `ABBA` or `BAAB` block and linear drift still cancels; stopping
+   after `AB BA BA` would not. Stopping on interval width rather than on the
+   observed effect avoids the false-positive inflation of stop-on-significance;
+   the 8-trial floor limits the slight under-coverage from favoring runs that
+   look quiet early.
 3. **Blocks and Discarded Batches on Every Switch**: The first batches after a
    change of variant carry engine state left by the previous variant (heap
    shape, caches, tiering) and are measurably slower and noisier: on Wasm the

@@ -15,10 +15,11 @@ final class const BenchmarkConfig({
   /// 0.01 for 1%; default: 0.0, disabled).
   ///
   /// Once at least 8 trials are recorded, collection stops as soon as the 95%
-  /// confidence interval half-width (`1.96 × SEM`) is within this fraction of
-  /// the mean. Interleaved variants stop together, at the end of a visit, once
-  /// every variant meets the target. Once met, it also ends scaling toward
-  /// [maxTrials].
+  /// confidence interval half-width (`t(0.975, n - 1) × SEM`) is within this
+  /// fraction of the mean. Interleaved variants stop together once every
+  /// variant meets the target, and only after an even number of visits (a
+  /// complete `ABBA` or `BAAB` block) so drift still cancels. Once met, it also
+  /// ends scaling toward [maxTrials].
   final double stopAtCi = 0.0,
 
   /// The minimum number of warmup iterations to execute before evaluating

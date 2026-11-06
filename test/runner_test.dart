@@ -415,33 +415,25 @@ void main() {
       ).isFalse();
     });
 
-    test('compares 1.96 x SEM against stopAtCi x mean', () {
-      // tight: mean 100.5, SD ~0.53, half-width ~0.37 (0.37%).
-      check(
-        BenchmarkRunner.hasTightInterval(
-          tight,
-          const BenchmarkConfig(stopAtCi: 0.01),
-        ),
-      ).isTrue();
-      check(
-        BenchmarkRunner.hasTightInterval(
-          tight,
-          const BenchmarkConfig(stopAtCi: 0.003),
-        ),
-      ).isFalse();
-      // wide: mean 100, SD ~10.7, half-width ~7.4 (7.4%).
-      check(
-        BenchmarkRunner.hasTightInterval(
-          wide,
-          const BenchmarkConfig(stopAtCi: 0.05),
-        ),
-      ).isFalse();
-      check(
-        BenchmarkRunner.hasTightInterval(
-          wide,
-          const BenchmarkConfig(stopAtCi: 0.08),
-        ),
-      ).isTrue();
+    test('compares t(0.975, n - 1) x SEM against stopAtCi x mean', () {
+      bool isTight(List<double> trials, double stopAtCi) =>
+          BenchmarkRunner.hasTightInterval(
+            trials,
+            BenchmarkConfig(stopAtCi: stopAtCi),
+          );
+
+      // tight: mean 100.5, SD ~0.53, SEM ~0.19; t(0.975, 7) ~2.365 gives a
+      // half-width of ~0.447 (0.445%). 1.96 x SEM would give only ~0.37
+      // (0.369%), so 0.4% separates the two.
+      check(isTight(tight, 0.01)).isTrue();
+      check(isTight(tight, 0.0045)).isTrue();
+      check(isTight(tight, 0.004)).isFalse();
+      check(isTight(tight, 0.003)).isFalse();
+      // wide: mean 100, SD ~10.7, SEM ~3.78; t half-width ~8.94 (8.94%),
+      // where 1.96 x SEM would give ~7.4 (7.4%).
+      check(isTight(wide, 0.05)).isFalse();
+      check(isTight(wide, 0.08)).isFalse();
+      check(isTight(wide, 0.09)).isTrue();
     });
 
     test('suppresses scaling toward maxTrials once met', () {
@@ -519,6 +511,45 @@ void main() {
             .deepEquals([8, 8]);
       },
     );
+
+    test('runVariants only stops after an even number of visits', () async {
+      void spin() {
+        final sw = Stopwatch()..start();
+        while (sw.elapsedMicroseconds < 50) {}
+        Blackhole.consume(1);
+      }
+
+      // A loose target is met as soon as 8 trials exist, so the stop lands
+      // on the first even visit with at least 8 trials, or on all trials.
+      // With blocks of 3 (trials 10 to 12) the first visit with 8 trials is
+      // the third (`AB BA BA`), so collection must run on to the fourth.
+      const expected = {10: 10, 11: 11, 12: 12, 16: 8, 17: 10, 24: 12};
+      for (final MapEntry(key: trials, value: stopAt) in expected.entries) {
+        final results = await BenchmarkRunner.runVariants(
+          [
+            BenchmarkVariant('a', spin, isBaseline: true),
+            BenchmarkVariant('b', spin),
+          ],
+          config: BenchmarkConfig(
+            trials: trials,
+            stopAtCi: 0.9,
+            minWarmupIterations: 5,
+            maxWarmupIterations: 5,
+            targetBatchDuration: const Duration(milliseconds: 1),
+            forceRun: true,
+          ),
+        );
+        final block = (trials / 4).ceil();
+        for (final result in results) {
+          final count = result.rawTrialLatenciesNs.length;
+          check(because: 'trials: $trials', count).equals(stopAt);
+          if (count < trials) {
+            check(count % block).equals(0);
+            check((count ~/ block).isEven).isTrue();
+          }
+        }
+      }
+    });
   });
 
   group('Change 3: Post-warmup recalibration', () {

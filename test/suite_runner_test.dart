@@ -4,6 +4,7 @@ import 'package:bench_press/bench_press.dart';
 import 'package:bench_press/src/cli/suite_runner.dart';
 import 'package:bench_press/src/telemetry/schema.dart';
 import 'package:checks/checks.dart';
+import 'package:io/io.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
 
@@ -277,6 +278,62 @@ void main() {
           .throws<ArgumentError>()
           .has((e) => e.message, 'message')
           .equals('Benchmark suite argument cannot be null.');
+    });
+
+    test('mainBenchmarkSuite rejects --stop-at-ci outside (0, 1) before '
+        'running anything', () async {
+      final savedExitCode = exitCode;
+      addTearDown(() => exitCode = savedExitCode);
+
+      for (final bad in ['5', '1', '0', '-0.1', 'NaN', 'abc']) {
+        exitCode = 0;
+        var runs = 0;
+        final outputFile = File(d.path('stop_bad.json'));
+        await mainBenchmarkSuite(BenchmarkVariant('stop_bad', () => runs++), [
+          '--stop-at-ci',
+          bad,
+          '--json-output',
+          outputFile.path,
+        ]);
+        check(
+          because: '--stop-at-ci $bad',
+          exitCode,
+        ).equals(ExitCode.usage.code);
+        check(because: '--stop-at-ci $bad', runs).equals(0);
+        check(outputFile.existsSync()).isFalse();
+      }
+
+      exitCode = 0;
+      final outputFile = File(d.path('stop_ok.json'));
+      await mainBenchmarkSuite(
+        BenchmarkVariant('stop_ok', () => Blackhole.consume(1)),
+        [
+          '--stop-at-ci',
+          '0.99',
+          '--trials',
+          '16',
+          '--min-warmup',
+          '2',
+          '--max-warmup',
+          '5',
+          '--target-batch-ms',
+          '1',
+          '--force-run',
+          '--json-output',
+          outputFile.path,
+        ],
+      );
+      check(exitCode).equals(0);
+      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      check(suite.benchmarks.single.samples).equals(8);
+    });
+
+    test('parseStopAtCi accepts only fractions strictly between 0 and 1', () {
+      check(parseStopAtCi('0.01')).equals(0.01);
+      check(parseStopAtCi(' 0.5 ')).equals(0.5);
+      for (final bad in ['5', '1', '1.0', '0', '-0.1', 'NaN', 'abc', '']) {
+        check(because: bad, parseStopAtCi(bad)).isNull();
+      }
     });
   });
 }
