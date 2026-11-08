@@ -36,7 +36,7 @@ package:bench_press/bench_press.dart:
     warmupComplete (method: void Function())
   BenchmarkConfig (class extends Object, final):
     defaultTrials (static const getter: int)
-    new (const constructor: BenchmarkConfig Function({bool forceRun, void Function(String)? logger, double maxSemRelativeError, int? maxTrials, double maxWarmupDurationSeconds, int maxWarmupIterations, int minWarmupIterations, Duration targetBatchDuration, int trials}))
+    new (const constructor: BenchmarkConfig Function({bool forceRun, void Function(String)? logger, double maxSemRelativeError, int? maxTrials, double maxWarmupDurationSeconds, int maxWarmupIterations, int minWarmupIterations, double stopAtCi, Duration targetBatchDuration, int trials}))
     forceRun (getter: bool)
     logger (getter: void Function(String)?)
     maxSemRelativeError (getter: double)
@@ -44,6 +44,7 @@ package:bench_press/bench_press.dart:
     maxWarmupDurationSeconds (getter: double)
     maxWarmupIterations (getter: int)
     minWarmupIterations (getter: int)
+    stopAtCi (getter: double)
     targetBatchDuration (getter: Duration)
     trials (getter: int)
   BenchmarkGroup (class extends Object, final):

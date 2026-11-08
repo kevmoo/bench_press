@@ -38,6 +38,19 @@ String? extractJsonFromStdout(String stdout) {
   return jsonSnippet.isNotEmpty ? jsonSnippet : null;
 }
 
+/// Parses a `--stop-at-ci` value, returning null unless it is a relative
+/// fraction strictly between 0.0 and 1.0 (so `5`, meant as 5%, is rejected).
+double? parseStopAtCi(String raw) {
+  final parsed = double.tryParse(raw.trim());
+  return parsed != null && parsed > 0.0 && parsed < 1.0 ? parsed : null;
+}
+
+/// The usage error reported for a `--stop-at-ci` value [raw] that
+/// [parseStopAtCi] rejects.
+String invalidStopAtCiMessage(String raw) =>
+    'Invalid --stop-at-ci value "$raw": '
+    'must be a relative fraction > 0.0 and < 1.0 (e.g. 0.01).';
+
 /// Standalone CLI entrypoint for a single synchronous [Benchmark].
 void mainBenchmark(Benchmark benchmark, List<String> args) {
   mainBenchmarkSuite([benchmark], args);
@@ -78,6 +91,12 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
       'max-trials',
       help: 'Override maximum measurement trials ceiling for adaptive scaling',
     )
+    ..addOption(
+      'stop-at-ci',
+      help:
+          'Stop collecting trials once the 95% CI half-width is within this '
+          'relative fraction of the mean (0.0 < value < 1.0, e.g. 0.01)',
+    )
     ..addOption('min-warmup', help: 'Override minimum warmup iterations')
     ..addOption('max-warmup', help: 'Override maximum warmup iterations')
     ..addOption('target-batch-ms', help: 'Override target batch duration (ms)')
@@ -100,16 +119,13 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
   try {
     parsed = parser.parse(cleanArgs);
   } on FormatException catch (e) {
-    print('Argument error: ${e.message}');
-    print('');
-    print(parser.usage);
-    try {
-      exitCode = ExitCode.usage.code;
-    } on Object {
-      // `dart:io` process exit codes are unsupported on web (js/wasm)
-      // compile targets — the printed error above is all those targets
-      // can surface anyway.
-    }
+    _reportUsageError(e.message, parser);
+    return;
+  }
+
+  final rawStopAtCi = parsed.option('stop-at-ci');
+  if (rawStopAtCi != null && parseStopAtCi(rawStopAtCi) == null) {
+    _reportUsageError(invalidStopAtCiMessage(rawStopAtCi), parser);
     return;
   }
 
@@ -144,6 +160,19 @@ Future<void> mainBenchmarkSuite(Object benchmarks, List<String> args) async {
     target: target,
     jsonOutputPath: parsed.option('json-output'),
   );
+}
+
+void _reportUsageError(String message, ArgParser parser) {
+  print('Argument error: $message');
+  print('');
+  print(parser.usage);
+  try {
+    exitCode = ExitCode.usage.code;
+  } on Object {
+    // `dart:io` process exit codes are unsupported on web (js/wasm)
+    // compile targets — the printed error above is all those targets
+    // can surface anyway.
+  }
 }
 
 @visibleForTesting
@@ -189,6 +218,9 @@ BenchmarkConfig _resolveConfig(
 
   final trials = int.tryParse(parsed.option('trials') ?? '');
   final maxTrials = int.tryParse(parsed.option('max-trials') ?? '');
+  // Already validated by mainBenchmarkSuite before any benchmark runs.
+  final rawStopAtCi = parsed.option('stop-at-ci');
+  final stopAtCi = rawStopAtCi == null ? null : parseStopAtCi(rawStopAtCi);
   final minWarmup = int.tryParse(parsed.option('min-warmup') ?? '');
   final maxWarmup = int.tryParse(parsed.option('max-warmup') ?? '');
   final batchMs = int.tryParse(parsed.option('target-batch-ms') ?? '');
@@ -199,6 +231,7 @@ BenchmarkConfig _resolveConfig(
   return BenchmarkConfig(
     trials: trials ?? base.trials,
     maxTrials: maxTrials ?? base.maxTrials,
+    stopAtCi: stopAtCi ?? base.stopAtCi,
     minWarmupIterations: minWarmup ?? base.minWarmupIterations,
     maxWarmupIterations: maxWarmup ?? base.maxWarmupIterations,
     targetBatchDuration: batchMs != null

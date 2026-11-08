@@ -678,5 +678,47 @@ matrix:
       ]);
       check(thresholdCode).equals(ExitCode.success.code);
     });
+
+    test(
+      'run subcommand forwards --stop-at-ci and rejects invalid values',
+      () async {
+        final benchFile = writeSyncBenchmark(
+          subDir: 'benchmark',
+          fileName: 'stop_bench.dart',
+          className: 'StopBenchmark',
+          name: 'stop_workload',
+          body: 'Blackhole.consume(42);',
+        );
+        final outputFile = File(d.path('stop_results.json'));
+        final runner = BenchPressCommandRunner();
+
+        for (final bad in ['0', '1.0', 'abc']) {
+          final badCode = await runner.run([
+            'run',
+            '--stop-at-ci',
+            bad,
+            benchFile.path,
+          ]);
+          check(badCode).equals(ExitCode.usage.code);
+        }
+
+        final exitCode = await runner.run([
+          'run',
+          '-t',
+          'jit',
+          '--trials',
+          '16',
+          '--stop-at-ci',
+          '0.99',
+          '--force-run',
+          '-o',
+          outputFile.path,
+          benchFile.path,
+        ]);
+        check(exitCode).equals(ExitCode.success.code);
+        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        check(suite.benchmarks.single.samples).equals(8);
+      },
+    );
   });
 }

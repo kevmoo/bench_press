@@ -17,6 +17,7 @@ import 'cpu_affinity.dart';
 import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
+import 'suite_runner.dart' show invalidStopAtCiMessage, parseStopAtCi;
 
 /// The `run` subcommand orchestrating multi-runtime benchmark execution.
 final class RunCommand({
@@ -86,6 +87,13 @@ final class RunCommand({
         help:
             'Maximum measurement trials ceiling for adaptive scaling '
             '(scales up if variance/outliers detected).',
+      )
+      ..addOption(
+        'stop-at-ci',
+        help:
+            'Stop collecting trials once the 95% CI half-width is within this '
+            'relative fraction of the mean (e.g. 0.01 for ±1%, after at least '
+            '8 trials; default: off).',
       )
       ..addOption(
         'processes',
@@ -392,6 +400,8 @@ final class RunCommand({
     final threshold = _resolveRunThreshold(config);
     if (threshold == null) return ExitCode.usage.code;
     final (:trials, :maxTrials) = _resolveTrialCounts(config);
+    final stopAtCi = _resolveStopAtCi();
+    if (stopAtCi == null) return ExitCode.usage.code;
     final forceRun = argResults!.flag('force-run');
     final isolateMode =
         argResults!.flag('isolate-mode') || config.defaults.isolateMode;
@@ -413,6 +423,7 @@ final class RunCommand({
         defaultTargets: targets,
         trials: trials,
         maxTrials: maxTrials,
+        stopAtCi: stopAtCi,
         processes: processes,
         forceRun: forceRun,
         isolateMode: isolateMode,
@@ -452,6 +463,16 @@ final class RunCommand({
         ? int.tryParse(maxTrialsStr)
         : config.defaults.maxTrials;
     return (trials: trials, maxTrials: maxTrials);
+  }
+
+  /// Returns 0.0 when `--stop-at-ci` is absent, or null (after reporting the
+  /// error) when it is not a fraction in `(0.0, 1.0)`.
+  double? _resolveStopAtCi() {
+    final raw = argResults!.option('stop-at-ci');
+    if (raw == null) return 0.0;
+    final parsed = parseStopAtCi(raw);
+    if (parsed == null) stderr.writeln(invalidStopAtCiMessage(raw));
+    return parsed;
   }
 
   int? _resolveRunProcesses(BenchPressConfig config) {
@@ -591,6 +612,7 @@ final class RunCommand({
     required List<TargetRuntime> defaultTargets,
     required int? trials,
     required int? maxTrials,
+    required double stopAtCi,
     required int processes,
     required bool forceRun,
     required bool isolateMode,
@@ -624,6 +646,7 @@ final class RunCommand({
         processes: processes,
         trials: trials,
         maxTrials: maxTrials,
+        stopAtCi: stopAtCi,
         forceRun: forceRun,
         isolateMode: isolateMode,
         vmFlags: vmFlags,
@@ -648,6 +671,7 @@ final class RunCommand({
     required int processes,
     required int? trials,
     required int? maxTrials,
+    required double stopAtCi,
     required bool forceRun,
     required bool isolateMode,
     required List<String> vmFlags,
@@ -664,6 +688,7 @@ final class RunCommand({
         cell: cells[cellIndex],
         trials: trials,
         maxTrials: maxTrials,
+        stopAtCi: stopAtCi,
         forceRun: forceRun,
         isolateMode: isolateMode,
         vmFlags: vmFlags,
@@ -770,6 +795,7 @@ final class RunCommand({
     required _CompiledCell cell,
     required int? trials,
     required int? maxTrials,
+    required double stopAtCi,
     required bool forceRun,
     required bool isolateMode,
     required List<String> vmFlags,
@@ -779,6 +805,7 @@ final class RunCommand({
       isolateMode: isolateMode,
       trials: trials,
       maxTrials: maxTrials,
+      stopAtCi: stopAtCi,
       forceRun: forceRun,
       vmFlags: vmFlags,
     );

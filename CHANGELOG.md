@@ -1,3 +1,13 @@
+## 0.4.3-wip
+
+- Added opt-in early stopping (`--stop-at-ci <fraction>` on `bench_press run`
+  and benchmark entrypoints, and `BenchmarkConfig.stopAtCi`). Once a cell has at
+  least 8 trials, collection stops as soon as the 95% CI half-width
+  (`t(0.975, n - 1) × SEM`) is within that fraction of the mean, such as `0.01`
+  for ±1%. Interleaved variants stop together once every variant meets the
+  target, and only after an even number of visits so the `ABBA` drift
+  cancellation holds. The default stays fixed-count.
+
 ## 0.4.2
 
 - Added opt-in practical-significance and Schuirmann TOST equivalence gating

@@ -8,6 +8,7 @@ import 'blackhole.dart';
 import 'calibration.dart';
 import 'config.dart';
 import 'harness.dart';
+import 'stats/fieller.dart';
 import 'stats/metrics.dart';
 import 'stats/warmup.dart';
 import 'throughput.dart';
@@ -120,7 +121,8 @@ abstract final class BenchmarkRunner() {
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
-      for (var i = 0; i < config.trials; i++) {
+      while (trials.length < config.trials &&
+          !_hasTightInterval(trials, config)) {
         final measurement = (runBatch ?? BatchRunner.runSync)(
           benchmark,
           calibrated.iterations,
@@ -206,7 +208,8 @@ abstract final class BenchmarkRunner() {
       _logRecalibrationSwing(provisional, calibrated, config);
 
       final trials = <double>[];
-      for (var i = 0; i < config.trials; i++) {
+      while (trials.length < config.trials &&
+          !_hasTightInterval(trials, config)) {
         final measurement = await (runBatch ?? BatchRunner.runAsync)(
           benchmark,
           calibrated.iterations,
@@ -266,6 +269,9 @@ abstract final class BenchmarkRunner() {
   ///
   /// When [BenchmarkConfig.maxTrials] is set, lockstep rounds continue across
   /// all variants while any variant's CV exceeds the stability threshold.
+  /// When [BenchmarkConfig.stopAtCi] is set, rounds stop early once every
+  /// variant's interval is tight enough, but only after an even number of
+  /// visits, so the stop always lands on a complete `ABBA` or `BAAB` block.
   static Future<List<BenchmarkResult>> runVariants(
     List<BenchmarkVariant> variants, {
     BenchmarkConfig config = const BenchmarkConfig(),
@@ -377,7 +383,8 @@ abstract final class BenchmarkRunner() {
     final block = math.max(1, (config.trials / 4).ceil());
     var visit = 0;
     _PreparedVariant? last;
-    while (prepared.any((p) => p.trials.length < config.trials)) {
+    while (prepared.any((p) => p.trials.length < config.trials) &&
+        !_allTightAfterVisits(prepared, visit, config)) {
       last = await _runInterleavedVisit(
         prepared,
         visit++,
@@ -386,12 +393,12 @@ abstract final class BenchmarkRunner() {
         last: last,
       );
     }
-    if (_anyShouldScale(prepared, config)) {
+    if (_anyShouldScale(prepared, visit, config)) {
       config.logger?.call(
         'High variance detected in initial trials. '
         'Adaptively scaling up to ${config.maxTrials} trials.',
       );
-      while (_anyShouldScale(prepared, config)) {
+      while (_anyShouldScale(prepared, visit, config)) {
         last = await _runInterleavedVisit(
           prepared,
           visit++,
@@ -447,10 +454,31 @@ abstract final class BenchmarkRunner() {
     return last;
   }
 
+  /// Whether every variant meets [BenchmarkConfig.stopAtCi] after [visits]
+  /// completed visits.
+  ///
+  /// Only an even visit count ends on a balanced `ABBA` or `BAAB` block, where
+  /// linear drift cancels; stopping after an odd count (e.g. `AB BA BA`) would
+  /// let drift bias the comparison between variants.
+  static bool _allTightAfterVisits(
+    List<_PreparedVariant> prepared,
+    int visits,
+    BenchmarkConfig config,
+  ) =>
+      visits.isEven &&
+      prepared.every((p) => _hasTightInterval(p.trials, config));
+
+  /// Whether interleaved scaling continues after [visits] completed visits.
+  ///
+  /// A tight interval only ends scaling after an even visit count, for the
+  /// same reason as [_allTightAfterVisits].
   static bool _anyShouldScale(
     List<_PreparedVariant> prepared,
+    int visits,
     BenchmarkConfig config,
-  ) => prepared.any((p) => _shouldScaleTrials(p.trials, config));
+  ) => visits.isEven
+      ? prepared.any((p) => _shouldScaleTrials(p.trials, config))
+      : prepared.any((p) => _isTooNoisy(p.trials, config));
 
   static BenchmarkResult _buildVariantResult(
     _PreparedVariant item,
@@ -533,7 +561,12 @@ abstract final class BenchmarkRunner() {
   static bool shouldScaleTrials(List<double> trials, BenchmarkConfig config) =>
       _shouldScaleTrials(trials, config);
 
-  static bool _shouldScaleTrials(List<double> trials, BenchmarkConfig config) {
+  static bool _shouldScaleTrials(List<double> trials, BenchmarkConfig config) =>
+      !_hasTightInterval(trials, config) && _isTooNoisy(trials, config);
+
+  /// Whether [trials] are below [BenchmarkConfig.maxTrials] and their CV
+  /// exceeds the stability threshold, ignoring [BenchmarkConfig.stopAtCi].
+  static bool _isTooNoisy(List<double> trials, BenchmarkConfig config) {
     final maxTrials = config.maxTrials;
     if (maxTrials == null || maxTrials <= config.trials) {
       return false;
@@ -549,6 +582,31 @@ abstract final class BenchmarkRunner() {
     // indicating high variance or transient bimodal outliers (such as GC
     // pauses).
     return metrics.cv > BenchmarkMetrics.maxCvThreshold;
+  }
+
+  /// Trials recorded before [BenchmarkConfig.stopAtCi] may end collection.
+  ///
+  /// Stopping on interval width favors runs that happen to look quiet early,
+  /// so the interval can under-cover slightly; a floor keeps that small. At
+  /// the default trial count, eight trials are two visits: one `ABBA` block,
+  /// enough to cancel linear drift.
+  static const int _minTrialsBeforeStop = 8;
+
+  /// Whether [trials] already meet [BenchmarkConfig.stopAtCi]: the 95%
+  /// confidence interval half-width (`t(0.975, n - 1) × SEM`, Student's t
+  /// with `n - 1` degrees of freedom) is within that fraction of the mean.
+  @visibleForTesting
+  static bool hasTightInterval(List<double> trials, BenchmarkConfig config) =>
+      _hasTightInterval(trials, config);
+
+  static bool _hasTightInterval(List<double> trials, BenchmarkConfig config) {
+    if (config.stopAtCi <= 0.0 || trials.length < _minTrialsBeforeStop) {
+      return false;
+    }
+    final metrics = BenchmarkMetrics.fromSamples(trials);
+    final t = studentTQuantile(0.975, (trials.length - 1).toDouble());
+    final halfWidth = t * metrics.stddevNs / math.sqrt(trials.length);
+    return halfWidth <= config.stopAtCi * metrics.meanNs;
   }
 }
 
