@@ -32,15 +32,15 @@ dev_dependencies:
 
 Create a benchmark file in `benchmark/` (e.g. `benchmark/json_benchmark.dart`):
 
-```dart
+```dart @example example/readme/json_decode_benchmark.dart
 import 'dart:convert';
+
 import 'package:bench_press/bench_press.dart';
 
-final class JsonDecodeBenchmark extends Benchmark {
-  final String _payload;
+final class JsonDecodeBenchmark(final String _payload) extends Benchmark {
   late List<int> _utf8Bytes;
 
-  JsonDecodeBenchmark(this._payload)
+  this
     : super(
         'json_decode',
         config: const BenchmarkConfig(trials: 16, maxTrials: 32),
@@ -75,7 +75,7 @@ executes it in-process and returns `BenchmarkResult`s directly.
 Compare a baseline against candidate implementations in a single group (variants
 warm up first, then interleave trials in `ABBA BAAB` rounds):
 
-```dart
+```dart @example example/readme/compare_benchmark.dart
 import 'package:bench_press/bench_press.dart';
 
 Future<void> main(List<String> args) async {
@@ -116,14 +116,14 @@ Evaluate competing implementations across multiple input sizes or cases (shared
 variant names across `>= 8x` byte spreads are automatically screened for payload
 invariance):
 
-```dart
+```dart @example example/readme/matrix_benchmark.dart
 import 'package:bench_press/bench_press.dart';
 
 Future<void> main(List<String> args) async {
   final matrix = Benchmark.matrix<int>(
     cases: [16, 256, 4096],
     name: (n) => 'string_length:$n',
-    throughput: (n) => Throughput.bytes(n),
+    throughput: Throughput.bytes,
     baseline: (
       'concat',
       (n) {
