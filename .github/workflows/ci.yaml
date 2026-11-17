@@ -48,3 +48,6 @@ jobs:
 
       - name: Validate benchmark suite
         run: dart run bin/bench_press.dart validate benchmark/
+
+      - name: Validate README examples
+        run: dart run bin/bench_press.dart validate example/readme/
