@@ -65,7 +65,7 @@ void main() {
       check(extracted).equals(originalJson);
 
       final notFound = extractJsonFromStdout('Random output without markers');
-      check(notFound).isNull();
+      check(notFound).isNull;
     });
 
     test(
@@ -95,7 +95,7 @@ void main() {
           BenchmarkVariant('variant_sync', () => Blackhole.consume(1)),
         ], args);
 
-        check(outputFile.existsSync()).isTrue();
+        check(outputFile.existsSync()).isTrue;
         final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
         check(suite.benchmarks.length).equals(3);
         check(suite.findEntry('sample_sync', 'jit')).isNotNull();
@@ -204,7 +204,7 @@ void main() {
       final args = ['--validate', '--json-output', outputFile.path];
 
       mainBenchmark(_SampleBench(), args);
-      check(outputFile.existsSync()).isTrue();
+      check(outputFile.existsSync()).isTrue;
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
       check(suite.benchmarks.first.samples).equals(1);
 
@@ -255,7 +255,7 @@ void main() {
 
       await mainBenchmarkSuite(group, args);
 
-      check(outputFile.existsSync()).isTrue();
+      check(outputFile.existsSync()).isTrue;
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
       check(suite.benchmarks.length).equals(2);
       check(suite.findEntry('g_var1', 'jit')).isNotNull();
@@ -271,12 +271,12 @@ void main() {
 
       check(() => validateBenchmarks([null]))
           .throws<ArgumentError>()
-          .has((e) => e.message, 'message')
+          .has('message', (e) => e.message)
           .equals('Benchmark suite list cannot contain null elements.');
 
       check(() => validateBenchmarks(null))
           .throws<ArgumentError>()
-          .has((e) => e.message, 'message')
+          .has('message', (e) => e.message)
           .equals('Benchmark suite argument cannot be null.');
     });
 
@@ -300,7 +300,7 @@ void main() {
           exitCode,
         ).equals(ExitCode.usage.code);
         check(because: '--stop-at-ci $bad', runs).equals(0);
-        check(outputFile.existsSync()).isFalse();
+        check(outputFile.existsSync()).isFalse;
       }
 
       exitCode = 0;
@@ -332,7 +332,7 @@ void main() {
       check(parseStopAtCi('0.01')).equals(0.01);
       check(parseStopAtCi(' 0.5 ')).equals(0.5);
       for (final bad in ['5', '1', '1.0', '0', '-0.1', 'NaN', 'abc', '']) {
-        check(because: bad, parseStopAtCi(bad)).isNull();
+        check(because: bad, parseStopAtCi(bad)).isNull;
       }
     });
   });

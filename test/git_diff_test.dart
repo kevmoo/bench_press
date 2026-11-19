@@ -15,19 +15,19 @@ void main() {
         gitRef: 'non_existent_ref_99999',
         filePath: 'pubspec.yaml',
       );
-      check(nonExistentRef).isNull();
+      check(nonExistentRef).isNull;
 
       final nonExistentFile = GitBaselineExtractor.extractRaw(
         gitRef: 'HEAD',
         filePath: 'non_existent_file_99999.json',
       );
-      check(nonExistentFile).isNull();
+      check(nonExistentFile).isNull;
 
       final nonJsonSuite = GitBaselineExtractor.extractSuite(
         gitRef: 'HEAD',
         filePath: 'pubspec.yaml',
       );
-      check(nonJsonSuite).isNull();
+      check(nonJsonSuite).isNull;
     });
 
     test('extractSuite and renderGitDiffReport extract baseline', () {
@@ -68,7 +68,7 @@ void main() {
       check(report).contains('crypto_hash');
       check(report).contains('2.00x');
       check(report).contains('🚀 Faster');
-      check(report).not((it) => it.contains('mdformat'));
+      check(report).not(.it()..contains('mdformat'));
     });
 
     test('renderGitDiffReport falls back when baseline is missing', () {

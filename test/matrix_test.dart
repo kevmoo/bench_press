@@ -43,7 +43,7 @@ void main() {
           // Baseline checks
           final baseline = group.variants[0];
           check(baseline.name).equals('dart:convert');
-          check(baseline.isBaseline).isTrue();
+          check(baseline.isBaseline).isTrue;
           check(baseline.group).equals('decode - ${dataset.name}');
           check(baseline.throughput).isNotNull();
           check((baseline.throughput as ByteThroughput).bytes)
@@ -52,14 +52,14 @@ void main() {
           // Candidates checks
           final candidate1 = group.variants[1];
           check(candidate1.name).equals('codable');
-          check(candidate1.isBaseline).isFalse();
+          check(candidate1.isBaseline).isFalse;
           check(candidate1.group).equals('decode - ${dataset.name}');
           check((candidate1.throughput as ByteThroughput).bytes)
               .equals(dataset.size * 1024);
 
           final candidate2 = group.variants[2];
           check(candidate2.name).equals('fast_parser');
-          check(candidate2.isBaseline).isFalse();
+          check(candidate2.isBaseline).isFalse;
           check(candidate2.group).equals('decode - ${dataset.name}');
         }
       },
@@ -185,19 +185,19 @@ void main() {
       check(results.length).equals(4); // 2 cases * 2 variants
       check(results[0].name).equals('base');
       check(results[0].group).equals('report_group_1');
-      check(results[0].isBaseline).isTrue();
+      check(results[0].isBaseline).isTrue;
 
       check(results[1].name).equals('cand');
       check(results[1].group).equals('report_group_1');
-      check(results[1].isBaseline).isFalse();
+      check(results[1].isBaseline).isFalse;
 
       check(results[2].name).equals('base');
       check(results[2].group).equals('report_group_2');
-      check(results[2].isBaseline).isTrue();
+      check(results[2].isBaseline).isTrue;
 
       check(results[3].name).equals('cand');
       check(results[3].group).equals('report_group_2');
-      check(results[3].isBaseline).isFalse();
+      check(results[3].isBaseline).isFalse;
 
       check(syncCalls).isGreaterThan(0);
     });
@@ -210,12 +210,12 @@ void main() {
         candidates: {'cand': (n) => n},
       );
 
-      check(matrix.isEmpty).isTrue();
+      check(matrix.isEmpty).isTrue;
       check(matrix.length).equals(0);
-      check(matrix.cases.isEmpty).isTrue();
+      check(matrix.cases.isEmpty).isTrue;
 
       final results = await matrix.report();
-      check(results.isEmpty).isTrue();
+      check(results.isEmpty).isTrue;
     });
 
     test(
@@ -230,9 +230,9 @@ void main() {
 
         final group = matrix.first;
         for (final v in group.variants) {
-          check(v.throughput).isNull();
-          check(v.setup).isNull();
-          check(v.teardown).isNull();
+          check(v.throughput).isNull;
+          check(v.setup).isNull;
+          check(v.teardown).isNull;
         }
       },
     );
@@ -257,7 +257,7 @@ void main() {
       // Pass BenchmarkMatrix directly as the suite argument
       await mainBenchmarkSuite(matrix, args);
 
-      check(outputFile.existsSync()).isTrue();
+      check(outputFile.existsSync()).isTrue;
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
       check(suite.benchmarks.length).equals(4);
 
@@ -274,10 +274,10 @@ void main() {
         (b) => b.name == 'cand' && b.coordinates.group == 'dataset_micro',
       );
 
-      check(miniBase).isTrue();
-      check(miniCand).isTrue();
-      check(microBase).isTrue();
-      check(microCand).isTrue();
+      check(miniBase).isTrue;
+      check(miniCand).isTrue;
+      check(microBase).isTrue;
+      check(microCand).isTrue;
     });
 
     test(
@@ -304,7 +304,7 @@ void main() {
         // Pass inside a list containing both BenchmarkVariant and Matrix
         await mainBenchmarkSuite([singleVariant, matrix], args);
 
-        check(outputFile.existsSync()).isTrue();
+        check(outputFile.existsSync()).isTrue;
         final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
         check(suite.benchmarks.length).equals(3); // 1 standalone + 2 matrix
         check(suite.findEntry('standalone_var', 'jit')).isNotNull();
@@ -315,8 +315,8 @@ void main() {
         final caseCand = suite.benchmarks.any(
           (b) => b.name == 'm_cand' && b.coordinates.group == 'matrix_case_100',
         );
-        check(caseBase).isTrue();
-        check(caseCand).isTrue();
+        check(caseBase).isTrue;
+        check(caseCand).isTrue;
       },
     );
 
@@ -341,7 +341,7 @@ void main() {
 
         await mainBenchmarkMatrix(matrix, args);
 
-        check(outputFile.existsSync()).isTrue();
+        check(outputFile.existsSync()).isTrue;
         final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
         check(suite.benchmarks.length).equals(2);
       },

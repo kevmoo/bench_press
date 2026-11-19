@@ -59,13 +59,13 @@ void _testSummaryMath() {
     // Monotonic downward JIT drift between windows
     final driftA = [200.0, 190.0, 180.0, 170.0, 160.0];
     final driftB = [150.0, 140.0, 130.0, 120.0, 110.0];
-    check(AdaptiveWarmupDetector.hasSystemicDrift(driftA, driftB)).isTrue();
+    check(AdaptiveWarmupDetector.hasSystemicDrift(driftA, driftB)).isTrue;
 
     // Steady state with a single transient GC spike in window B
     final steadyA = [100.0, 100.0, 100.0, 100.0, 100.0];
     final steadyBWithGc = [100.0, 100.0, 100.0, 100.0, 500.0];
     check(AdaptiveWarmupDetector.hasSystemicDrift(steadyA, steadyBWithGc))
-        .isFalse();
+        .isFalse;
   });
 }
 
@@ -106,7 +106,7 @@ void _testDetectorConvergence() {
     }
 
     final result = detector.finish();
-    check(result.isStable).isTrue();
+    check(result.isStable).isTrue;
     check(result.convergedAtIteration).isLessThan(40);
     check(result.bestMmd).isLessOrEqual(0.25);
   });
@@ -124,7 +124,7 @@ void _testDetectorConvergence() {
     }
 
     final result = detector.finish();
-    check(result.isStable).isTrue();
+    check(result.isStable).isTrue;
     check(result.convergedAtIteration).isLessOrEqual(15);
   });
 
@@ -147,7 +147,7 @@ void _testDetectorConvergence() {
     }
 
     final result = detector.finish();
-    check(result.isStable).isTrue();
+    check(result.isStable).isTrue;
     check(result.convergedAtIteration).isLessOrEqual(15);
   });
 
@@ -161,7 +161,7 @@ void _testDetectorConvergence() {
 
     for (var i = 0; i < 15; i++) {
       detector.addSample(500.0 - i * 15.0);
-      check(detector.isDone()).isFalse();
+      check(detector.isDone()).isFalse;
     }
   });
 }
@@ -182,7 +182,7 @@ void _testDetectorFallback() {
       detector.addSample(100.0 + i * 50.0);
     }
 
-    check(detector.isDone()).isTrue();
+    check(detector.isDone()).isTrue;
     final result = detector.finish();
 
     check(result.isStable).equals(false);
@@ -210,7 +210,7 @@ void _testDetectorFallback() {
     }
 
     final result = detector.finish();
-    check(result.isStable).isFalse();
+    check(result.isStable).isFalse;
     // Inliers of the 5-sample tail [1000, 1020, 980, 1010, 50000] are
     // [980, 1000, 1010, 1020] -> median 1005.0 (NOT ~10400.0 from cold prefix)
     check(result.estimatedOpNanoseconds).isCloseTo(1005.0, 5.0);

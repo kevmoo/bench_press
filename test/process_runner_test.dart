@@ -23,7 +23,7 @@ void main() {
 
         final result = await compileAndExecute(sourceFile);
 
-        check(result.success).isTrue();
+        check(result.success).isTrue;
         check(result.runtime).equals(TargetRuntime.jit);
         check(result.suiteResult).isNotNull();
         check(result.suiteResult!.benchmarks.length).equals(1);
@@ -43,7 +43,7 @@ void main() {
 
       final result = await compileAndExecute(sourceFile, isolateMode: true);
 
-      check(result.success).isTrue();
+      check(result.success).isTrue;
       check(result.suiteResult).isNotNull();
       check(result.suiteResult!.benchmarks.first.name).equals('isolate_bench');
     });
@@ -64,7 +64,7 @@ void main(List<String> args) {
           forceRun: false,
         );
 
-        check(result.success).isFalse();
+        check(result.success).isFalse;
         check(result.exitCode).equals(1);
         check(result.errorMessage).isNotNull();
         check(result.errorMessage!).contains('Unhandled isolate exception');
@@ -87,8 +87,8 @@ void main(List<String> args) {
         forceRun: false,
       );
 
-      check(result.success).isFalse();
-      check(result.exitCode).not((it) => it.equals(0));
+      check(result.success).isFalse;
+      check(result.exitCode).not(.it()..equals(0));
       check(result.errorMessage).isNotNull();
     });
 
@@ -122,7 +122,7 @@ void main(List<String> args) {
         const runner = BenchmarkProcessRunner();
         final result = await runner.execute(compilationResult: compilation);
 
-        check(result.success).isFalse();
+        check(result.success).isFalse;
         check(result.exitCode).equals(1);
         check(result.errorMessage)
             .equals('Cannot execute uncompiled or failed target.');
@@ -141,7 +141,7 @@ void main(List<String> args) {
         runtime: TargetRuntime.aot,
       );
 
-      check(result.success).isTrue();
+      check(result.success).isTrue;
       check(result.runtime).equals(TargetRuntime.aot);
       check(result.suiteResult).isNotNull();
       check(result.suiteResult!.benchmarks.first.name).equals('aot_bench');
@@ -165,7 +165,7 @@ void main(List<String> args) {
           forceRun: true,
         );
 
-        check(result.success).isTrue();
+        check(result.success).isTrue;
         check(result.runtime).equals(TargetRuntime.wasm);
         check(result.suiteResult).isNotNull();
         check(result.suiteResult!.benchmarks.first.name)
@@ -201,7 +201,7 @@ void main(List<String> args) {
             forceRun: true,
           );
 
-          check(result.success).isTrue();
+          check(result.success).isTrue;
           check(result.suiteResult).isNotNull();
           check(result.suiteResult!.benchmarks.first.name)
               .equals('ran_with_d8');
@@ -218,7 +218,7 @@ void main(List<String> args) {
         );
 
         final result = await runner.execute(compilationResult: compilation);
-        check(result.success).isFalse();
+        check(result.success).isFalse;
         check(result.errorMessage).isNotNull();
         check(result.errorMessage!).contains('No Wasm runner');
       },
@@ -237,7 +237,7 @@ void main(List<String> args) {
         );
 
         final result = await runner.execute(compilationResult: compilation);
-        check(result.success).isFalse();
+        check(result.success).isFalse;
         check(result.errorMessage).isNotNull();
         check(result.errorMessage!).contains('No JavaScript runner');
       },
@@ -256,7 +256,7 @@ void main(List<String> args) {
         workingDirectory: '/non_existent_working_dir_54321',
       );
 
-      check(result.success).isFalse();
+      check(result.success).isFalse;
       check(result.errorMessage).isNotNull();
     });
 
@@ -274,7 +274,7 @@ void main(List<String> args) {
 
       final result = await runner.execute(compilationResult: compilation);
 
-      check(result.success).isFalse();
+      check(result.success).isFalse;
       check(result.errorMessage).isNotNull();
       check(result.errorMessage!).contains(invalidSdkPath);
     });
@@ -300,7 +300,7 @@ void main(List<String> args) {
           forceRun: true,
         );
 
-        check(result.success).isTrue();
+        check(result.success).isTrue;
         check(result.suiteResult).isNotNull();
         check(result.suiteResult!.benchmarks.first.name).equals('pinned_bench');
       },

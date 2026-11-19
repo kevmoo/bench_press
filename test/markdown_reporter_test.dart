@@ -37,7 +37,7 @@ void main() {
 
       final table = MarkdownReporter.renderSummaryTable(suite);
 
-      check<String>(table).not((it) => it.contains('mdformat'));
+      check<String>(table).not(.it()..contains('mdformat'));
       check<String>(table).contains(
         '| Benchmark | Target | Ops/sec | Mean Latency | Median | Min | '
         'StdDev | Stability |',
@@ -101,7 +101,7 @@ void main() {
       );
 
       check(deltaReport).contains('### Before vs. After Delta Comparison');
-      check(deltaReport).not((it) => it.contains('mdformat'));
+      check(deltaReport).not(.it()..contains('mdformat'));
       check(deltaReport).contains(
         '| Benchmark | Target | Baseline | Current | Absolute Delta | '
         'Delta (%) | Speedup | 95% CI (Fieller) | Status |',
@@ -187,7 +187,7 @@ void main() {
       );
 
       check<String>(table).contains('### Group: String Construction (`jit`)');
-      check<String>(table).not((it) => it.contains('mdformat'));
+      check<String>(table).not(.it()..contains('mdformat'));
       check<String>(table).contains(
         '| Implementation | Ops/sec | Mean Latency | vs. Baseline (`concat`) | '
         'Speedup Ratio | 95% Confidence Interval | Status |',
@@ -387,9 +387,8 @@ void main() {
       check(deltaReport).contains('Geometric Mean Speedup: **1');
       check(deltaReport).contains('e+200x**');
       check(deltaReport)
-          .not((it) => it.contains('Geometric Mean Speedup: **Infinity'));
-      check(deltaReport)
-          .not((it) => it.contains('Geometric Mean Speedup: **NaN'));
+          .not(.it()..contains('Geometric Mean Speedup: **Infinity'));
+      check(deltaReport).not(.it()..contains('Geometric Mean Speedup: **NaN'));
     });
 
     test(
@@ -454,7 +453,7 @@ void main() {
       check<String>(summaryTable).equals('');
 
       final report = MarkdownReporter.renderSuite(suite);
-      check<String>(report).not((it) => it.contains('### Suite Summary'));
+      check<String>(report).not(.it()..contains('### Suite Summary'));
     });
 
     test(
@@ -512,7 +511,7 @@ void main() {
 
         final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
         check<String>(summaryTable).contains('### Suite Summary');
-        check<String>(summaryTable).not((it) => it.contains('mdformat'));
+        check<String>(summaryTable).not(.it()..contains('mdformat'));
         check<String>(summaryTable).contains(
           '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
           'Max Speedup | Groups |',
@@ -613,7 +612,7 @@ void main() {
         gate: false,
       );
       check(ungated).contains('1.39x');
-      check(ungated).not((it) => it.contains('unresolved'));
+      check(ungated).not(.it()..contains('unresolved'));
     });
 
     test('Change 1: !isStable renders unresolved and all-unresolved table '
@@ -706,7 +705,7 @@ void main() {
         baseline: baseSuite,
         current: curSuite,
       );
-      check(delta).not((it) => it.contains('NaN'));
+      check(delta).not(.it()..contains('NaN'));
       check(
         delta,
       ).contains('No resolved measurements to compute Geometric Mean Speedup');
@@ -740,8 +739,8 @@ void main() {
         ],
       );
 
-      check(table).not((it) => it.contains('Batch'));
-      check(table).not((it) => it.contains('| 7 |'));
+      check(table).not(.it()..contains('Batch'));
+      check(table).not(.it()..contains('| 7 |'));
       check(table).contains('| `v_base` (Baseline) | 10,000,000 ops/s |');
       check(table).contains('⚠️ **Calibration drift**');
       check(table)
@@ -749,7 +748,7 @@ void main() {
       check(table)
           .contains('> - `v_slow`: warmup 100.0 ns → trials 130.0 ns (+30.0%)');
       for (final quiet in ['v_base', 'v_edge', 'v_missing', 'v_fallback']) {
-        check(table).not((it) => it.contains('> - `$quiet`'));
+        check(table).not(.it()..contains('> - `$quiet`'));
       }
 
       final clean = MarkdownReporter.renderGroupComparisonTable(
@@ -757,7 +756,7 @@ void main() {
         target: 'jit',
         entries: [cell('v_base', 100.0, 100.0), cell('v_edge', 125.0, 100.0)],
       );
-      check(clean).not((it) => it.contains('Calibration drift'));
+      check(clean).not(.it()..contains('Calibration drift'));
     });
 
     test('delta table footnotes drift on the baseline and current cells '
@@ -790,12 +789,12 @@ void main() {
         baselineLabel: 'Before',
         currentLabel: 'After',
       );
-      check(delta).not((it) => it.contains('Batch'));
+      check(delta).not(.it()..contains('Batch'));
       check(delta).contains(
         '> - `parse (group=g), aot, After`: warmup 200.0 ns → trials 100.0 ns '
         '(-50.0%)',
       );
-      check(delta).not((it) => it.contains('`parse (group=g), aot, Before`'));
+      check(delta).not(.it()..contains('`parse (group=g), aot, Before`'));
     });
 
     test('legacy grouped suite footnotes drift on ungrouped cells', () {
@@ -828,7 +827,7 @@ void main() {
       check(report).contains('⚠️ **Calibration drift**');
       check(report)
           .contains('> - `solo`: warmup 50.0 ns → trials 100.0 ns (+100.0%)');
-      check(report).not((it) => it.contains('> - `g_'));
+      check(report).not(.it()..contains('> - `g_'));
     });
 
     group('delta pairing (#63)', () {
@@ -872,8 +871,8 @@ void main() {
           delta,
         ).contains('| encode (group=B) | `jit` | 1.00 µs | 1.00 µs | 0.0 ns |');
         // Before #63, group B paired with group A's baseline (100 ns).
-        check(delta).not((it) => it.contains('Regression'));
-        check(delta).not((it) => it.contains('Unmatched'));
+        check(delta).not(.it()..contains('Regression'));
+        check(delta).not(.it()..contains('Unmatched'));
       });
 
       test('on duplicate keys within a run, the last entry wins', () {
@@ -891,7 +890,7 @@ void main() {
           '| encode (group=A) | `jit` | 100.0 ns | 50.0 ns | -50.0 ns |',
         );
         check('| encode (group=A) |'.allMatches(delta).length).equals(1);
-        check(delta).not((it) => it.contains('Unmatched'));
+        check(delta).not(.it()..contains('Unmatched'));
       });
 
       test('lists cells present in only one run', () {
@@ -949,7 +948,7 @@ void main() {
         target: 'jit',
         entries: [base, fast],
       );
-      check(table).not((it) => it.contains('unresolved'));
+      check(table).not(.it()..contains('unresolved'));
       check(table).contains('**2.00x faster**');
       check(table).contains('🚀 🥇 Peak');
     });
@@ -974,10 +973,10 @@ void main() {
         entries: [cell('before', 100.0, base: true), cell('after', 95.0)],
       );
       check(table).contains('➖ ⚪ Neutral');
-      check(table).not((it) => it.contains('Peak'));
-      check(table).not((it) => it.contains('**['));
+      check(table).not(.it()..contains('Peak'));
+      check(table).not(.it()..contains('**['));
       check(table).contains('| 1.05x faster |');
-      check(table).not((it) => it.contains('**1.05x faster**'));
+      check(table).not(.it()..contains('**1.05x faster**'));
       check(table).contains('➖ **1** Neutral');
 
       const env = EnvironmentInfo(
@@ -996,7 +995,7 @@ void main() {
       );
       check(delta).contains('1.05x');
       check(delta).contains('➖ ⚪ Neutral');
-      check(delta).not((it) => it.contains('🚀 Faster'));
+      check(delta).not(.it()..contains('🚀 Faster'));
     });
 
     test(
@@ -1050,9 +1049,9 @@ void main() {
 
         final report = MarkdownReporter.renderSuite(mixedSuite);
         check(report).contains('### Group: String Construction (`jit`)');
-        check(report).not((it) => it.contains('### Benchmark: `plus_concat`'));
+        check(report).not(.it()..contains('### Benchmark: `plus_concat`'));
         check(report)
-            .not((it) => it.contains('### Benchmark: `candidate_unstable`'));
+            .not(.it()..contains('### Benchmark: `candidate_unstable`'));
 
         // Baseline must be ordered as the first data row in the group table
         final baseIdx = report.indexOf('| `plus_concat` (Baseline) |');

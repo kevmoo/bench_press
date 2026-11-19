@@ -282,12 +282,12 @@ void main() {
         },
       );
 
-      check(result.warmupResult.isStable).isTrue();
+      check(result.warmupResult.isStable).isTrue;
       check(result.rawTrialLatenciesNs.length).equals(10);
-      check(result.metrics.isStable).isTrue();
-      check(result.metrics.isRobustStable).isTrue();
+      check(result.metrics.isStable).isTrue;
+      check(result.metrics.isRobustStable).isTrue;
       check(logs.any((l) => l.contains('Adaptively scaling up to 10 trials')))
-          .isTrue();
+          .isTrue;
     });
 
     test(
@@ -316,10 +316,10 @@ void main() {
           ),
         );
 
-        check(result.warmupResult.isStable).isTrue();
+        check(result.warmupResult.isStable).isTrue;
         check(result.rawTrialLatenciesNs.length).equals(5);
-        check(result.metrics.isStable).isTrue();
-        check(logs.any((l) => l.contains('Adaptively scaling'))).isFalse();
+        check(result.metrics.isStable).isTrue;
+        check(logs.any((l) => l.contains('Adaptively scaling'))).isFalse;
       },
     );
   });
@@ -332,7 +332,7 @@ void main() {
           200.0,
           100.0,
         ], const BenchmarkConfig(trials: 3)),
-      ).isFalse();
+      ).isFalse;
     });
 
     test('returns false when maxTrials <= trials', () {
@@ -342,14 +342,14 @@ void main() {
           200.0,
           100.0,
         ], const BenchmarkConfig(trials: 5, maxTrials: 5)),
-      ).isFalse();
+      ).isFalse;
       check(
         BenchmarkRunner.shouldScaleTrials([
           100.0,
           200.0,
           100.0,
         ], const BenchmarkConfig(trials: 5, maxTrials: 3)),
-      ).isFalse();
+      ).isFalse;
     });
 
     test('returns false when trials.length >= maxTrials', () {
@@ -361,7 +361,7 @@ void main() {
           200.0,
           100.0,
         ], const BenchmarkConfig(trials: 3, maxTrials: 5)),
-      ).isFalse();
+      ).isFalse;
     });
 
     test('returns false when trials has fewer than 2 samples', () {
@@ -369,7 +369,7 @@ void main() {
         BenchmarkRunner.shouldScaleTrials([
           100.0,
         ], const BenchmarkConfig(trials: 1, maxTrials: 5)),
-      ).isFalse();
+      ).isFalse;
     });
 
     test('returns false when variance is within stability threshold', () {
@@ -381,7 +381,7 @@ void main() {
           100.5,
           99.5,
         ], const BenchmarkConfig(trials: 5, maxTrials: 10)),
-      ).isFalse();
+      ).isFalse;
     });
 
     test('returns true when variance exceeds stability threshold', () {
@@ -393,7 +393,7 @@ void main() {
           100.0,
           200.0,
         ], const BenchmarkConfig(trials: 5, maxTrials: 10)),
-      ).isTrue();
+      ).isTrue;
     });
   });
 
@@ -403,7 +403,7 @@ void main() {
 
     test('returns false when stopAtCi is not set', () {
       check(BenchmarkRunner.hasTightInterval(tight, const BenchmarkConfig()))
-          .isFalse();
+          .isFalse;
     });
 
     test('returns false before 8 trials', () {
@@ -412,7 +412,7 @@ void main() {
           tight.sublist(0, 7),
           const BenchmarkConfig(stopAtCi: 0.01),
         ),
-      ).isFalse();
+      ).isFalse;
     });
 
     test('compares t(0.975, n - 1) x SEM against stopAtCi x mean', () {
@@ -425,27 +425,27 @@ void main() {
       // tight: mean 100.5, SD ~0.53, SEM ~0.19; t(0.975, 7) ~2.365 gives a
       // half-width of ~0.447 (0.445%). 1.96 x SEM would give only ~0.37
       // (0.369%), so 0.4% separates the two.
-      check(isTight(tight, 0.01)).isTrue();
-      check(isTight(tight, 0.0045)).isTrue();
-      check(isTight(tight, 0.004)).isFalse();
-      check(isTight(tight, 0.003)).isFalse();
+      check(isTight(tight, 0.01)).isTrue;
+      check(isTight(tight, 0.0045)).isTrue;
+      check(isTight(tight, 0.004)).isFalse;
+      check(isTight(tight, 0.003)).isFalse;
       // wide: mean 100, SD ~10.7, SEM ~3.78; t half-width ~8.94 (8.94%),
       // where 1.96 x SEM would give ~7.4 (7.4%).
-      check(isTight(wide, 0.05)).isFalse();
-      check(isTight(wide, 0.08)).isFalse();
-      check(isTight(wide, 0.09)).isTrue();
+      check(isTight(wide, 0.05)).isFalse;
+      check(isTight(wide, 0.08)).isFalse;
+      check(isTight(wide, 0.09)).isTrue;
     });
 
     test('suppresses scaling toward maxTrials once met', () {
       final spiky = [...tight, 200.0];
       const config = BenchmarkConfig(trials: 8, maxTrials: 32);
-      check(BenchmarkRunner.shouldScaleTrials(spiky, config)).isTrue();
+      check(BenchmarkRunner.shouldScaleTrials(spiky, config)).isTrue;
       check(
         BenchmarkRunner.shouldScaleTrials(
           spiky,
           const BenchmarkConfig(trials: 8, maxTrials: 32, stopAtCi: 0.5),
         ),
-      ).isFalse();
+      ).isFalse;
     });
   });
 
@@ -545,7 +545,7 @@ void main() {
           check(because: 'trials: $trials', count).equals(stopAt);
           if (count < trials) {
             check(count % block).equals(0);
-            check((count ~/ block).isEven).isTrue();
+            check((count ~/ block).isEven).isTrue;
           }
         }
       }
@@ -586,7 +586,7 @@ void main() {
         },
       );
 
-      check(syncBench.warmupCompleteCalled).isTrue();
+      check(syncBench.warmupCompleteCalled).isTrue;
       check(trialObservedBatch).isGreaterThan(warmupObservedBatch * 10);
       check(syncResult.calibratedBatch.iterations).equals(trialObservedBatch);
       check(
@@ -596,7 +596,7 @@ void main() {
             '$warmupObservedBatch -> $trialObservedBatch',
           ),
         ),
-      ).isTrue();
+      ).isTrue;
 
       final asyncLogs = <String>[];
       final asyncBench = _TieringAsyncBenchmark(
@@ -629,7 +629,7 @@ void main() {
         },
       );
 
-      check(asyncBench.warmupCompleteCalled).isTrue();
+      check(asyncBench.warmupCompleteCalled).isTrue;
       check(asyncTrialBatch).isGreaterThan(asyncWarmupBatch * 10);
       check(asyncResult.calibratedBatch.iterations).equals(asyncTrialBatch);
       check(
@@ -639,12 +639,12 @@ void main() {
             '$asyncWarmupBatch -> $asyncTrialBatch',
           ),
         ),
-      ).isTrue();
+      ).isTrue;
     });
 
     test('runVariants returns empty list when given no variants', () async {
       final results = await BenchmarkRunner.runVariants(const []);
-      check(results).isEmpty();
+      check(results).isEmpty;
     });
 
     test('runVariants scales all variants in lockstep ABBA rounds up to '
@@ -699,7 +699,7 @@ void main() {
       check(results[0].rawTrialLatenciesNs.length).equals(6);
       check(results[1].rawTrialLatenciesNs.length).equals(6);
       check(logs.any((l) => l.contains('Adaptively scaling up to 6 trials.')))
-          .isTrue();
+          .isTrue;
       // trials: 4 gives blocks of 1, so 6 visits in ABBA BAAB ABBA order;
       // every change of variant runs two discarded batches (marked *) before
       // the measured one:

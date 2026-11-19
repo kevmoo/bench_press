@@ -24,11 +24,11 @@ void main() {
           runtime: TargetRuntime.jit,
         );
 
-        check(result.success).isTrue();
+        check(result.success).isTrue;
         check(result.runtime).equals(TargetRuntime.jit);
         check(result.artifactPath)
             .equals(p.normalize(dummySource.absolute.path));
-        check(result.runnerScriptPath).isNull();
+        check(result.runnerScriptPath).isNull;
         check(result.exitCode).equals(0);
       },
     );
@@ -49,9 +49,9 @@ void main() {
         outputDir: outDir,
       );
 
-      check(result.success).isTrue();
+      check(result.success).isTrue;
       check(result.artifactPath).isNotNull();
-      check(File(result.artifactPath!).existsSync()).isTrue();
+      check(File(result.artifactPath!).existsSync()).isTrue;
       check(result.exitCode).equals(0);
     });
 
@@ -72,14 +72,13 @@ void main() {
         outputDir: outDir,
       );
 
-      check(result.success).isTrue();
+      check(result.success).isTrue;
       check(result.artifactPath).isNotNull();
-      check(File(result.artifactPath!).existsSync()).isTrue();
+      check(File(result.artifactPath!).existsSync()).isTrue;
       check(result.runnerScriptPath).isNotNull();
-      check(result.runnerScriptPath)
-          .not((it) => it.equals(result.artifactPath));
+      check(result.runnerScriptPath).not(.it()..equals(result.artifactPath));
       check(result.runnerScriptPath!).endsWith('.node.cjs');
-      check(File(result.runnerScriptPath!).existsSync()).isTrue();
+      check(File(result.runnerScriptPath!).existsSync()).isTrue;
       check(File(result.runnerScriptPath!).readAsStringSync())
           .contains('globalThis.self');
     });
@@ -103,14 +102,13 @@ void main() {
           outputDir: outDir,
         );
 
-        check(result.success).isTrue();
+        check(result.success).isTrue;
         check(result.artifactPath).isNotNull();
-        check(File(result.artifactPath!).existsSync()).isTrue();
+        check(File(result.artifactPath!).existsSync()).isTrue;
         check(result.runnerScriptPath).isNotNull();
-        check(result.runnerScriptPath)
-            .not((it) => it.equals(result.artifactPath));
+        check(result.runnerScriptPath).not(.it()..equals(result.artifactPath));
         check(result.runnerScriptPath!).endsWith('.run.mjs');
-        check(File(result.runnerScriptPath!).existsSync()).isTrue();
+        check(File(result.runnerScriptPath!).existsSync()).isTrue;
         check(File(result.runnerScriptPath!).readAsStringSync())
             .contains('instantiatedApp.invokeMain');
       },
@@ -138,7 +136,7 @@ void main() {
         outputDir: outDir,
       );
 
-      check(compileResult.success).isTrue();
+      check(compileResult.success).isTrue;
       check(compileResult.runnerScriptPath).isNotNull();
 
       const runner = BenchmarkProcessRunner(sdk: sdk);
@@ -147,10 +145,10 @@ void main() {
         validate: true,
       );
 
-      check(runResult.success).isTrue();
+      check(runResult.success).isTrue;
       check(runResult.exitCode).equals(0);
       check(runResult.suiteResult).isNotNull();
-      check(runResult.suiteResult!.benchmarks).isNotEmpty();
+      check(runResult.suiteResult!.benchmarks).isNotEmpty;
     });
 
     test('compiled WASM benchmark executes cleanly under Node.js', () async {
@@ -173,7 +171,7 @@ void main() {
         outputDir: outDir,
       );
 
-      check(compileResult.success).isTrue();
+      check(compileResult.success).isTrue;
       check(compileResult.runnerScriptPath).isNotNull();
 
       const runner = BenchmarkProcessRunner(sdk: sdk);
@@ -182,10 +180,10 @@ void main() {
         validate: true,
       );
 
-      check(runResult.success).isTrue();
+      check(runResult.success).isTrue;
       check(runResult.exitCode).equals(0);
       check(runResult.suiteResult).isNotNull();
-      check(runResult.suiteResult!.benchmarks).isNotEmpty();
+      check(runResult.suiteResult!.benchmarks).isNotEmpty;
     });
 
     test('returns failure when SDK is not found', () async {
@@ -203,7 +201,7 @@ void main() {
         runtime: TargetRuntime.aot,
       );
 
-      check(result.success).isFalse();
+      check(result.success).isFalse;
       // The configured path is the actual cause, so it must be named. The
       // previous message blamed PATH and DART_SDK, neither of which was
       // consulted once customSdkPath was supplied.
@@ -238,10 +236,10 @@ void main() {
         runtime: TargetRuntime.aot,
       );
 
-      check(result.success).isFalse();
-      check(result.exitCode).not((it) => it.equals(0));
-      check(result.artifactPath).isNull();
-      check(result.stderr).isNotEmpty();
+      check(result.success).isFalse;
+      check(result.exitCode).not(.it()..equals(0));
+      check(result.artifactPath).isNull;
+      check(result.stderr).isNotEmpty;
     });
 
     test('compile handles execution exception gracefully', () async {
@@ -254,7 +252,7 @@ void main() {
         workingDirectory: '/non_existent_working_dir_12345',
       );
 
-      check(result.success).isFalse();
+      check(result.success).isFalse;
       check(result.stderr).contains('Compiler execution failed');
     });
 
@@ -272,7 +270,7 @@ void main() {
         compilerFlags: ['--define=CUSTOM_DEFINE=true'],
       );
 
-      check(result.success).isTrue();
+      check(result.success).isTrue;
     });
 
     test('compilation caching caches artifact, hits cache on repeat, '
@@ -291,28 +289,28 @@ void main() {
         runtime: TargetRuntime.aot,
         outputDir: outDir,
       );
-      check(result1.success).isTrue();
-      check(result1.cacheHit).isFalse();
+      check(result1.success).isTrue;
+      check(result1.cacheHit).isFalse;
       check(result1.artifactPath).isNotNull();
-      check(File(result1.artifactPath!).existsSync()).isTrue();
+      check(File(result1.artifactPath!).existsSync()).isTrue;
 
       final result2 = await compiler.compile(
         sourceFile: source,
         runtime: TargetRuntime.aot,
         outputDir: outDir,
       );
-      check(result2.success).isTrue();
-      check(result2.cacheHit).isTrue();
+      check(result2.success).isTrue;
+      check(result2.cacheHit).isTrue;
       check(result2.compilationDuration).equals(Duration.zero);
       check(result2.artifactPath).isNotNull();
-      check(File(result2.artifactPath!).existsSync()).isTrue();
+      check(File(result2.artifactPath!).existsSync()).isTrue;
 
       const runner = BenchmarkProcessRunner();
       final execResult = await runner.execute(
         compilationResult: result2,
         validate: true,
       );
-      check(execResult.success).isTrue();
+      check(execResult.success).isTrue;
 
       final result3 = await compiler.compile(
         sourceFile: source,
@@ -320,8 +318,8 @@ void main() {
         outputDir: outDir,
         useCache: false,
       );
-      check(result3.success).isTrue();
-      check(result3.cacheHit).isFalse();
+      check(result3.success).isTrue;
+      check(result3.cacheHit).isFalse;
 
       writeSyncBenchmark(
         fileName: 'cache_bench.dart',
@@ -334,8 +332,8 @@ void main() {
         runtime: TargetRuntime.aot,
         outputDir: outDir,
       );
-      check(result4.success).isTrue();
-      check(result4.cacheHit).isFalse();
+      check(result4.success).isTrue;
+      check(result4.cacheHit).isFalse;
     });
   });
 }

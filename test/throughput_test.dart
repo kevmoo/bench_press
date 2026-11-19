@@ -67,7 +67,7 @@ void main() {
 
       check(tp1).equals(tp2);
       check(tp1.hashCode).equals(tp2.hashCode);
-      check(tp1 == tp3).isFalse();
+      check(tp1 == tp3).isFalse;
     });
 
     test('implements toString', () {
@@ -152,8 +152,8 @@ void main() {
 
       check(tp1).equals(tp2);
       check(tp1.hashCode).equals(tp2.hashCode);
-      check(tp1 == tp3).isFalse();
-      check(tp1 == tp4).isFalse();
+      check(tp1 == tp3).isFalse;
+      check(tp1 == tp4).isFalse;
     });
 
     test('implements toString', () {

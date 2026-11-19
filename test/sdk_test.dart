@@ -14,7 +14,7 @@ void main() {
       check(TargetRuntime.tryParse('aot')).equals(TargetRuntime.aot);
       check(TargetRuntime.tryParse('wasm')).equals(TargetRuntime.wasm);
       check(TargetRuntime.tryParse('js')).equals(TargetRuntime.js);
-      check(TargetRuntime.tryParse('unknown')).isNull();
+      check(TargetRuntime.tryParse('unknown')).isNull;
     });
 
     test('parseTargets parses comma-separated tokens and all keyword', () {
@@ -64,7 +64,7 @@ void main() {
       const sdk = DartSdk();
       final configPath = sdk.packageConfigPath;
       if (configPath != null) {
-        check(File(configPath).existsSync()).isTrue();
+        check(File(configPath).existsSync()).isTrue;
       }
     });
 
@@ -75,21 +75,21 @@ void main() {
       final sdk = DartSdk(environment: {'PATH': d.sandbox});
       check(sdk.nodeExecutable).isNotNull();
       check(sdk.d8Executable).isNotNull();
-      check(sdk.hasWasmRunner).isTrue();
-      check(sdk.hasJsRunner).isTrue();
+      check(sdk.hasWasmRunner).isTrue;
+      check(sdk.hasJsRunner).isTrue;
     });
 
     test('isValidSdkPath accurately validates directory structures', () async {
-      check(DartSdk.isValidSdkPath(d.sandbox)).isFalse();
+      check(DartSdk.isValidSdkPath(d.sandbox)).isFalse;
 
       await d.dir('bin').create();
-      check(DartSdk.isValidSdkPath(d.sandbox)).isFalse();
+      check(DartSdk.isValidSdkPath(d.sandbox)).isFalse;
 
       await d.file('bin/dart', '').create();
-      check(DartSdk.isValidSdkPath(d.sandbox)).isFalse();
+      check(DartSdk.isValidSdkPath(d.sandbox)).isFalse;
 
       await d.file('version', '3.14.0\n').create();
-      check(DartSdk.isValidSdkPath(d.sandbox)).isTrue();
+      check(DartSdk.isValidSdkPath(d.sandbox)).isTrue;
     });
 
     test('customSdkPath override takes precedence when valid', () async {
@@ -111,8 +111,8 @@ void main() {
         environment: {'PATH': p.join(d.sandbox, 'bin')},
       );
 
-      check(sdk.sdkPath).isNull();
-      check(sdk.dartExecutable).isNull();
+      check(sdk.sdkPath).isNull;
+      check(sdk.dartExecutable).isNull;
       check(sdk.explicitSdkError).isNotNull();
     });
 
@@ -124,7 +124,7 @@ void main() {
 
         final sdk = DartSdk(customSdkPath: d.sandbox);
 
-        check(sdk.dartExecutable).isNull();
+        check(sdk.dartExecutable).isNull;
         check(sdk.explicitSdkError).isNotNull();
       },
     );
@@ -133,8 +133,8 @@ void main() {
       await _createMockSdkInSandbox();
 
       check(DartSdk(environment: {'DART_SDK': d.sandbox}).explicitSdkError)
-          .isNull();
-      check(DartSdk(customSdkPath: d.sandbox).explicitSdkError).isNull();
+          .isNull;
+      check(DartSdk(customSdkPath: d.sandbox).explicitSdkError).isNull;
     });
 
     test('environment map override probes DART_SDK and PATH', () async {
@@ -154,14 +154,14 @@ void main() {
       check(found).equals(p.normalize(dummyExe.absolute.path));
 
       final notFound = sdk.findExecutable('non_existent_binary');
-      check(notFound).isNull();
+      check(notFound).isNull;
     });
 
     test('current environment resolves active Dart SDK', () {
       const sdk = DartSdk();
       check(sdk.dartExecutable).isNotNull();
-      check(sdk.isRuntimeAvailable(TargetRuntime.jit)).isTrue();
-      check(sdk.isRuntimeAvailable(TargetRuntime.aot)).isTrue();
+      check(sdk.isRuntimeAvailable(TargetRuntime.jit)).isTrue;
+      check(sdk.isRuntimeAvailable(TargetRuntime.aot)).isTrue;
     });
 
     test('customD8Path and customNodePath resolve when files exist', () async {
@@ -178,8 +178,8 @@ void main() {
 
       check(sdk.d8Executable).equals(p.normalize(d8File.absolute.path));
       check(sdk.nodeExecutable).equals(p.normalize(nodeFile.absolute.path));
-      check(sdk.hasWasmRunner).isTrue();
-      check(sdk.hasJsRunner).isTrue();
+      check(sdk.hasWasmRunner).isTrue;
+      check(sdk.hasJsRunner).isTrue;
     });
 
     test(
@@ -193,10 +193,10 @@ void main() {
           environment: {'PATH': d.path('bin')},
         );
 
-        check(sdk.d8Executable).isNull();
-        check(sdk.nodeExecutable).isNull();
-        check(sdk.hasWasmRunner).isFalse();
-        check(sdk.hasJsRunner).isFalse();
+        check(sdk.d8Executable).isNull;
+        check(sdk.nodeExecutable).isNull;
+        check(sdk.hasWasmRunner).isFalse;
+        check(sdk.hasJsRunner).isFalse;
       },
     );
 
@@ -297,7 +297,7 @@ void main() {
       () {
         const sdk1 = DartSdk();
         const sdk2 = DartSdk();
-        check(sdk1 == sdk2).isTrue();
+        check(sdk1 == sdk2).isTrue;
         check(sdk1.hashCode).equals(sdk2.hashCode);
 
         const custom1 = DartSdk(
@@ -312,21 +312,21 @@ void main() {
           customNodePath: '/node',
           environment: {'KEY': 'val'},
         );
-        check(custom1 == custom2).isTrue();
+        check(custom1 == custom2).isTrue;
         check(custom1.hashCode).equals(custom2.hashCode);
       },
     );
 
     test('instances with different properties are not equal', () {
       const base = DartSdk();
-      check(base == base.copyWith(customSdkPath: '/other')).isFalse();
-      check(base == base.copyWith(customD8Path: '/other_d8')).isFalse();
-      check(base == base.copyWith(customNodePath: '/other_node')).isFalse();
-      check(base == base.copyWith(environment: {'A': '1'})).isFalse();
+      check(base == base.copyWith(customSdkPath: '/other')).isFalse;
+      check(base == base.copyWith(customD8Path: '/other_d8')).isFalse;
+      check(base == base.copyWith(customNodePath: '/other_node')).isFalse;
+      check(base == base.copyWith(environment: {'A': '1'})).isFalse;
 
       const env1 = DartSdk(environment: {'A': '1', 'B': '2'});
       const env2 = DartSdk(environment: {'A': '1', 'B': '3'});
-      check(env1 == env2).isFalse();
+      check(env1 == env2).isFalse;
     });
   });
 }

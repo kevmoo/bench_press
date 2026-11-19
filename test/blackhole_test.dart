@@ -16,7 +16,7 @@ void main() {
       Blackhole.consume(Object());
 
       final checksum = Blackhole.drain();
-      check(checksum).not((it) => it.equals(0));
+      check(checksum).not(.it()..equals(0));
     });
 
     test('drain clears the sink buffer and produces stable checksum', () {
@@ -24,7 +24,7 @@ void main() {
       Blackhole.consume('beta');
 
       final firstDrain = Blackhole.drain();
-      check(firstDrain).not((it) => it.equals(0));
+      check(firstDrain).not(.it()..equals(0));
 
       final secondDrain = Blackhole.drain();
       check(secondDrain).equals(0);
@@ -41,7 +41,7 @@ void main() {
       Blackhole.consume('a');
       final checksum2 = Blackhole.drain();
 
-      check(checksum1).not((it) => it.equals(checksum2));
+      check(checksum1).not(.it()..equals(checksum2));
     });
 
     test('handles rolling buffer overflow with cyclic Gray coding', () {
@@ -51,7 +51,7 @@ void main() {
       }
 
       final checksum = Blackhole.drain();
-      check(checksum).not((it) => it.equals(0));
+      check(checksum).not(.it()..equals(0));
     });
   });
 }
