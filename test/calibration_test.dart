@@ -63,7 +63,7 @@ void main() {
 
       check(batch.iterations).equals(1000000);
       check(batch.estimatedOpDurationMicroseconds).equals(0.0);
-      check(loggedMessages).any((it) => it.contains('elapsedUs == 0'));
+      check(loggedMessages).any(.it()..contains('elapsedUs == 0'));
     });
     test('calibratedBatchForDuration computes directly from latency', () {
       final batch = BenchmarkCalibrator.calibratedBatchForDuration(

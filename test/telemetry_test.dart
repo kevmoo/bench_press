@@ -36,8 +36,8 @@ void main() {
       check(deserialized.extra['ci']).equals(true);
 
       final current = EnvironmentInfo.current();
-      check(current.dartVersion).isNotEmpty();
-      check(current.os).isNotEmpty();
+      check(current.dartVersion).isNotEmpty;
+      check(current.os).isNotEmpty;
     });
 
     test('BenchmarkMetrics JSON round-trip preserves properties', () {
@@ -66,7 +66,7 @@ void main() {
       check(deserialized.p95Ns).equals(132.0);
       check(deserialized.p99Ns).equals(134.5);
       check(deserialized.opsPerSec).equals(7968127.4);
-      check(deserialized.isStable).isTrue();
+      check(deserialized.isStable).isTrue;
     });
 
     test('BenchmarkEntry creation, validation and serialization', () {
@@ -246,7 +246,7 @@ void main() {
       );
 
       initialSuite.saveToFile(telemetryFile);
-      check(telemetryFile.existsSync()).isTrue();
+      check(telemetryFile.existsSync()).isTrue;
 
       final loaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
       check(loaded.benchmarks.length).equals(1);
@@ -360,7 +360,7 @@ void main() {
         check(deserialized.coordinates.group).equals('CryptoGroup');
         check(deserialized.coordinates.sdk).equals('stock');
         check(deserialized.coordinates.runtime).equals('aot');
-        check(deserialized.isBaseline).isTrue();
+        check(deserialized.isBaseline).isTrue;
         check(deserialized.throughput).equals(const Throughput.bytes(1024));
       },
     );
@@ -452,7 +452,7 @@ void main() {
       check(rtEntry.metrics.varianceComponents).isNotNull();
 
       // Single-process passthrough and empty-list ArgumentError:
-      check(identical(BenchmarkEntry.fromProcesses([p1]), p1)).isTrue();
+      check(identical(BenchmarkEntry.fromProcesses([p1]), p1)).isTrue;
       check(() => BenchmarkEntry.fromProcesses(const []))
           .throws<ArgumentError>();
       check(() => BenchmarkSuiteResult.aggregateProcesses(const []))

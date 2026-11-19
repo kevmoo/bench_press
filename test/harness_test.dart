@@ -92,9 +92,9 @@ void main() {
       check(group.name).equals('String Group');
       check(group.variants.length).equals(2);
       check(group.variants[0].group).equals('String Group');
-      check(group.variants[0].isBaseline).isTrue();
+      check(group.variants[0].isBaseline).isTrue;
       check(group.variants[1].group).equals('String Group');
-      check(group.variants[1].isBaseline).isFalse();
+      check(group.variants[1].isBaseline).isFalse;
     });
 
     test('BenchmarkGroup.compare constructs matrix correctly', () {
@@ -107,14 +107,14 @@ void main() {
       check(group.name).equals('Matrix Comparison');
       check(group.variants.length).equals(3);
       check(group.variants[0].name).equals('base_impl');
-      check(group.variants[0].isBaseline).isTrue();
+      check(group.variants[0].isBaseline).isTrue;
       check(group.variants[0].group).equals('Matrix Comparison');
 
       check(group.variants[1].name).equals('candidate_a');
-      check(group.variants[1].isBaseline).isFalse();
+      check(group.variants[1].isBaseline).isFalse;
 
       check(group.variants[2].name).equals('candidate_b');
-      check(group.variants[2].isBaseline).isFalse();
+      check(group.variants[2].isBaseline).isFalse;
     });
 
     test('Benchmark.compare forwards to BenchmarkGroup.compare', () {
@@ -126,7 +126,7 @@ void main() {
 
       check(group.name).equals('Forwarding Matrix');
       check(group.variants.length).equals(2);
-      check(group.variants.first.isBaseline).isTrue();
+      check(group.variants.first.isBaseline).isTrue;
     });
 
     test('Benchmark.matrix forwards to BenchmarkGroup.matrix', () {
@@ -164,11 +164,11 @@ void main() {
       check(results.length).equals(2);
       check(results[0].name).equals('varA');
       check(results[0].group).equals('Exec Group');
-      check(results[0].isBaseline).isTrue();
+      check(results[0].isBaseline).isTrue;
 
       check(results[1].name).equals('varB');
       check(results[1].group).equals('Exec Group');
-      check(results[1].isBaseline).isFalse();
+      check(results[1].isBaseline).isFalse;
       check(countA).isGreaterThan(0);
       check(countB).isGreaterThan(0);
     });

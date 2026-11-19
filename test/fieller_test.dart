@@ -58,7 +58,7 @@ void main() {
       check(fieller.lowerBound).equals(0.5);
       check(fieller.upperBound).equals(0.5);
       check(fieller.g).equals(0.0);
-      check(fieller.isValid).isTrue();
+      check(fieller.isValid).isTrue;
     });
 
     test('computes valid bounded 95% CI for realistic benchmark speedups', () {
@@ -72,7 +72,7 @@ void main() {
         sampleB: sampleB,
       );
 
-      check(fieller.isValid).isTrue();
+      check(fieller.isValid).isTrue;
       check(fieller.g).isLessThan(0.05);
       check((fieller.ratio - 0.5).abs()).isLessThan(0.01);
       check(fieller.lowerBound).isLessThan(fieller.ratio);
@@ -92,10 +92,10 @@ void main() {
         sampleB: sampleB,
       );
 
-      check(fieller.isValid).isFalse();
+      check(fieller.isValid).isFalse;
       check(fieller.g).isGreaterOrEqual(1.0);
-      check(fieller.lowerBound.isInfinite || fieller.lowerBound.isNaN).isTrue();
-      check(fieller.upperBound.isInfinite || fieller.upperBound.isNaN).isTrue();
+      check(fieller.lowerBound.isInfinite || fieller.lowerBound.isNaN).isTrue;
+      check(fieller.upperBound.isInfinite || fieller.upperBound.isNaN).isTrue;
     });
 
     test('handles empty, N=1, or zero-mean samples safely', () {
@@ -103,31 +103,31 @@ void main() {
         sampleA: [],
         sampleB: [100.0, 100.0],
       );
-      check(emptyA.isValid).isFalse();
+      check(emptyA.isValid).isFalse;
 
       final n1A = FiellerInterval.compute(
         sampleA: [50.0],
         sampleB: [100.0, 100.0],
       );
-      check(n1A.isValid).isFalse();
-      check(n1A.ratio.isNaN).isTrue();
-      check(n1A.lowerBound.isNaN).isTrue();
-      check(n1A.upperBound.isNaN).isTrue();
+      check(n1A.isValid).isFalse;
+      check(n1A.ratio.isNaN).isTrue;
+      check(n1A.lowerBound.isNaN).isTrue;
+      check(n1A.upperBound.isNaN).isTrue;
 
       final n1B = FiellerInterval.compute(
         sampleA: [50.0, 50.0],
         sampleB: [100.0],
       );
-      check(n1B.isValid).isFalse();
-      check(n1B.ratio.isNaN).isTrue();
-      check(n1B.lowerBound.isNaN).isTrue();
-      check(n1B.upperBound.isNaN).isTrue();
+      check(n1B.isValid).isFalse;
+      check(n1B.ratio.isNaN).isTrue;
+      check(n1B.lowerBound.isNaN).isTrue;
+      check(n1B.upperBound.isNaN).isTrue;
 
       final zeroB = FiellerInterval.compute(
         sampleA: [50.0, 50.0],
         sampleB: [0.0, 0.0],
       );
-      check(zeroB.isValid).isFalse();
+      check(zeroB.isValid).isFalse;
     });
 
     test('toJson serializes FiellerInterval properly', () {
@@ -210,13 +210,13 @@ void main() {
         paired: true,
       );
 
-      check(unpaired.paired).isFalse();
-      check(pairedPos.paired).isTrue();
-      check(pairedNeg.paired).isTrue();
-      check(pairedPos.isValid).isTrue();
-      check(pairedNeg.isValid).isTrue();
+      check(unpaired.paired).isFalse;
+      check(pairedPos.paired).isTrue;
+      check(pairedNeg.paired).isTrue;
+      check(pairedPos.isValid).isTrue;
+      check(pairedNeg.isValid).isTrue;
       check(pairedPos.toJson()['paired']).equals(true);
-      check(unpaired.toJson().containsKey('paired')).isFalse();
+      check(unpaired.toJson().containsKey('paired')).isFalse;
       check(pairedPos.upperBound - pairedPos.lowerBound)
           .isLessThan(unpaired.upperBound - unpaired.lowerBound);
       check(pairedNeg.upperBound - pairedNeg.lowerBound)
@@ -233,8 +233,8 @@ void main() {
         sampleB: sampleB,
         paired: true,
       );
-      check(collinear.isValid).isTrue();
-      check(collinear.paired).isTrue();
+      check(collinear.isValid).isTrue;
+      check(collinear.paired).isTrue;
       check((collinear.ratio - 0.5).abs()).isLessThan(1e-9);
       check((collinear.lowerBound - 0.5).abs()).isLessThan(1e-6);
       check((collinear.upperBound - 0.5).abs()).isLessThan(1e-6);
@@ -244,8 +244,8 @@ void main() {
         sampleB: sampleB,
         paired: true,
       );
-      check(mismatched.isValid).isTrue();
-      check(mismatched.paired).isFalse();
+      check(mismatched.isValid).isTrue;
+      check(mismatched.paired).isFalse;
     });
   });
 }

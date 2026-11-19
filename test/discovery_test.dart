@@ -38,7 +38,7 @@ void main() {
         check(discovered[1].basename).equals('b_bench.dart');
 
         check(discovered.map((item) => item.path)).not(
-          (it) => it.contains(
+          .it()..contains(
             p.normalize(File(d.path('benchmark/helper.dart')).absolute.path),
           ),
         );

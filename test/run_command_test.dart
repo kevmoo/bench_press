@@ -46,7 +46,7 @@ void main() {
         ]);
 
         check(exitCode).equals(0);
-        check(outputFile.existsSync()).isTrue();
+        check(outputFile.existsSync()).isTrue;
 
         final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
         check(suite.benchmarks.length).equals(1);
@@ -85,7 +85,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       ]);
 
       check(exitCode).equals(0);
-      check(outputFile.existsSync()).isTrue();
+      check(outputFile.existsSync()).isTrue;
 
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
       check(suite.benchmarks.length).equals(2);
@@ -93,12 +93,12 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
 
       final concat = suite.findEntry('concat', 'jit');
       check(concat).isNotNull();
-      check(concat!.isBaseline).isTrue();
+      check(concat!.isBaseline).isTrue;
       check(concat.coordinates['group']).equals('String Group');
 
       final buffer = suite.findEntry('buffer', 'jit');
       check(buffer).isNotNull();
-      check(buffer!.isBaseline).isFalse();
+      check(buffer!.isBaseline).isFalse;
       check(buffer.coordinates['group']).equals('String Group');
     });
 
@@ -156,7 +156,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         'invalid_target',
         'benchmark/',
       ]);
-      check(exitCode).not((it) => it.equals(0));
+      check(exitCode).not(.it()..equals(0));
     });
 
     test(
@@ -282,7 +282,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       ]);
 
       check(exitCode).equals(ExitCode.software.code);
-      check(outputFile.existsSync()).isTrue();
+      check(outputFile.existsSync()).isTrue;
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
       check(suite.benchmarks.length).equals(1);
       check(suite.benchmarks.first.name).equals('good_bench');
@@ -339,7 +339,7 @@ matrix:
       check(exitCode).equals(ExitCode.success.code);
 
       final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
-      check(suite.benchmarks).isNotEmpty();
+      check(suite.benchmarks).isNotEmpty;
       check(
         because: 'the aot coordinate was not requested and must not run',
         suite.benchmarks.map((b) => b.target).toSet(),
@@ -404,13 +404,13 @@ defaults:
       ];
 
       check(await BenchPressCommandRunner().run(runArgs([]))).equals(0);
-      check(configured.existsSync()).isTrue();
+      check(configured.existsSync()).isTrue;
 
       configured.deleteSync();
       check(await BenchPressCommandRunner().run(runArgs(['-o', explicit.path])))
           .equals(0);
-      check(explicit.existsSync()).isTrue();
-      check(configured.existsSync()).isFalse();
+      check(explicit.existsSync()).isTrue;
+      check(configured.existsSync()).isFalse;
     });
 
     test('run handles empty directory, invalid config targets, and invalid '
@@ -534,7 +534,7 @@ matrix:
       );
       final expandedSdk = resolveSdkFromCoordinate(tildeCoord, baseSdk);
       check(expandedSdk.customSdkPath).isNotNull();
-      check(expandedSdk.customSdkPath!).not((it) => it.startsWith('~'));
+      check(expandedSdk.customSdkPath!).not(.it()..startsWith('~'));
     });
 
     test('expandHomeDirectory expands only a leading tilde', () {
@@ -542,7 +542,7 @@ matrix:
       check(expandHomeDirectory('out/~/results.json'))
           .equals('out/~/results.json');
       check(expandHomeDirectory('~/bench/results.json'))
-        ..not((it) => it.startsWith('~'))
+        ..not(.it()..startsWith('~'))
         ..endsWith('/bench/results.json');
     });
 

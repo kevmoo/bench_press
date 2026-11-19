@@ -49,7 +49,7 @@ void main() {
       // to the flag.
       check(() => CpuAffinity.parse('3-1'))
           .throws<FormatException>()
-          .has((e) => e.message, 'message')
+          .has('message', (e) => e.message)
           .contains('backwards');
     });
 
@@ -70,7 +70,7 @@ void main() {
       ]) {
         check(because: 'should reject "$spec"', () => CpuAffinity.parse(spec))
             .throws<FormatException>()
-            .has((e) => e.message, 'message')
+            .has('message', (e) => e.message)
             .contains('too large');
       }
     });
@@ -124,7 +124,7 @@ void main() {
   group('cpuPinningUnsupportedReason', () {
     test('is null on Linux with taskset present', () {
       check(cpuPinningUnsupportedReason(os: 'linux', hasTaskset: () => true))
-          .isNull();
+          .isNull;
     });
 
     test('names taskset and how to install it when missing', () {
@@ -151,13 +151,13 @@ void main() {
       check(
         because: 'a Windows user must not be told to install util-linux',
         reason,
-      ).not((s) => s.contains('util-linux'));
+      ).not(.it()..contains('util-linux'));
       check(
         because:
             'no Windows command here has been run on Windows, so the '
             'message must not hand over one to paste',
         reason,
-      ).not((s) => s.contains('start /affinity'));
+      ).not(.it()..contains('start /affinity'));
     });
 
     test('tells macOS there is no workaround, not a taskset hint', () {
@@ -171,7 +171,7 @@ void main() {
       check(
         because: 'Darwin has no affinity interface, so offer no false hope',
         reason,
-      ).not((s) => s.contains('ProcessorAffinity'));
+      ).not(.it()..contains('ProcessorAffinity'));
     });
 
     test('names an unrecognized platform rather than guessing', () {
@@ -199,7 +199,7 @@ void main() {
         check(
           because: 'taskset is on PATH, so pinning must report available',
           reason,
-        ).isNull();
+        ).isNull;
       } else {
         check(
           because: 'taskset is absent, so pinning must say so',

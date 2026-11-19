@@ -73,7 +73,7 @@ void main() {
         ]);
 
         check(exitCode).equals(0);
-        check(markdownOut.existsSync()).isTrue();
+        check(markdownOut.existsSync()).isTrue;
         final content = markdownOut.readAsStringSync();
         check(content).contains('Custom Test Suite');
         check(content).contains('report_workload');
@@ -134,7 +134,7 @@ void main() {
       ]);
 
       check(exitCode).equals(0);
-      check(diffOut.existsSync()).isTrue();
+      check(diffOut.existsSync()).isTrue;
       final diffContent = diffOut.readAsStringSync();
       check(diffContent).contains('opt_task');
       check(diffContent).contains('2.00x');
@@ -149,7 +149,7 @@ void main() {
         '-c',
         '/non_existent_path_cur_123.json',
       ]);
-      check(exitCode).not((it) => it.equals(0));
+      check(exitCode).not(.it()..equals(0));
     });
 
     test('report subcommand exits with error on malformed JSON file', () async {
@@ -157,7 +157,7 @@ void main() {
 
       final runner = BenchPressCommandRunner();
       final exitCode = await runner.run(['report', '-f', d.path('bad.json')]);
-      check(exitCode).not((it) => it.equals(0));
+      check(exitCode).not(.it()..equals(0));
     });
 
     test('validate subcommand exits with error on invalid target', () async {
@@ -168,7 +168,7 @@ void main() {
         'invalid_target',
         'benchmark/',
       ]);
-      check(exitCode).not((it) => it.equals(0));
+      check(exitCode).not(.it()..equals(0));
     });
 
     test(
@@ -237,12 +237,12 @@ void main() {
       check(withGroup.name).equals('test_bench');
       check(withGroup.target).equals('jit');
       check(withGroup.coordinates['group']).equals('SDK1');
-      check(withGroup.isBaseline).isTrue();
+      check(withGroup.isBaseline).isTrue;
       check(withGroup.key).equals('test_bench:jit:group=SDK1');
 
       final unchanged = withGroup.copyWith();
       check(unchanged.coordinates['group']).equals('SDK1');
-      check(unchanged.isBaseline).isTrue();
+      check(unchanged.isBaseline).isTrue;
     });
 
     test('validate subcommand exits with software error when target produces '
@@ -274,8 +274,8 @@ void main() {
 
         final validateCmd = runner.commands['validate'] as ValidateCommand;
         check(validateCmd.sdk).equals(customSdk);
-        check(identical(validateCmd.compiler, customCompiler)).isTrue();
-        check(identical(validateCmd.processRunner, customRunner)).isTrue();
+        check(identical(validateCmd.compiler, customCompiler)).isTrue;
+        check(identical(validateCmd.processRunner, customRunner)).isTrue;
       },
     );
 

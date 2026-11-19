@@ -15,7 +15,7 @@ void main() {
       check(metrics.p95Ns).equals(0.0);
       check(metrics.p99Ns).equals(0.0);
       check(metrics.opsPerSec).equals(0.0);
-      check(metrics.isStable).isTrue();
+      check(metrics.isStable).isTrue;
     });
 
     test('computes correct statistics for single sample', () {
@@ -29,7 +29,7 @@ void main() {
       check(metrics.p95Ns).equals(500.0);
       check(metrics.p99Ns).equals(500.0);
       check(metrics.opsPerSec).equals(2000000.0);
-      check(metrics.isStable).isFalse();
+      check(metrics.isStable).isFalse;
     });
 
     test('computes accurate metrics on known distribution', () {
@@ -60,7 +60,7 @@ void main() {
 
       // Ops/sec for 100ns = 1e9 / 100 = 10,000,000 ops/s
       check(metrics.opsPerSec).equals(10000000.0);
-      check(metrics.isStable).isTrue();
+      check(metrics.isStable).isTrue;
 
       // Percentiles: sorted is [95, 96, 98, 99, 100, 100, 101, 102, 104, 105]
       // p95 rank = 9 * 0.95 = 8.55
@@ -93,8 +93,8 @@ void main() {
       check(deserialized.madNs).equals(0.0);
       check(deserialized.robustCv).equals(0.0);
       check(deserialized.iqrNs).equals(0.0);
-      check(deserialized.isRobustStable).isTrue();
-      check(deserialized.isStable).isTrue();
+      check(deserialized.isRobustStable).isTrue;
+      check(deserialized.isStable).isTrue;
     });
 
     test(
@@ -117,8 +117,8 @@ void main() {
         check(metrics.madNs).equals(2.0);
         check((metrics.robustCv - 0.02965).abs()).isLessThan(0.0001);
         check((metrics.iqrNs - 3.5).abs()).isLessThan(0.01);
-        check(metrics.isRobustStable).isTrue();
-        check(metrics.isStable).isTrue();
+        check(metrics.isRobustStable).isTrue;
+        check(metrics.isStable).isTrue;
       },
     );
 
@@ -137,8 +137,8 @@ void main() {
         check(metrics.madNs).equals(0.0);
         check(metrics.robustCv).equals(0.0);
         check(metrics.iqrNs).equals(0.0);
-        check(metrics.isRobustStable).isTrue();
-        check(metrics.isStable).isTrue();
+        check(metrics.isRobustStable).isTrue;
+        check(metrics.isStable).isTrue;
       },
     );
 
@@ -161,8 +161,8 @@ void main() {
       );
 
       check(metrics.robustCv).isGreaterThan(0.05);
-      check(metrics.isRobustStable).isFalse();
-      check(metrics.isStable).isFalse();
+      check(metrics.isRobustStable).isFalse;
+      check(metrics.isStable).isFalse;
     });
 
     test('propagates warmup instability to robust stability', () {
@@ -171,8 +171,8 @@ void main() {
         100.0,
         100.0,
       ], isStable: false);
-      check(metrics.isRobustStable).isFalse();
-      check(metrics.isStable).isFalse();
+      check(metrics.isRobustStable).isFalse;
+      check(metrics.isStable).isFalse;
     });
 
     test('computes static computeMad and computeIqr helpers', () {
@@ -186,19 +186,19 @@ void main() {
       'ProcessVarianceComponents.compute uses drift-immune first differences '
       'and BenchmarkMetrics.fromProcesses attaches varianceComponents',
       () {
-        check(ProcessVarianceComponents.compute([])).isNull();
+        check(ProcessVarianceComponents.compute([])).isNull;
         check(
           ProcessVarianceComponents.compute([
             [100.0, 101.0],
           ]),
-        ).isNull();
+        ).isNull;
         // 1 trial per process -> 0 within-process degrees of freedom -> null.
         check(
           ProcessVarianceComponents.compute([
             [100.0],
             [110.0],
           ]),
-        ).isNull();
+        ).isNull;
 
         // msBetween < msWithin clamps varBetween and betweenProcessShare to 0.
         final clamped = ProcessVarianceComponents.compute([
@@ -259,7 +259,7 @@ void main() {
           BenchmarkMetrics.fromProcesses([
             [50.0, 50.0],
           ]).varianceComponents,
-        ).isNull();
+        ).isNull;
       },
     );
   });

@@ -38,7 +38,7 @@ void main() {
         ]);
 
         check(result.exitCode).equals(0);
-        check(resultsFile.existsSync()).isTrue();
+        check(resultsFile.existsSync()).isTrue;
 
         final suite = BenchmarkSuiteResult.loadFromFile(resultsFile);
         check(suite.benchmarks.length).equals(1);
@@ -113,7 +113,7 @@ void main() {
 
       check(result.exitCode).equals(0);
       check(result.stdout.toString()).contains('bench_press version:');
-      check(result.stderr.toString().trim()).isEmpty();
+      check(result.stderr.toString().trim()).isEmpty;
     });
 
     test('--help prints usage on stdout and exits with code 0', () async {
@@ -191,7 +191,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
         ]);
 
         check(result.exitCode).equals(0);
-        check(resultsFile.existsSync()).isTrue();
+        check(resultsFile.existsSync()).isTrue;
 
         final stdout = result.stdout.toString();
         check(stdout).contains('### Group: String Construction (`jit`)');
@@ -322,7 +322,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
           outFile.path,
         ]);
         check(exitCode).equals(0);
-        check(outFile.existsSync()).isTrue();
+        check(outFile.existsSync()).isTrue;
         final report = outFile.readAsStringSync();
         check(report).contains('pos_test_bench');
         check(report).contains('95% CI (Fieller)');
@@ -337,7 +337,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
           outFlagFile.path,
         ]);
         check(exitCodeFlag).equals(0);
-        check(outFlagFile.existsSync()).isTrue();
+        check(outFlagFile.existsSync()).isTrue;
         final flagReport = outFlagFile.readAsStringSync();
         check(flagReport).contains('pos_test_bench');
         check(flagReport).contains('unique_curr_bench');
@@ -392,7 +392,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       check(
         because: 'a rejected run must not emit a benchmark report',
         result.stdout.toString(),
-      ).not((s) => s.contains('| Benchmark |'));
+      ).not(.it()..contains('| Benchmark |'));
     });
 
     test('--pin-cpu on a jit-only --isolate-mode run pins nothing', () async {

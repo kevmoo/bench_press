@@ -21,11 +21,11 @@ void main() {
       );
 
       check(finding).isNotNull()
-        ..has((f) => f.benchmarkName, 'benchmarkName').equals('blackhole_1m')
-        ..has((f) => f.target, 'target').equals('exe')
-        ..has((f) => f.bytes, 'bytes').equals(_oneMiB)
-        ..has((f) => f.gbPerSecond, 'gbPerSecond').isGreaterThan(900)
-        ..has((f) => f.overCeilingFactor, 'overCeilingFactor').isGreaterThan(9);
+        ..has('benchmarkName', (f) => f.benchmarkName).equals('blackhole_1m')
+        ..has('target', (f) => f.target).equals('exe')
+        ..has('bytes', (f) => f.bytes).equals(_oneMiB)
+        ..has('gbPerSecond', (f) => f.gbPerSecond).isGreaterThan(900)
+        ..has('overCeilingFactor', (f) => f.overCeilingFactor).isGreaterThan(9);
     });
 
     test('accepts a rate under the ceiling', () {
@@ -37,7 +37,7 @@ void main() {
           throughput: const Throughput.bytes(_oneMiB),
           meanLatencyNs: 100000.0,
         ),
-      ).isNull();
+      ).isNull;
     });
 
     test('ignores payloads small enough to live in cache', () {
@@ -50,7 +50,7 @@ void main() {
           throughput: const Throughput.bytes(13),
           meanLatencyNs: 1.0,
         ),
-      ).isNull();
+      ).isNull;
     });
 
     test('ignores element throughput and absent throughput', () {
@@ -61,7 +61,7 @@ void main() {
           throughput: const Throughput.elements(_oneMiB, unit: 'records'),
           meanLatencyNs: _neverReadLatencyNs,
         ),
-      ).isNull();
+      ).isNull;
       check(
         ThroughputPlausibility.screen(
           benchmarkName: 'no_declaration',
@@ -69,7 +69,7 @@ void main() {
           throughput: null,
           meanLatencyNs: _neverReadLatencyNs,
         ),
-      ).isNull();
+      ).isNull;
     });
 
     test('ignores unmeasurable latencies', () {
@@ -82,7 +82,7 @@ void main() {
             meanLatencyNs: latency,
           ),
           because: 'latency $latency is not measurable',
-        ).isNull();
+        ).isNull;
       }
     });
   });
@@ -104,7 +104,7 @@ void main() {
 
     test('returns nothing for a suite with no byte throughput', () {
       final suite = _suite([_entry('plain', null, 400.0)]);
-      check(ThroughputPlausibility.screenSuite(suite)).isEmpty();
+      check(ThroughputPlausibility.screenSuite(suite)).isEmpty;
     });
   });
 
@@ -121,11 +121,11 @@ void main() {
 
       check(findings).length.equals(1);
       check(findings.single)
-        ..has((f) => f.benchmarkName, 'benchmarkName').equals('blackhole')
-        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
-        ..has((f) => f.largeBytes, 'largeBytes').equals(256 * 1024)
-        ..has((f) => f.volumeRatio, 'volumeRatio').isGreaterThan(20000)
-        ..has((f) => f.latencyRatio, 'latencyRatio').equals(1.0);
+        ..has('benchmarkName', (f) => f.benchmarkName).equals('blackhole')
+        ..has('smallBytes', (f) => f.smallBytes).equals(13)
+        ..has('largeBytes', (f) => f.largeBytes).equals(256 * 1024)
+        ..has('volumeRatio', (f) => f.volumeRatio).isGreaterThan(20000)
+        ..has('latencyRatio', (f) => f.latencyRatio).equals(1.0);
     });
 
     test('accepts latency that grows with the payload', () {
@@ -134,7 +134,7 @@ void main() {
         _entry('wire', _oneMiB, 46000.0),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('ignores a volume spread too narrow to read as a signal', () {
@@ -143,7 +143,7 @@ void main() {
         _entry('narrow', 2 * _oneMiB, 1000.0),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('never compares two different benchmarks', () {
@@ -152,7 +152,7 @@ void main() {
         _entry('parse_large', _oneMiB, _neverReadLatencyNs),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('never compares across targets', () {
@@ -161,7 +161,7 @@ void main() {
         _entry('same_name', _oneMiB, _neverReadLatencyNs, target: 'wasm'),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('never pools across non-group matrix coordinates', () {
@@ -208,7 +208,7 @@ void main() {
         ),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('catches an invariant pair across 3+ payload sizes', () {
@@ -224,9 +224,9 @@ void main() {
 
       check(findings).length.equals(1);
       check(findings.single)
-        ..has((f) => f.benchmarkName, 'benchmarkName').equals('hybrid_sink')
-        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
-        ..has((f) => f.largeBytes, 'largeBytes').equals(256 * 1024);
+        ..has('benchmarkName', (f) => f.benchmarkName).equals('hybrid_sink')
+        ..has('smallBytes', (f) => f.smallBytes).equals(13)
+        ..has('largeBytes', (f) => f.largeBytes).equals(256 * 1024);
     });
 
     test('orders findings by widest volume spread first', () {
@@ -251,7 +251,7 @@ void main() {
         _entry('tiny', 16 * 1024, _neverReadLatencyNs),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('judges a pair once an honest read would leave the band', () {
@@ -266,8 +266,8 @@ void main() {
 
       check(findings).length.equals(1);
       check(findings.single)
-        ..has((f) => f.smallBytes, 'smallBytes').equals(256)
-        ..has((f) => f.largeBytes, 'largeBytes').equals(64 * 1024);
+        ..has('smallBytes', (f) => f.smallBytes).equals(256)
+        ..has('largeBytes', (f) => f.largeBytes).equals(64 * 1024);
     });
 
     test('scales the bound with latency, not payload size', () {
@@ -278,7 +278,7 @@ void main() {
         _entry('slow_call', 64 * 1024, 5000.0),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('does not flag a large payload that came out faster', () {
@@ -289,7 +289,7 @@ void main() {
         _entry('write', _oneMiB, 800.0, coordinates: _g('1mib')),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('never pairs arms that carry their size in the name', () {
@@ -305,7 +305,7 @@ void main() {
         ),
       ]);
 
-      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty();
+      check(ThroughputPlausibility.screenInvariance(suite)).isEmpty;
     });
 
     test('pairs one arm across the groups of a size sweep', () {
@@ -320,9 +320,9 @@ void main() {
 
       check(findings).length.equals(1);
       check(findings.single)
-        ..has((f) => f.benchmarkName, 'benchmarkName').equals('write')
-        ..has((f) => f.smallBytes, 'smallBytes').equals(13)
-        ..has((f) => f.largeBytes, 'largeBytes').equals(_oneMiB);
+        ..has('benchmarkName', (f) => f.benchmarkName).equals('write')
+        ..has('smallBytes', (f) => f.smallBytes).equals(13)
+        ..has('largeBytes', (f) => f.largeBytes).equals(_oneMiB);
     });
   });
 
@@ -369,7 +369,7 @@ void main() {
       check(report).contains('Confirm the bytes are read');
       // This suite never trips the bandwidth ceiling — 256 KiB is under the
       // size floor — so invariance is the only thing that catches it.
-      check(report).not((it) => it.contains('Implausible throughput'));
+      check(report).not(.it()..contains('Implausible throughput'));
     });
 
     test('stays silent when every rate is believable', () {
@@ -377,8 +377,8 @@ void main() {
         _suite([_entry('copy_1m', _oneMiB, 100000.0)]),
       );
 
-      check(report).not((it) => it.contains('Implausible throughput'));
-      check(report).not((it) => it.contains('does not track payload size'));
+      check(report).not(.it()..contains('Implausible throughput'));
+      check(report).not(.it()..contains('does not track payload size'));
     });
   });
 }
