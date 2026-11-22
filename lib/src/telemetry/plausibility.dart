@@ -63,6 +63,7 @@ abstract final class ThroughputPlausibility() {
   static List<ImplausibleThroughput> screenSuite(BenchmarkSuiteResult suite) {
     final findings = <ImplausibleThroughput>[];
     for (final benchmark in suite.benchmarks) {
+      if (benchmark.unit != MetricUnit.nanoseconds) continue;
       final finding = screen(
         benchmarkName: benchmark.name,
         target: benchmark.target,
@@ -154,6 +155,7 @@ abstract final class ThroughputPlausibility() {
   static List<InvariantLatency> screenInvariance(BenchmarkSuiteResult suite) {
     final byBenchmark = <(String, String, String), List<(int, double)>>{};
     for (final benchmark in suite.benchmarks) {
+      if (benchmark.unit != MetricUnit.nanoseconds) continue;
       final throughput = benchmark.throughput;
       final latencyNs = benchmark.metrics.meanNs;
       if (throughput is! ByteThroughput ||

@@ -1,7 +1,7 @@
 import 'dart:io';
 
+import 'package:bench_press/host.dart';
 import 'package:bench_press/src/cli/compiler.dart';
-import 'package:bench_press/src/cli/cpu_affinity.dart';
 import 'package:bench_press/src/cli/process_runner.dart';
 import 'package:bench_press/src/cli/sdk.dart';
 import 'package:checks/checks.dart';

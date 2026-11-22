@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'warmup.dart';
+import 'sample_summary.dart';
 
 /// Represents Fieller's confidence interval for a ratio of two means
 /// (`meanA / meanB`).
@@ -60,8 +60,8 @@ final class const FiellerInterval({
       );
     }
 
-    final meanA = AdaptiveWarmupDetector.computeMean(sampleA);
-    final meanB = AdaptiveWarmupDetector.computeMean(sampleB);
+    final meanA = meanOfDoubles(sampleA);
+    final meanB = meanOfDoubles(sampleB);
 
     if (meanB == 0.0) {
       return FiellerInterval(
@@ -77,8 +77,8 @@ final class const FiellerInterval({
 
     final ratio = meanA / meanB;
 
-    final varA = _sampleVariance(sampleA, meanA);
-    final varB = _sampleVariance(sampleB, meanB);
+    final varA = sampleVarianceOfDoubles(sampleA, meanA);
+    final varB = sampleVarianceOfDoubles(sampleB, meanB);
 
     final vA = varA / nA;
     final vB = varB / nB;
@@ -98,7 +98,7 @@ final class const FiellerInterval({
     final vAB = usePaired
         ? _sampleCovariance(sampleA, meanA, sampleB, meanB) / nA
         : 0.0;
-    final df = _computeDegreesOfFreedom(
+    final df = computeComparisonDegreesOfFreedom(
       nA: nA,
       nB: nB,
       vA: vA,
@@ -167,24 +167,6 @@ final class const FiellerInterval({
     );
   }
 
-  static double _computeDegreesOfFreedom({
-    required int nA,
-    required int nB,
-    required double vA,
-    required double vB,
-    required bool usePaired,
-  }) {
-    if (usePaired) {
-      return (nA - 1.0).clamp(1.0, 10000.0);
-    }
-    final num = (vA + vB) * (vA + vB);
-    final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
-    final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
-    return (denomA + denomB > 0.0)
-        ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
-        : (nA + nB - 2.0).clamp(1.0, 10000.0);
-  }
-
   static double _computeDiscriminant({
     required double vA,
     required double vB,
@@ -200,16 +182,6 @@ final class const FiellerInterval({
         : baseDisc;
     final scale = vA + (ratio * ratio * vB);
     return (rawDisc < 0.0 && rawDisc >= -1e-12 * scale) ? 0.0 : rawDisc;
-  }
-
-  static double _sampleVariance(List<double> samples, double mean) {
-    if (samples.length <= 1) return 0.0;
-    var sumSq = 0.0;
-    for (final s in samples) {
-      final diff = s - mean;
-      sumSq += diff * diff;
-    }
-    return sumSq / (samples.length - 1);
   }
 
   static double _sampleCovariance(
@@ -238,6 +210,42 @@ final class const FiellerInterval({
     if (paired) 'paired': paired,
   };
 
+  /// Reconstructs a [FiellerInterval] from a JSON map.
+  factory fromJson(Map<String, Object?> json) {
+    final isValid = json['is_valid'];
+    if (isValid is! bool) {
+      throw const FormatException('Invalid or incomplete FiellerInterval JSON');
+    }
+    double readNumOrNan(String key) => switch (json[key]) {
+      final num n => n.toDouble(),
+      null => double.nan,
+      _ => throw FormatException('Invalid "$key" in FiellerInterval JSON'),
+    };
+    final confidence = switch (json['confidence_level']) {
+      final num n => n.toDouble(),
+      null => 0.95,
+      _ => throw const FormatException(
+        'Invalid "confidence_level" in FiellerInterval JSON',
+      ),
+    };
+    final paired = switch (json['paired']) {
+      final bool b => b,
+      null => false,
+      _ => throw const FormatException(
+        'Invalid "paired" in FiellerInterval JSON',
+      ),
+    };
+    return FiellerInterval(
+      ratio: readNumOrNan('ratio'),
+      lowerBound: readNumOrNan('lower_bound'),
+      upperBound: readNumOrNan('upper_bound'),
+      g: readNumOrNan('g'),
+      isValid: isValid,
+      confidenceLevel: confidence,
+      paired: paired,
+    );
+  }
+
   @override
   String toString() =>
       'FiellerInterval(ratio: ${ratio.toStringAsFixed(3)}, '
@@ -245,6 +253,41 @@ final class const FiellerInterval({
       '[${lowerBound.toStringAsFixed(3)}, ${upperBound.toStringAsFixed(3)}], '
       'g: ${g.toStringAsFixed(4)}, '
       'valid: $isValid)';
+}
+
+/// Computes paired (`n - 1`) or unpaired Welch-Satterthwaite degrees of
+/// freedom given sample counts [nA], [nB] and squared standard errors [vA]
+/// (`sA^2 / nA`) and [vB] (`sB^2 / nB`).
+double computeComparisonDegreesOfFreedom({
+  required int nA,
+  required int nB,
+  required double vA,
+  required double vB,
+  required bool usePaired,
+}) {
+  if (usePaired) {
+    return (nA - 1.0).clamp(1.0, 10000.0);
+  }
+  final num = (vA + vB) * (vA + vB);
+  final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
+  final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
+  return (denomA + denomB > 0.0)
+      ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
+      : (nA + nB - 2.0).clamp(1.0, 10000.0);
+}
+
+/// Computes the two-sided tail probability `P(|T| >= |t|)` for Student's
+/// $t$-distribution with [df] degrees of freedom (`df > 0`).
+double studentTTwoSidedPValue(double t, double df) {
+  if (df <= 0.0 || df.isNaN) {
+    throw ArgumentError.value(df, 'df', 'Degrees of freedom must be > 0.');
+  }
+  if (t.isNaN) return double.nan;
+  if (t == 0.0) return 1.0;
+  if (t.isInfinite) return 0.0;
+  final effectiveDf = df.isInfinite ? 1e12 : df;
+  final x = effectiveDf / (effectiveDf + t * t);
+  return _regularizedIncompleteBeta(x, effectiveDf / 2.0, 0.5);
 }
 
 /// Computes the critical value for Student's $t$-distribution given two-tailed

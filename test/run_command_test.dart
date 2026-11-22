@@ -655,6 +655,44 @@ matrix:
       check(entry.processTrialsNs.length).equals(2);
       check(entry.samples).equals(4);
       check(entry.metrics.varianceComponents).isNotNull();
+      check(entry.pairing).isNotNull();
+      check(entry.pairing!.rounds).equals(2);
+      check(entry.pairing!.interleaved).isTrue;
+
+      // A second single-cell --processes 2 run merged into the same output
+      // file must stamp a distinct PairingInfo.groupId so separate runs never
+      // falsely pair.
+      final benchFile2 = writeSyncBenchmark(
+        subDir: 'benchmark',
+        fileName: 'proc_bench_2.dart',
+        className: 'ProcBenchmark2',
+        name: 'proc_workload_2',
+        body: 'Blackhole.consume(43);',
+      );
+      final exitCode2 = await runner.run([
+        'run',
+        '-t',
+        'jit',
+        '--trials',
+        '2',
+        '--processes',
+        '2',
+        '--force-run',
+        '-o',
+        outputFile.path,
+        benchFile2.path,
+      ]);
+      check(exitCode2).equals(ExitCode.success.code);
+      final mergedSuite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      check(mergedSuite.benchmarks.length).equals(2);
+      check(mergedSuite.benchmarks[0].pairing).isNotNull();
+      check(mergedSuite.benchmarks[1].pairing).isNotNull();
+      check(
+        BenchmarkEntry.canPair(
+          mergedSuite.benchmarks[0],
+          mergedSuite.benchmarks[1],
+        ),
+      ).isFalse;
 
       final badThresholdCode = await runner.run([
         'run',

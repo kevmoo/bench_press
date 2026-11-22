@@ -1,0 +1,619 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:bench_press/report.dart';
+import 'package:bench_press/schedule.dart';
+import 'package:bench_press/src/cli/command_runner.dart';
+import 'package:checks/checks.dart';
+import 'package:test/scaffolding.dart';
+import 'package:test_descriptor/test_descriptor.dart' as d;
+
+void main() {
+  group('Schema v1 compatibility and toolkit factories', () {
+    test(
+      'nanosecond entries without pairing serialize identically to v0.4.2',
+      () {
+        final entry = BenchmarkEntry.fromDurations(
+          name: 'warm_startup',
+          durations: [
+            const Duration(milliseconds: 250),
+            const Duration(milliseconds: 252),
+            const Duration(milliseconds: 248),
+          ],
+          target: 'aot',
+        );
+
+        final json = entry.toJson();
+        check(json.containsKey('unit')).isFalse;
+        check(json.containsKey('pairing')).isFalse;
+        check(json.containsKey('warmup')).isFalse;
+        check(json.containsKey('calibrated_batch_iterations')).isFalse;
+        check(json['samples']).equals(3);
+
+        final parsed = BenchmarkEntry.fromJson(json);
+        check(parsed.unit).equals(MetricUnit.nanoseconds);
+        check(parsed.pairing).isNull;
+        check(parsed.metrics.meanNs).equals(250e6);
+      },
+    );
+
+    test(
+      'fromBytes serializes unit=bytes, zeros opsPerSec, and formats KiB/MiB',
+      () {
+        final baseMem = BenchmarkEntry.fromBytes(
+          name: 'rss_peak',
+          bytes: [10 * 1024 * 1024, 10 * 1024 * 1024, 10 * 1024 * 1024],
+          isBaseline: true,
+          coordinates: const {'group': 'mem'},
+        );
+        final candMem = BenchmarkEntry.fromBytes(
+          name: 'rss_peak_opt',
+          bytes: [8 * 1024 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024],
+          coordinates: const {'group': 'mem'},
+        );
+
+        check(baseMem.metrics.opsPerSec).equals(0.0);
+        check(baseMem.toJson()['unit']).equals('bytes');
+
+        final suite = BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: const EnvironmentInfo(
+            dartVersion: '3.13.0',
+            os: 'linux',
+            arch: 'x64',
+          ),
+          benchmarks: [baseMem, candMem],
+        );
+        final roundTrip = BenchmarkSuiteResult.fromJsonString(
+          suite.toFormattedJson(),
+        );
+        check(roundTrip.benchmarks.first.unit).equals(MetricUnit.bytes);
+
+        final md = MarkdownReporter.renderSuite(
+          roundTrip,
+          scale: ComparisonScale.difference,
+        );
+        check(md).contains('Mean Size');
+        check(md).contains('10.0 MiB');
+        check(md).contains('8.0 MiB');
+        check(md).contains('**-2.0 MiB**');
+        check(md).contains('🚀 🥇 Peak');
+      },
+    );
+  });
+
+  group('PairingInfo gating and ComparisonScale reporting', () {
+    test('fromScheduledDurations pairs arms and renders overhead', () async {
+      // Simulate Konstantin's warm startup benchmark with shared round drift
+      // [0, +4, +8, +12 ms]: each arm stays within the 5% CV stability gate
+      // while paired CIs cancel the drift (~±1.8 ms vs ~±8.6 ms unpaired).
+      const driftMs = [0, 4, 8, 12];
+      final run = await RoundScheduler.run<Duration>(
+        arms: [
+          ScheduleArm(
+            'lsp_no_excludes',
+            isBaseline: true,
+            (ctx) => Duration(milliseconds: 180 + driftMs[ctx.round]),
+          ),
+          ScheduleArm(
+            'lsp_3p_excludes',
+            (ctx) => Duration(
+              milliseconds:
+                  250 + driftMs[ctx.round] + (ctx.round.isEven ? 1 : -1),
+            ),
+          ),
+        ],
+        rounds: 4,
+      );
+      final sequentialRun = await RoundScheduler.run<Duration>(
+        arms: [
+          ScheduleArm(
+            'lsp_no_excludes',
+            isBaseline: true,
+            (ctx) => Duration(milliseconds: 180 + driftMs[ctx.round]),
+          ),
+          ScheduleArm(
+            'lsp_3p_excludes',
+            (ctx) => Duration(
+              milliseconds:
+                  250 + driftMs[ctx.round] + (ctx.round.isEven ? 1 : -1),
+            ),
+          ),
+        ],
+        rounds: 4,
+        mode: const ScheduleMode.sequential(),
+      );
+
+      final suite = BenchmarkSuiteResult.fromScheduledDurations(
+        run,
+        group: 'packages=25',
+      );
+      final sequentialSuite = BenchmarkSuiteResult.fromScheduledDurations(
+        sequentialRun,
+        group: 'packages=25',
+      );
+      check(BenchmarkEntry.canPair(suite.benchmarks[0], suite.benchmarks[1]))
+          .isTrue;
+      check(
+        BenchmarkEntry.canPair(
+          sequentialSuite.benchmarks[0],
+          sequentialSuite.benchmarks[1],
+        ),
+      ).isFalse;
+
+      final diffMd = MarkdownReporter.renderSuite(
+        suite,
+        scale: ComparisonScale.difference,
+      );
+      final unpairedDiffMd = MarkdownReporter.renderSuite(
+        sequentialSuite,
+        scale: ComparisonScale.difference,
+      );
+      check(diffMd).contains('Delta vs. Baseline');
+      check(diffMd).contains('**+70.00 ms**');
+      check(diffMd).contains('[+68.16 ms – +71.84 ms]');
+      check(unpairedDiffMd).contains('[+61.39 ms – +78.61 ms]');
+      check(diffMd).contains('⚠️ 🔴 Slow');
+      check(diffMd.contains('Geometric Mean Speedup')).isFalse;
+
+      final bothMd = MarkdownReporter.renderSuite(
+        suite,
+        scale: ComparisonScale.both,
+      );
+      check(bothMd).contains('95% CI (Diff)');
+      check(bothMd).contains('95% CI (Fieller)');
+    });
+
+    test(
+      'PairingInfo pairs sdk matrix axes within one run and blocks merged runs',
+      () {
+        const run1Pairing = PairingInfo(
+          groupId: 'run_1',
+          schedule: 'abba_baab',
+          interleaved: true,
+          rounds: 4,
+        );
+        const run2Pairing = PairingInfo(
+          groupId: 'run_2',
+          schedule: 'abba_baab',
+          interleaved: true,
+          rounds: 4,
+        );
+
+        final stock = BenchmarkEntry(
+          name: 'parse',
+          target: 'aot',
+          mode: 'sync',
+          samples: 4,
+          metrics: BenchmarkMetrics.fromSamples(const [
+            100,
+            110,
+            120,
+            130,
+          ], maxCvThreshold: 0.2),
+          coordinates: const BenchmarkCoordinates({'sdk': 'stock'}),
+          isBaseline: true,
+          processes: 4,
+          processMeansNs: const [100, 110, 120, 130],
+          pairing: run1Pairing,
+        );
+        final patchedSameRun = BenchmarkEntry(
+          name: 'parse',
+          target: 'aot',
+          mode: 'sync',
+          samples: 4,
+          metrics: BenchmarkMetrics.fromSamples(const [
+            80,
+            90,
+            100,
+            110,
+          ], maxCvThreshold: 0.2),
+          coordinates: const BenchmarkCoordinates({'sdk': 'patched'}),
+          processes: 4,
+          processMeansNs: const [80, 90, 100, 110],
+          pairing: run1Pairing,
+        );
+        final patchedSeparateRun = patchedSameRun.copyWith(
+          pairing: run2Pairing,
+        );
+
+        // Same interleaved run pairs across different `sdk` coordinates!
+        check(BenchmarkEntry.canPair(stock, patchedSameRun)).isTrue;
+        // Separate merged run with different groupId MUST NOT pair!
+        check(BenchmarkEntry.canPair(stock, patchedSeparateRun)).isFalse;
+      },
+    );
+
+    test('canPair handles aligned dropped rounds and deepMerge', () async {
+      // 5-round run where round 2 returns null across arms -> 4 aligned
+      // samples under pairing.rounds == 5.
+      final run = await RoundScheduler.run<int?>(
+        arms: [
+          ScheduleArm(
+            'control',
+            isBaseline: true,
+            (ctx) => ctx.round == 2 ? null : 100 + ctx.round,
+          ),
+          ScheduleArm(
+            'candidate',
+            (ctx) => ctx.round == 2 ? null : 150 + ctx.round,
+          ),
+        ],
+        rounds: 5,
+      );
+      final aligned = run.extractAlignedSeries((v) => v?.toDouble());
+      check(aligned['control']!.length).equals(4);
+      final e0 = BenchmarkEntry.fromSamples(
+        name: 'control',
+        samples: aligned['control']!,
+        isBaseline: true,
+        coordinates: const BenchmarkCoordinates({'group': 'aligned_grp'}),
+        pairing: run.pairing,
+      );
+      final e1 = BenchmarkEntry.fromSamples(
+        name: 'candidate',
+        samples: aligned['candidate']!,
+        coordinates: const BenchmarkCoordinates({'group': 'aligned_grp'}),
+        pairing: run.pairing,
+      );
+      check(BenchmarkEntry.canPair(e0, e1)).isTrue;
+
+      // Single-cell multi-process runs merged via deepMerge carry distinct
+      // groupIds and must use unpaired Welch-Fieller in MarkdownReporter.
+      const env = EnvironmentInfo(
+        dartVersion: '3.13.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      const drift = [100.0, 102.0, 104.0, 106.0];
+      const candSamples = [120.0, 122.0, 124.0, 126.0];
+      final suite1 = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry(
+            name: 'single_a',
+            target: 'jit',
+            mode: 'sync',
+            samples: 4,
+            metrics: BenchmarkMetrics.fromSamples(drift),
+            coordinates: const BenchmarkCoordinates({'group': 'G'}),
+            isBaseline: true,
+            processes: 4,
+            processMeansNs: drift,
+            pairing: const PairingInfo(
+              groupId: 'proc_run_1',
+              schedule: 'abba_baab',
+              interleaved: true,
+              rounds: 4,
+            ),
+          ),
+        ],
+      );
+      final suite2 = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22, 0, 1),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry(
+            name: 'single_b',
+            target: 'jit',
+            mode: 'sync',
+            samples: 4,
+            metrics: BenchmarkMetrics.fromSamples(candSamples),
+            coordinates: const BenchmarkCoordinates({'group': 'G'}),
+            processes: 4,
+            processMeansNs: candSamples,
+            pairing: const PairingInfo(
+              groupId: 'proc_run_2',
+              schedule: 'abba_baab',
+              interleaved: true,
+              rounds: 4,
+            ),
+          ),
+        ],
+      );
+      final merged = suite1.deepMerge(suite2);
+      check(BenchmarkEntry.canPair(merged.benchmarks[0], merged.benchmarks[1]))
+          .isFalse;
+      final mergedMd = MarkdownReporter.renderSuite(
+        merged,
+        scale: ComparisonScale.difference,
+      );
+      // If falsely paired, diff is constant +20.0 ns -> [+20.0 ns – +20.0 ns].
+      // Unpaired Welch-Satterthwaite includes the drift variance (±4.4 ns).
+      check(mergedMd.contains('[+20.0 ns – +20.0 ns]')).isFalse;
+    });
+
+    test(
+      'ComparisonScale.difference honors gate: true vs gate: false on rows',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.13.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+        const grp = BenchmarkCoordinates({'group': 'G'});
+        final baseSingle = BenchmarkEntry.fromSamples(
+          name: 'single_shot',
+          samples: const [200.0],
+          coordinates: grp,
+          isBaseline: true,
+        );
+        final curSingle = BenchmarkEntry.fromSamples(
+          name: 'single_shot',
+          samples: const [120.0],
+          coordinates: grp,
+        );
+        final baseUnstable = BenchmarkEntry.fromSamples(
+          name: 'noisy_shot',
+          samples: const [200.0, 202.0, 198.0],
+          coordinates: grp,
+          isBaseline: true,
+        );
+        final curUnstable = BenchmarkEntry.fromSamples(
+          name: 'noisy_shot',
+          // CV ~ 10% (> 5% default maxCvThreshold -> !isStable), clearly faster
+          samples: const [90.0, 100.0, 110.0],
+          coordinates: grp,
+        );
+
+        final baseSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: env,
+          benchmarks: [baseSingle, baseUnstable],
+        );
+        final curSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22, 1),
+          environment: env,
+          benchmarks: [curSingle, curUnstable],
+        );
+
+        final gatedDelta = MarkdownReporter.renderDeltaTable(
+          baseline: baseSuite,
+          current: curSuite,
+          scale: ComparisonScale.difference,
+        );
+        check(gatedDelta).contains(
+          '| single_shot (group=G) | `aot` | 200.0 ns | 120.0 ns | '
+          'unresolved | unresolved | [N/A] | ❓ Unresolved |',
+        );
+        check(gatedDelta).contains(
+          '| noisy_shot (group=G) | `aot` | 200.0 ns | 100.0 ns | '
+          'unresolved | unresolved | [N/A] | ❓ Unresolved |',
+        );
+        check(gatedDelta).contains('Delta omitted due to');
+
+        final ungatedDelta = MarkdownReporter.renderDeltaTable(
+          baseline: baseSuite,
+          current: curSuite,
+          scale: ComparisonScale.difference,
+          gate: false,
+        );
+        check(ungatedDelta.contains('unresolved')).isFalse;
+        check(ungatedDelta.contains('❓ Unresolved')).isFalse;
+        check(ungatedDelta).contains('-80.0 ns | -40.0% | [N/A] | 🚀 Faster');
+        check(ungatedDelta).contains('-100.0 ns | -50.0% | [');
+        check(ungatedDelta).contains('🚀 **2** Faster');
+
+        // Matrix/group suite table with gate: false also classifies movement.
+        final groupSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: env,
+          benchmarks: [
+            baseUnstable,
+            BenchmarkEntry.fromSamples(
+              name: 'noisy_cand',
+              samples: const [90.0, 100.0, 110.0],
+              coordinates: grp,
+            ),
+          ],
+        );
+        final gatedGroup = MarkdownReporter.renderSuite(
+          groupSuite,
+          scale: ComparisonScale.difference,
+        );
+        check(gatedGroup).contains('❓ Unresolved');
+        final ungatedGroup = MarkdownReporter.renderSuite(
+          groupSuite,
+          scale: ComparisonScale.difference,
+          gate: false,
+        );
+        check(ungatedGroup.contains('❓ Unresolved')).isFalse;
+        check(ungatedGroup).contains('🚀 🥇 Peak');
+      },
+    );
+  });
+
+  group('GolemExporter and CLI flags', () {
+    test('formats Golem stdout lines and LUCI JSON accurately', () {
+      final sub10ns = BenchmarkEntry(
+        name: 'TightLoop',
+        target: 'jit',
+        mode: 'sync',
+        samples: 3,
+        metrics: BenchmarkMetrics.fromSamples(const [2.94, 2.94, 2.94]),
+        rawTrialsNs: const [2.94, 2.94, 2.94],
+        calibratedBatchIterations: 1000000,
+      );
+      final ultraTiny = BenchmarkEntry(
+        name: 'SubPicosecond',
+        target: 'jit',
+        mode: 'sync',
+        samples: 2,
+        metrics: BenchmarkMetrics.fromSamples(const [0.0001, 0.0001]),
+        rawTrialsNs: const [0.0001, 0.0001],
+        calibratedBatchIterations: 1000000,
+      );
+      final tinyLines = GolemExporter.formatLines(
+        BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: const EnvironmentInfo(
+            dartVersion: '3.13.0',
+            os: 'linux',
+            arch: 'x64',
+          ),
+          benchmarks: [sub10ns, ultraTiny],
+        ),
+      ).split('\n');
+      check(tinyLines[0]).equals('TightLoop(RunTime): 0.00294 us.');
+      check(tinyLines[1]).startsWith('SubPicosecond(RunTime): ');
+      check(tinyLines[1].contains(': 0 us.')).isFalse;
+      final tinyScore = double.parse(
+        tinyLines[1]
+            .replaceFirst('SubPicosecond(RunTime): ', '')
+            .replaceFirst(' us.', ''),
+      );
+      check(tinyScore).isCloseTo(1e-7, 1e-15);
+      final micro = BenchmarkEntry(
+        name: 'JsonDecode',
+        target: 'aot',
+        mode: 'sync',
+        samples: 3,
+        metrics: BenchmarkMetrics.fromSamples(const [45200, 45200, 45200]),
+        rawTrialsNs: const [45200, 45200, 45200],
+        calibratedBatchIterations: 2000,
+      );
+      final macro = BenchmarkEntry.fromDurations(
+        name: 'Dart2WasmSelfCompile',
+        durations: const [
+          Duration(milliseconds: 1234),
+          Duration(milliseconds: 1234),
+        ],
+      );
+      final mem = BenchmarkEntry.fromBytes(
+        name: 'ServerPeakRss',
+        bytes: const [83886080, 83886080],
+      );
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: const EnvironmentInfo(
+          dartVersion: '3.13.0',
+          os: 'linux',
+          arch: 'x64',
+        ),
+        benchmarks: [micro, macro, mem],
+      );
+
+      final lines = GolemExporter.formatLines(suite);
+      check(lines).equals(
+        'JsonDecode(RunTime): 45.2 us.\n'
+        'Dart2WasmSelfCompile(RunTimeRaw): 1234 ms.\n'
+        'ServerPeakRss(MemoryUse): 83886080',
+      );
+
+      final codeSizeLines = GolemExporter.formatLines(
+        BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: suite.environment,
+          benchmarks: [mem],
+        ),
+        byteMetric: GolemByteMetric.codeSize,
+      );
+      check(codeSizeLines).equals('ServerPeakRss(CodeSize): 83886080');
+
+      final luci = GolemExporter.toLuciJson(
+        suite,
+        target: 'dart-aot-linux',
+        cpu: 'AMD EPYC',
+        machineType: 'linux-x64',
+      );
+      check(luci.length).equals(3);
+      check(luci[0]['metric']).equals('RunTime');
+      check(luci[0]['score']).equals(45.2);
+      check(luci[1]['metric']).equals('RunTimeRaw');
+      check(luci[1]['score']).equals(1234000.0);
+      check(luci[2]['metric']).equals('MemoryUse');
+      check(luci[2]['score']).equals(83886080);
+    });
+
+    test(
+      'CLI report and diff accept --scale and --format golem/golem-json',
+      () async {
+        final baseFile = File(d.path('base.json'));
+        final curFile = File(d.path('cur.json'));
+        final golemOut = File(d.path('golem.txt'));
+        final golemJsonOut = File(d.path('golem.json'));
+        final diffOut = File(d.path('diff.md'));
+
+        const env = EnvironmentInfo(
+          dartVersion: '3.13.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+        BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: env,
+          benchmarks: [
+            BenchmarkEntry.fromDurations(
+              name: 'WarmAnalysis',
+              durations: const [
+                Duration(milliseconds: 500),
+                Duration(milliseconds: 502),
+                Duration(milliseconds: 498),
+              ],
+            ),
+          ],
+        ).saveToFile(baseFile);
+
+        BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22, 1),
+          environment: env,
+          benchmarks: [
+            BenchmarkEntry.fromDurations(
+              name: 'WarmAnalysis',
+              durations: const [
+                Duration(milliseconds: 300),
+                Duration(milliseconds: 301),
+                Duration(milliseconds: 299),
+              ],
+            ),
+          ],
+        ).saveToFile(curFile);
+
+        final runner = BenchPressCommandRunner();
+        check(
+          await runner.run([
+            'report',
+            curFile.path,
+            '--format',
+            'golem',
+            '-o',
+            golemOut.path,
+          ]),
+        ).equals(0);
+        check(golemOut.readAsStringSync().trim())
+            .equals('WarmAnalysis(RunTimeRaw): 300 ms.');
+
+        check(
+          await runner.run([
+            'report',
+            curFile.path,
+            '--format',
+            'golem-json',
+            '-o',
+            golemJsonOut.path,
+          ]),
+        ).equals(0);
+        final decoded =
+            jsonDecode(golemJsonOut.readAsStringSync()) as List<Object?>;
+        check(decoded.length).equals(1);
+
+        check(
+          await runner.run([
+            'diff',
+            baseFile.path,
+            curFile.path,
+            '--scale',
+            'difference',
+            '-o',
+            diffOut.path,
+          ]),
+        ).equals(0);
+        final diffMd = diffOut.readAsStringSync();
+        check(diffMd).contains('95% CI (Diff)');
+        check(diffMd).contains('-200.00 ms');
+        check(diffMd).contains('🚀 Faster');
+      },
+    );
+  });
+}

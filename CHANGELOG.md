@@ -1,5 +1,29 @@
 ## 0.4.3-wip
 
+- Added four opt-in toolkit sub-libraries for custom macro, subprocess, and AOT
+  snapshot benchmark harnesses:
+  - `package:bench_press/host.dart`: `CpuAffinity` (`singleCore`, `cpus`
+    range/stride expansion) and `HostEnvironment` Linux preflight diagnostics
+    (virtualization, CPU frequency governor, turbo boost, transparent huge
+    pages, load average, SMT sibling overlap, and `/proc/stat` core busy/steal).
+  - `package:bench_press/schedule.dart`: runner-agnostic `RoundScheduler`
+    (`abbaBaab`, `randomized`, `sequential`) and `PairingInfo` provenance for
+    sync or async callbacks.
+  - `package:bench_press/stats.dart`: unit-agnostic `SampleSummary`, additive
+    paired/Welch-Satterthwaite `DifferenceInterval` (with Schuirmann TOST
+    `isEquivalentWithin`), `LinearTrend` drift detection,
+    `bonferroniConfidenceLevel`, `studentTQuantile`, and
+    `studentTTwoSidedPValue`.
+  - `package:bench_press/report.dart`: public telemetry schema
+    (`BenchmarkSuiteResult`, `BenchmarkEntry.fromSamples` / `fromDurations` /
+    `fromBytes`, `MetricUnit.bytes`, `PairingInfo` gating), `MarkdownReporter`,
+    `GitDiffReporter`, `ComparisonScale`, and `GolemExporter`.
+- Added `--scale` (`ratio`, `difference`, `both`) to `bench_press report`,
+  `bench_press diff`, and `bench_press run`, plus `--format golem` (and
+  `golem-json` on `report`).
+- Stamped explicit `PairingInfo` provenance on multi-process interleaved runs so
+  paired confidence intervals pair matrix axes (`sdk`) within the same run and
+  never falsely pair entries merged across separate runs.
 - Added opt-in early stopping (`--stop-at-ci <fraction>` on `bench_press run`
   and benchmark entrypoints, and `BenchmarkConfig.stopAtCi`). Once a cell has at
   least 8 trials, collection stops as soon as the 95% CI half-width

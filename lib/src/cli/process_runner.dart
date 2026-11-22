@@ -4,9 +4,9 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
+import '../host/cpu_affinity.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
-import 'cpu_affinity.dart';
 import 'sdk.dart';
 import 'suite_runner.dart';
 

@@ -2,8 +2,35 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../runner.dart';
+import '../schedule/pairing.dart';
+import '../schedule/round_scheduler.dart';
 import '../stats/metrics.dart';
 import '../throughput.dart';
+
+/// Physical dimension recorded by a canonical [BenchmarkEntry].
+///
+/// Restricted strictly to physical latency (stored in nanoseconds) and memory /
+/// artifact size (stored in bytes) so all entries share lower-is-better
+/// directionality without profiler counter creep.
+enum MetricUnit(
+  /// Canonical JSON wire token (`'ns'` or `'bytes'`).
+  final String jsonValue,
+) {
+  /// Elapsed time or per-operation latency normalized to nanoseconds (`'ns'`).
+  nanoseconds('ns'),
+
+  /// Memory footprint or artifact size in bytes (`'bytes'`).
+  bytes('bytes');
+
+  /// Parses a [MetricUnit] from JSON (`null` defaults to [nanoseconds]).
+  static MetricUnit fromJsonValue(Object? value) => switch (value) {
+    null || 'ns' => MetricUnit.nanoseconds,
+    'bytes' => MetricUnit.bytes,
+    final other => throw FormatException(
+      'Invalid "unit": "$other" (expected "ns" or "bytes")',
+    ),
+  };
+}
 
 /// The current telemetry schema version.
 const int currentTelemetrySchemaVersion = 1;
@@ -175,7 +202,27 @@ final class const BenchmarkEntry({
   /// Per-process raw trial sample latencies in nanoseconds when
   /// [processes] > 1.
   final List<List<double>> processTrialsNs = const [],
+
+  /// Physical unit of [metrics] and [rawTrialsNs] (default:
+  /// [MetricUnit.nanoseconds]).
+  final MetricUnit unit = MetricUnit.nanoseconds,
+
+  /// Optional round-pairing provenance from `RoundScheduler` or multi-process
+  /// interleaved execution.
+  final PairingInfo? pairing,
 }) {
+  /// Whether [a] and [b] share the same [MetricUnit], were collected in the
+  /// same interleaved multi-round schedule, and have equal surviving round
+  /// counts (`2 <= length <= pairing.rounds`) suitable for paired confidence
+  /// intervals.
+  static bool canPair(BenchmarkEntry a, BenchmarkEntry b) {
+    if (a.unit != b.unit) return false;
+    if (!PairingInfo.canPairInfo(a.pairing, b.pairing)) return false;
+    final lenA = a.effectiveSamplesNs.length;
+    final lenB = b.effectiveSamplesNs.length;
+    return lenA >= 2 && lenA == lenB && lenA <= a.pairing!.rounds;
+  }
+
   /// Returns the statistically independent top-level samples for confidence
   /// interval estimation: [processMeansNs] when [processes] > 1 (hierarchical
   /// process means), or [rawTrialsNs] when [processes] == 1.
@@ -214,6 +261,8 @@ final class const BenchmarkEntry({
   BenchmarkEntry copyWith({
     Map<String, String>? coordinates,
     bool? isBaseline,
+    MetricUnit? unit,
+    PairingInfo? pairing,
   }) {
     return BenchmarkEntry(
       name: name,
@@ -232,8 +281,136 @@ final class const BenchmarkEntry({
       processes: processes,
       processMeansNs: processMeansNs,
       processTrialsNs: processTrialsNs,
+      unit: unit ?? this.unit,
+      pairing: pairing ?? this.pairing,
     );
   }
+
+  /// Constructs a [BenchmarkEntry] directly from raw numeric [samples] without
+  /// requiring a microbenchmark `CalibratedBatch` or `WarmupResult`.
+  ///
+  /// When [unit] is [MetricUnit.nanoseconds], each sample is multiplied by
+  /// [scaleToCanonical] (e.g. `1e6` when [samples] are in milliseconds, `1e3`
+  /// when in microseconds).
+  factory fromSamples({
+    required String name,
+    required List<num> samples,
+    MetricUnit unit = MetricUnit.nanoseconds,
+    double scaleToCanonical = 1.0,
+    String target = 'aot',
+    String mode = 'sync',
+    Map<String, String> coordinates = const {},
+    bool isBaseline = false,
+    Throughput? throughput,
+    PairingInfo? pairing,
+    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+  }) {
+    if (name.isEmpty) {
+      throw ArgumentError.value(name, 'name', 'Cannot be empty.');
+    }
+    if (scaleToCanonical <= 0.0 || !scaleToCanonical.isFinite) {
+      throw ArgumentError.value(
+        scaleToCanonical,
+        'scaleToCanonical',
+        'Must be finite and > 0.',
+      );
+    }
+    final factor = unit == MetricUnit.nanoseconds ? scaleToCanonical : 1.0;
+    final scaled = List<double>.unmodifiable([
+      for (final s in samples) s.toDouble() * factor,
+    ]);
+    final rawMetrics = BenchmarkMetrics.fromSamples(
+      scaled,
+      isStable: true,
+      maxCvThreshold: maxCvThreshold,
+    );
+    final effectiveMetrics = unit == MetricUnit.bytes
+        ? _zeroOpsMetrics(rawMetrics)
+        : rawMetrics;
+
+    return BenchmarkEntry(
+      name: name,
+      target: target,
+      mode: mode,
+      samples: scaled.length,
+      metrics: effectiveMetrics,
+      rawTrialsNs: scaled,
+      coordinates: BenchmarkCoordinates(
+        Map<String, String>.unmodifiable(coordinates),
+      ),
+      isBaseline: isBaseline,
+      throughput: throughput,
+      unit: unit,
+      pairing: pairing,
+    );
+  }
+
+  /// Constructs a [BenchmarkEntry] from single-shot or episode [durations]
+  /// converted to canonical nanoseconds.
+  factory fromDurations({
+    required String name,
+    required List<Duration> durations,
+    String target = 'aot',
+    String mode = 'async',
+    Map<String, String> coordinates = const {},
+    bool isBaseline = false,
+    Throughput? throughput,
+    PairingInfo? pairing,
+    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+  }) => BenchmarkEntry.fromSamples(
+    name: name,
+    samples: [for (final d in durations) d.inMicroseconds * 1000.0],
+    unit: MetricUnit.nanoseconds,
+    target: target,
+    mode: mode,
+    coordinates: coordinates,
+    isBaseline: isBaseline,
+    throughput: throughput,
+    pairing: pairing,
+    maxCvThreshold: maxCvThreshold,
+  );
+
+  /// Constructs a [BenchmarkEntry] from memory or artifact size observations in
+  /// [bytes] ([MetricUnit.bytes]).
+  factory fromBytes({
+    required String name,
+    required List<num> bytes,
+    String target = 'aot',
+    String mode = 'sync',
+    Map<String, String> coordinates = const {},
+    bool isBaseline = false,
+    PairingInfo? pairing,
+    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+  }) => BenchmarkEntry.fromSamples(
+    name: name,
+    samples: bytes,
+    unit: MetricUnit.bytes,
+    target: target,
+    mode: mode,
+    coordinates: coordinates,
+    isBaseline: isBaseline,
+    pairing: pairing,
+    maxCvThreshold: maxCvThreshold,
+  );
+
+  static BenchmarkMetrics _zeroOpsMetrics(BenchmarkMetrics m) =>
+      BenchmarkMetrics(
+        meanNs: m.meanNs,
+        medianNs: m.medianNs,
+        minNs: m.minNs,
+        maxNs: m.maxNs,
+        stddevNs: m.stddevNs,
+        cv: m.cv,
+        madNs: m.madNs,
+        robustCv: m.robustCv,
+        iqrNs: m.iqrNs,
+        isRobustStable: m.isRobustStable,
+        p95Ns: m.p95Ns,
+        p99Ns: m.p99Ns,
+        opsPerSec: 0.0,
+        isStable: m.isStable,
+        varianceComponents: m.varianceComponents,
+      );
 
   /// Constructs a [BenchmarkEntry] from a [BenchmarkResult].
   factory fromResult(
@@ -301,10 +478,13 @@ final class const BenchmarkEntry({
     final allStable = processEntries.every(
       (e) => (e.warmup?['is_stable'] as bool?) ?? e.metrics.isStable,
     );
-    final metrics = BenchmarkMetrics.fromProcesses(
+    final rawMetrics = BenchmarkMetrics.fromProcesses(
       processTrials,
       isStable: allStable,
     );
+    final metrics = first.unit == MetricUnit.bytes
+        ? _zeroOpsMetrics(rawMetrics)
+        : rawMetrics;
 
     return BenchmarkEntry(
       name: first.name,
@@ -321,6 +501,8 @@ final class const BenchmarkEntry({
       processes: processEntries.length,
       processMeansNs: processMeans,
       processTrialsNs: processTrials,
+      unit: first.unit,
+      pairing: first.pairing,
     );
   }
 
@@ -363,11 +545,13 @@ final class const BenchmarkEntry({
     'name': name,
     'target': target,
     'mode': mode,
+    if (unit != MetricUnit.nanoseconds) 'unit': unit.jsonValue,
     'samples': samples,
     'metrics': metrics.toJson(),
     if (coordinates.isNotEmpty) 'coordinates': coordinates,
     if (isBaseline) 'is_baseline': isBaseline,
     if (throughput != null) 'throughput': throughput!.toJson(),
+    if (pairing != null) 'pairing': pairing!.toJson(),
     if (rawTrialsNs.isNotEmpty) 'raw_trials_ns': rawTrialsNs,
     if (processes > 1) 'processes': processes,
     if (processMeansNs.isNotEmpty) 'process_means_ns': processMeansNs,
@@ -400,6 +584,7 @@ final class const BenchmarkEntry({
     final metrics = BenchmarkMetrics.fromJson(rawMetrics);
 
     final mode = _parseMode(json['mode'], rawName);
+    final unit = MetricUnit.fromJsonValue(json['unit']);
     final rawTrials = _parseRawTrials(json['raw_trials_ns'], rawName);
     final samples = _parseSamples(json['samples'], rawTrials.length, rawName);
     final coordinates = _parseCoordinates(json['coordinates'], rawName);
@@ -410,6 +595,7 @@ final class const BenchmarkEntry({
       rawName,
     );
     final throughput = _parseThroughput(json['throughput'], rawName);
+    final pairing = _parsePairing(json['pairing'], rawName);
     final processTrials = _parseProcessTrials(
       json['process_trials_ns'],
       rawName,
@@ -440,6 +626,8 @@ final class const BenchmarkEntry({
       processes: processes,
       processMeansNs: processMeans,
       processTrialsNs: processTrials,
+      unit: unit,
+      pairing: pairing,
     );
   }
 
@@ -541,6 +729,16 @@ final class const BenchmarkEntry({
         ),
       };
 
+  static PairingInfo? _parsePairing(Object? value, String name) =>
+      switch (value) {
+        null => null,
+        final Map<String, Object?> m => PairingInfo.fromJson(m),
+        final other => throw FormatException(
+          'Invalid "pairing" in benchmark "$name": expected Map, '
+          'got ${other.runtimeType}',
+        ),
+      };
+
   static int _parseProcesses(
     Object? value,
     int processMeansLength,
@@ -628,6 +826,73 @@ final class const BenchmarkSuiteResult({
     final entries = results
         .map((r) => BenchmarkEntry.fromResult(r, target: target, mode: mode))
         .toList();
+    return BenchmarkSuiteResult(
+      timestamp: timestamp ?? DateTime.now().toUtc(),
+      environment: environment ?? EnvironmentInfo.current(),
+      benchmarks: entries,
+    );
+  }
+
+  /// Constructs a [BenchmarkSuiteResult] directly from a [ScheduledRun] of
+  /// [Duration] episodes, preserving arm baselines, coordinates, and
+  /// [PairingInfo].
+  static BenchmarkSuiteResult fromScheduledDurations(
+    ScheduledRun<Duration> run, {
+    String target = 'aot',
+    String mode = 'async',
+    String? group,
+    Throughput? throughput,
+    EnvironmentInfo? environment,
+    DateTime? timestamp,
+    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+  }) => fromScheduledSamples<Duration>(
+    run,
+    valueOf: (d) => d.inMicroseconds * 1000.0,
+    unit: MetricUnit.nanoseconds,
+    target: target,
+    mode: mode,
+    group: group,
+    throughput: throughput,
+    environment: environment,
+    timestamp: timestamp,
+    maxCvThreshold: maxCvThreshold,
+  );
+
+  /// Constructs a [BenchmarkSuiteResult] from a generic [ScheduledRun], mapping
+  /// each sample via [valueOf] and preserving [PairingInfo].
+  static BenchmarkSuiteResult fromScheduledSamples<T>(
+    ScheduledRun<T> run, {
+    required double Function(T sample) valueOf,
+    MetricUnit unit = MetricUnit.nanoseconds,
+    double scaleToCanonical = 1.0,
+    String target = 'aot',
+    String mode = 'sync',
+    String? group,
+    Throughput? throughput,
+    EnvironmentInfo? environment,
+    DateTime? timestamp,
+    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
+  }) {
+    final entries = <BenchmarkEntry>[
+      for (final arm in run.arms)
+        BenchmarkEntry.fromSamples(
+          name: arm.name,
+          samples: [for (final s in arm.samples) valueOf(s)],
+          unit: unit,
+          scaleToCanonical: scaleToCanonical,
+          target: target,
+          mode: mode,
+          coordinates: {
+            ...arm.coordinates,
+            if (group != null && group.isNotEmpty)
+              BenchmarkCoordinates.groupKey: group,
+          },
+          isBaseline: arm.isBaseline,
+          throughput: throughput,
+          pairing: run.pairing,
+          maxCvThreshold: maxCvThreshold,
+        ),
+    ];
     return BenchmarkSuiteResult(
       timestamp: timestamp ?? DateTime.now().toUtc(),
       environment: environment ?? EnvironmentInfo.current(),

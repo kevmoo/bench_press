@@ -9,11 +9,13 @@ import 'package:path/path.dart' as p;
 import '../config.dart' show BenchmarkConfig;
 import '../config/bench_press_config.dart';
 import '../config/validator.dart';
+import '../host/cpu_affinity.dart';
+import '../schedule/pairing.dart' show PairingInfo, isReversedAbbaRound;
 import '../telemetry/git_diff.dart';
+import '../telemetry/golem_exporter.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
-import 'cpu_affinity.dart';
 import 'discovery.dart';
 import 'process_runner.dart';
 import 'sdk.dart';
@@ -148,9 +150,17 @@ final class RunCommand({
             '"lscpu -e=CPU,CORE" to find CPUs that are not SMT siblings.',
       )
       ..addOption(
+        'scale',
+        defaultsTo: 'ratio',
+        allowed: ['ratio', 'difference', 'both'],
+        help:
+            'Comparison scale against baseline (multiplicative ratio, '
+            'additive difference, or both).',
+      )
+      ..addOption(
         'format',
         defaultsTo: 'markdown',
-        allowed: ['markdown', 'table', 'json'],
+        allowed: ['markdown', 'table', 'json', 'golem'],
         help: 'Output formatting for stdout.',
       )
       ..addOption('title', help: 'Custom heading title for the report.')
@@ -520,16 +530,20 @@ final class RunCommand({
     final title = argResults!.option('title');
     final diffRef = argResults!.option('diff') ?? '';
     final gate = argResults!.flag('gate');
+    final scale = ComparisonScale.tryParse(argResults!.option('scale')!)!;
 
     String? report;
     if (format == 'json') {
       report = finalSuite.toFormattedJson();
+    } else if (format == 'golem') {
+      report = GolemExporter.formatLines(finalSuite);
     } else if (diffRef.isEmpty) {
       report = MarkdownReporter.renderSuite(
         finalSuite,
         title: title,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     } else if (File(diffRef).existsSync()) {
       try {
@@ -542,6 +556,7 @@ final class RunCommand({
           currentLabel: 'Current',
           gate: gate,
           threshold: threshold,
+          scale: scale,
         );
       } on Object catch (e) {
         stderr.writeln('Warning: Failed to load baseline from "$diffRef": $e');
@@ -556,6 +571,7 @@ final class RunCommand({
             title: title,
             gate: gate,
             threshold: threshold,
+            scale: scale,
           ),
     );
 
@@ -654,13 +670,50 @@ final class RunCommand({
       if (roundFailed) hasFailures = true;
     }
 
+    final pairing = _createProcessPairing(cellSuites, processes, hasFailures);
+    return (
+      suite: _aggregateCellSuites(cellSuites, pairing),
+      hasFailures: hasFailures,
+    );
+  }
+
+  static PairingInfo? _createProcessPairing(
+    List<List<BenchmarkSuiteResult>> cellSuites,
+    int processes,
+    bool hasFailures,
+  ) {
+    if (processes <= 1 || hasFailures || cellSuites.isEmpty) return null;
+    if (!cellSuites.every((s) => s.length == processes)) return null;
+    return PairingInfo(
+      groupId: PairingInfo.generateGroupId(),
+      schedule: 'abba_baab',
+      interleaved: true,
+      rounds: processes,
+    );
+  }
+
+  BenchmarkSuiteResult? _aggregateCellSuites(
+    List<List<BenchmarkSuiteResult>> cellSuites,
+    PairingInfo? pairing,
+  ) {
     BenchmarkSuiteResult? fileAccumulated;
     for (final suites in cellSuites) {
       if (suites.isEmpty) continue;
       final aggregated = BenchmarkSuiteResult.aggregateProcesses(suites);
-      fileAccumulated = _mergeResults(fileAccumulated, aggregated);
+      final stamped = pairing == null
+          ? aggregated
+          : BenchmarkSuiteResult(
+              version: aggregated.version,
+              timestamp: aggregated.timestamp,
+              environment: aggregated.environment,
+              benchmarks: [
+                for (final b in aggregated.benchmarks)
+                  b.copyWith(pairing: pairing),
+              ],
+            );
+      fileAccumulated = _mergeResults(fileAccumulated, stamped);
     }
-    return (suite: fileAccumulated, hasFailures: hasFailures);
+    return fileAccumulated;
   }
 
   Future<bool> _executeProcessRound({
@@ -678,9 +731,7 @@ final class RunCommand({
   }) async {
     var hasFailures = false;
     final reverse =
-        processes > 1 &&
-        cells.length > 1 &&
-        ((processIndex & 1) != ((processIndex >> 1) & 1));
+        processes > 1 && cells.length > 1 && isReversedAbbaRound(processIndex);
     for (var step = 0; step < cells.length; step++) {
       final cellIndex = reverse ? (cells.length - 1 - step) : step;
       final single = await _executeCompiledCell(

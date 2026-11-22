@@ -155,6 +155,7 @@ abstract final class GitDiffReporter() {
     String? title,
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final diff = loadDiff(
       gitRef: gitRef,
@@ -172,6 +173,7 @@ abstract final class GitDiffReporter() {
         currentLabel: 'Current',
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     } else {
       final buffer = StringBuffer();

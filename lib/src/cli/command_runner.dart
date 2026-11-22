@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
@@ -8,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import '../config/bench_press_config.dart';
 import '../telemetry/git_diff.dart';
+import '../telemetry/golem_exporter.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
@@ -380,6 +382,20 @@ final class ReportCommand() extends Command<int> {
             'fraction (e.g. 0.02 for ±2%).',
       )
       ..addOption(
+        'scale',
+        defaultsTo: 'ratio',
+        allowed: ['ratio', 'difference', 'both'],
+        help:
+            'Comparison scale against baseline (multiplicative ratio, '
+            'additive difference, or both).',
+      )
+      ..addOption(
+        'format',
+        defaultsTo: 'markdown',
+        allowed: ['markdown', 'golem', 'golem-json'],
+        help: 'Output format (markdown, golem stdout lines, or golem-json).',
+      )
+      ..addOption(
         'from-json',
         abbr: 'f',
         defaultsTo: defaultTelemetryFileName,
@@ -418,14 +434,24 @@ final class ReportCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
+    final scale = ComparisonScale.tryParse(argResults!.option('scale')!)!;
+    final format = argResults!.option('format')!;
 
     try {
-      final report = MarkdownReporter.renderFromFile(
-        file,
-        title: title,
-        gate: gate,
-        threshold: threshold,
-      );
+      final suite = BenchmarkSuiteResult.loadFromFile(file);
+      final report = switch (format) {
+        'golem' => GolemExporter.formatLines(suite),
+        'golem-json' => const JsonEncoder.withIndent(
+          '  ',
+        ).convert(GolemExporter.toLuciJson(suite)),
+        _ => MarkdownReporter.renderSuite(
+          suite,
+          title: title,
+          gate: gate,
+          threshold: threshold,
+          scale: scale,
+        ),
+      };
       if (outputPath != null && outputPath.isNotEmpty) {
         final outFile = File(outputPath);
         outFile.parent.createSync(recursive: true);
@@ -471,6 +497,14 @@ final class DiffCommand() extends Command<int> {
         help:
             'Practical significance / equivalence threshold as a relative '
             'fraction (e.g. 0.02 for ±2%).',
+      )
+      ..addOption(
+        'scale',
+        defaultsTo: 'ratio',
+        allowed: ['ratio', 'difference', 'both'],
+        help:
+            'Comparison scale (multiplicative ratio, additive difference, or '
+            'both).',
       )
       ..addOption(
         'baseline',
@@ -561,6 +595,7 @@ final class DiffCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
+    final scale = ComparisonScale.tryParse(argResults!.option('scale')!)!;
     final thresholdRaw = argResults!.option('threshold')!;
     final threshold = DefaultsConfig.tryParseThreshold(thresholdRaw);
     if (threshold == null) {
@@ -586,6 +621,7 @@ final class DiffCommand() extends Command<int> {
         title: title,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     } else {
       final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
@@ -596,6 +632,7 @@ final class DiffCommand() extends Command<int> {
         title: title,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     }
 

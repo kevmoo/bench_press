@@ -8,6 +8,7 @@ import 'blackhole.dart';
 import 'calibration.dart';
 import 'config.dart';
 import 'harness.dart';
+import 'schedule/pairing.dart' show isReversedAbbaRound;
 import 'stats/fieller.dart';
 import 'stats/metrics.dart';
 import 'stats/warmup.dart';
@@ -425,7 +426,7 @@ abstract final class BenchmarkRunner() {
     required int target,
     required _PreparedVariant? last,
   }) async {
-    final reverse = (visit & 1) != ((visit >> 1) & 1);
+    final reverse = isReversedAbbaRound(visit);
     final count = prepared.length;
     for (var i = 0; i < count; i++) {
       final item = prepared[reverse ? count - 1 - i : i];
