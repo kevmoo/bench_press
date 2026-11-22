@@ -554,7 +554,7 @@ abstract final class MarkdownReporter() {
     final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
         ? (baseMeanNs / curMeanNs)
         : 1.0;
-    final verdict = _computeFiellerVerdict(baselineEntry, entry);
+    final verdict = _computeFiellerVerdict(baselineEntry, entry, gate: gate);
     final isUnresolved = gate && !verdict.resolved;
     final movement = _classifyMovement(
       speedup,
@@ -645,7 +645,7 @@ abstract final class MarkdownReporter() {
     final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
         ? (baseMeanNs / curMeanNs)
         : 1.0;
-    final fieller = _computeFiellerVerdict(baselineEntry, entry);
+    final fieller = _computeFiellerVerdict(baselineEntry, entry, gate: gate);
     final diffVerdict = _computeDiffVerdict(baselineEntry, entry, gate: gate);
     final bothResolved = fieller.resolved && diffVerdict.resolved;
     final isUnresolved = gate && !bothResolved;
@@ -721,15 +721,7 @@ abstract final class MarkdownReporter() {
       }
     }
 
-    final keys = map.keys.toList()
-      ..sort((a, b) {
-        final g = a.$1.compareTo(b.$1);
-        if (g != 0) return g;
-        return a.$2.compareTo(b.$2);
-      });
-
-    for (final key in keys) {
-      final entries = map[key]!;
+    for (final MapEntry(:key, value: entries) in map.entries) {
       buffer.writeln(
         renderGroupComparisonTable(
           groupName: key.$1,
@@ -788,6 +780,7 @@ abstract final class MarkdownReporter() {
     final allBytes =
         suite.benchmarks.isNotEmpty &&
         suite.benchmarks.every((b) => b.unit == MetricUnit.bytes);
+    final collidingKeys = _duplicateSummaryKeys(suite.benchmarks);
     final headers = <String>[
       'Benchmark',
       'Target',
@@ -814,6 +807,7 @@ abstract final class MarkdownReporter() {
           b,
           hasThroughput: hasThroughput,
           hasMultiProcess: hasMultiProcess,
+          disambiguateName: collidingKeys.contains((b.name, b.target)),
         ),
       );
     }
@@ -821,10 +815,22 @@ abstract final class MarkdownReporter() {
     return buffer.toString();
   }
 
+  static Set<(String, String)> _duplicateSummaryKeys(
+    List<BenchmarkEntry> entries,
+  ) {
+    final seen = <(String, String)>{};
+    final duplicates = <(String, String)>{};
+    for (final e in entries) {
+      if (!seen.add((e.name, e.target))) duplicates.add((e.name, e.target));
+    }
+    return duplicates;
+  }
+
   static String _formatSummaryRow(
     BenchmarkEntry b, {
     required bool hasThroughput,
     required bool hasMultiProcess,
+    bool disambiguateName = false,
   }) {
     final m = b.metrics;
     final cvPct = (m.cv * 100).toStringAsFixed(1);
@@ -833,7 +839,7 @@ abstract final class MarkdownReporter() {
         ? '${(vc.betweenProcessShare * 100.0).toStringAsFixed(1)}%'
         : '-';
     final cols = <String>[
-      b.name,
+      disambiguateName ? _deltaRowLabel(b) : b.name,
       '`${b.target}`',
       b.unit == MetricUnit.bytes ? '-' : _formatOps(m.opsPerSec),
       if (hasThroughput)
@@ -1341,7 +1347,7 @@ abstract final class MarkdownReporter() {
     required ComparisonScale scale,
   }) {
     final fieller = scale != ComparisonScale.difference
-        ? _computeFiellerVerdict(base, cur, isDelta: true)
+        ? _computeFiellerVerdict(base, cur, isDelta: true, gate: gate)
         : null;
     final diffVerdict = scale != ComparisonScale.ratio
         ? _computeDiffVerdict(base, cur, isDelta: true, gate: gate)
@@ -1691,26 +1697,42 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry base,
     BenchmarkEntry cur, {
     bool isDelta = false,
+    bool gate = true,
   }) {
-    final reasons = _checkCompatibilityAndStability(base, cur);
-    if (reasons != null) {
-      return (
-        resolved: false,
-        straddlesOne: false,
-        lowerBound: double.nan,
-        upperBound: double.nan,
-        lowerBound90: double.nan,
-        upperBound90: double.nan,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: reasons,
-      );
+    if (base.unit != cur.unit) {
+      return _emptyFiellerVerdict(const ['incompatible metric units']);
     }
+    final reasons = _checkCompatibilityAndStability(base, cur);
+    final intervals = _tryComputeFiellerIntervals(base, cur, isDelta: isDelta);
+    if (intervals == null) {
+      return _emptyFiellerVerdict(reasons ?? const ['unbounded CI']);
+    }
+    final (interval, interval90) = intervals;
+    final resolved = reasons == null;
+    final showCi = resolved || !gate;
+    final low = interval.lowerBound.toStringAsFixed(2);
+    final high = interval.upperBound.toStringAsFixed(2);
+    return (
+      resolved: resolved,
+      straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
+      lowerBound: interval.lowerBound,
+      upperBound: interval.upperBound,
+      lowerBound90: interval90.lowerBound,
+      upperBound90: interval90.upperBound,
+      ciString: showCi ? '[$low x, $high x]' : '[N/A]',
+      matrixCiString: showCi ? '[${low}x – ${high}x]' : '[N/A]',
+      reasons: reasons ?? const [],
+    );
+  }
+
+  static (FiellerInterval, FiellerInterval)? _tryComputeFiellerIntervals(
+    BenchmarkEntry base,
+    BenchmarkEntry cur, {
+    required bool isDelta,
+  }) {
     final sampleA = base.effectiveSamplesNs;
     final sampleB = cur.effectiveSamplesNs;
-    if (sampleA.length < 2 || sampleB.length < 2) {
-      return _unboundedVerdict;
-    }
+    if (sampleA.length < 2 || sampleB.length < 2) return null;
     final usePaired = _shouldUsePairedComparison(base, cur, isDelta: isDelta);
     final interval = FiellerInterval.compute(
       sampleA: sampleA,
@@ -1720,7 +1742,7 @@ abstract final class MarkdownReporter() {
     if (!interval.isValid ||
         interval.lowerBound.isNaN ||
         interval.upperBound.isNaN) {
-      return _unboundedVerdict;
+      return null;
     }
     final interval90 = FiellerInterval.compute(
       sampleA: sampleA,
@@ -1728,20 +1750,20 @@ abstract final class MarkdownReporter() {
       confidenceLevel: 0.90,
       paired: usePaired,
     );
-    final low = interval.lowerBound.toStringAsFixed(2);
-    final high = interval.upperBound.toStringAsFixed(2);
-    return (
-      resolved: true,
-      straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
-      lowerBound: interval.lowerBound,
-      upperBound: interval.upperBound,
-      lowerBound90: interval90.lowerBound,
-      upperBound90: interval90.upperBound,
-      ciString: '[$low x, $high x]',
-      matrixCiString: '[${low}x – ${high}x]',
-      reasons: const [],
-    );
+    return (interval, interval90);
   }
+
+  static _Verdict _emptyFiellerVerdict(List<String> reasons) => (
+    resolved: false,
+    straddlesOne: false,
+    lowerBound: double.nan,
+    upperBound: double.nan,
+    lowerBound90: double.nan,
+    upperBound90: double.nan,
+    ciString: '[N/A]',
+    matrixCiString: '[N/A]',
+    reasons: reasons,
+  );
 
   /// Returns `true` when [a] and [b] executed inside the same `P` shared OS
   /// process launches (same target and identical matrix coordinates except for
@@ -1761,18 +1783,6 @@ abstract final class MarkdownReporter() {
     }
     return true;
   }
-
-  static const _Verdict _unboundedVerdict = (
-    resolved: false,
-    straddlesOne: false,
-    lowerBound: double.nan,
-    upperBound: double.nan,
-    lowerBound90: double.nan,
-    upperBound90: double.nan,
-    ciString: '[N/A]',
-    matrixCiString: '[N/A]',
-    reasons: ['unbounded CI'],
-  );
 }
 
 typedef _Pairing = ({

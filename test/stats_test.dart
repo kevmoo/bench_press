@@ -418,11 +418,18 @@ void main() {
         check(bonferroniConfidenceLevel(1)).isCloseTo(0.95, 1e-12);
         check(bonferroniConfidenceLevel(10)).isCloseTo(0.995, 1e-12);
 
+        // Newton-polished studentTQuantile matches exact R qt() to < 1e-12
+        check(studentTQuantile(0.975, 3.0)).isCloseTo(3.182446305283763, 1e-12);
+        check(studentTQuantile(0.975, 4.0))
+            .isCloseTo(2.7764451051977987, 1e-12);
+        check(studentTQuantile(0.975, double.infinity))
+            .isCloseTo(1.95996, 1e-4);
+
         // studentTTwoSidedPValue is inverse to studentTQuantile
-        for (final df in [1.0, 2.0, 3.0, 10.0, 50.0]) {
+        for (final df in [1.0, 2.0, 3.0, 4.0, 10.0, 50.0]) {
           final tCrit = studentTQuantile(0.975, df);
           final pVal = studentTTwoSidedPValue(tCrit, df);
-          check(pVal).isCloseTo(0.05, 1e-4);
+          check(pVal).isCloseTo(0.05, 1e-12);
         }
         check(studentTTwoSidedPValue(0.0, 5.0)).equals(1.0);
 

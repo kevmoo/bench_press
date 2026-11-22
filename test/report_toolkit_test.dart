@@ -615,5 +615,143 @@ void main() {
         check(diffMd).contains('🚀 Faster');
       },
     );
+
+    test('ungated Fieller suppresses false Peak/Faster when unstable CI straddles 1.00x', () {
+      const env = EnvironmentInfo(
+        dartVersion: '3.13.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      const grp = BenchmarkCoordinates({'group': 'G'});
+      // Mean 108 vs 100 -> 1.08x (> 1.05x default band), but CV ~ 25% so
+      // 95% Fieller CI straddles 1.00x.
+      final noisyBase = BenchmarkEntry.fromSamples(
+        name: 'base_arm',
+        samples: const [80.0, 108.0, 136.0],
+        coordinates: grp,
+        isBaseline: true,
+      );
+      final noisyCand = BenchmarkEntry.fromSamples(
+        name: 'cand_arm',
+        samples: const [80.0, 100.0, 120.0],
+        coordinates: grp,
+      );
+      final suite = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: env,
+        benchmarks: [noisyBase, noisyCand],
+      );
+
+      for (final scale in [ComparisonScale.ratio, ComparisonScale.both]) {
+        final ungatedSuite = MarkdownReporter.renderSuite(
+          suite,
+          scale: scale,
+          gate: false,
+        );
+        check(ungatedSuite.contains('🚀 🥇 Peak')).isFalse;
+        check(ungatedSuite.contains('[N/A]')).isFalse;
+        check(ungatedSuite).contains('➖ ⚪ Neutral');
+
+        final ungatedDelta = MarkdownReporter.renderDeltaTable(
+          baseline: BenchmarkSuiteResult(
+            timestamp: DateTime.utc(2026, 11, 22),
+            environment: env,
+            benchmarks: [noisyBase],
+          ),
+          current: BenchmarkSuiteResult(
+            timestamp: DateTime.utc(2026, 11, 22, 1),
+            environment: env,
+            benchmarks: [
+              BenchmarkEntry.fromSamples(
+                name: 'base_arm',
+                samples: const [80.0, 100.0, 120.0],
+                coordinates: grp,
+              ),
+            ],
+          ),
+          scale: scale,
+          gate: false,
+        );
+        check(ungatedDelta.contains('🚀 Faster')).isFalse;
+        check(ungatedDelta.contains('[N/A]')).isFalse;
+        check(ungatedDelta).contains('➖ ⚪ Neutral');
+      }
+    });
+
+    test(
+      'preserves group appearance order and disambiguates duplicate arm names',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.13.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+        final entries = <BenchmarkEntry>[
+          for (final pkgCount in [25, 50, 100]) ...[
+            BenchmarkEntry.fromDurations(
+              name: 'lsp_no_excludes',
+              durations: [
+                Duration(milliseconds: pkgCount * 4),
+                Duration(milliseconds: pkgCount * 4 + 1),
+              ],
+              coordinates: BenchmarkCoordinates({
+                'group': 'packages=$pkgCount',
+              }),
+              isBaseline: true,
+            ),
+            BenchmarkEntry.fromDurations(
+              name: 'lsp_3p_excludes',
+              durations: [
+                Duration(milliseconds: pkgCount * 5),
+                Duration(milliseconds: pkgCount * 5 + 1),
+              ],
+              coordinates: BenchmarkCoordinates({
+                'group': 'packages=$pkgCount',
+              }),
+            ),
+          ],
+          BenchmarkEntry.fromDurations(
+            name: 'UniqueBench',
+            durations: const [
+              Duration(milliseconds: 10),
+              Duration(milliseconds: 10),
+            ],
+          ),
+        ];
+        final suite = BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: env,
+          benchmarks: entries,
+        );
+
+        // Group tables preserve appearance order (25 -> 50 -> 100).
+        final groupsMd = MarkdownReporter.renderAllGroupComparisonTables(suite);
+        final idx25 = groupsMd.indexOf('### Group: packages=25');
+        final idx50 = groupsMd.indexOf('### Group: packages=50');
+        final idx100 = groupsMd.indexOf('### Group: packages=100');
+        check(idx25).isGreaterOrEqual(0);
+        check(idx25).isLessThan(idx50);
+        check(idx50).isLessThan(idx100);
+
+        // Summary table disambiguates colliding names while keeping UniqueBench
+        // bare.
+        final summaryMd = MarkdownReporter.renderSummaryTable(suite);
+        check(summaryMd).contains('| lsp_no_excludes (group=packages=25) |');
+        check(summaryMd).contains('| lsp_no_excludes (group=packages=100) |');
+        check(summaryMd).contains('| UniqueBench |');
+
+        // GolemExporter disambiguates colliding names in both stdout and LUCI
+        // JSON while leaving UniqueBench untouched.
+        final golemLines = GolemExporter.formatLines(suite);
+        check(golemLines).contains('packages_25_lsp_no_excludes(RunTimeRaw):');
+        check(golemLines).contains('packages_100_lsp_3p_excludes(RunTimeRaw):');
+        check(golemLines).contains('UniqueBench(RunTimeRaw): 10 ms.');
+
+        final luci = GolemExporter.toLuciJson(suite);
+        final luciNames = [for (final m in luci) m['benchmark'] as String];
+        check(luciNames.toSet().length).equals(entries.length);
+        check(luciNames.last).equals('UniqueBench');
+      },
+    );
   });
 }

@@ -306,6 +306,9 @@ double studentTQuantile(double p, double df) {
   }
   final effectiveDf = df < 1.0 ? 1.0 : df;
 
+  if (effectiveDf.isInfinite) {
+    return normalQuantile(p);
+  }
   if (effectiveDf == 1.0) {
     return math.tan(math.pi * (p - 0.5));
   }
@@ -317,7 +320,34 @@ double studentTQuantile(double p, double df) {
     return _studentTQuantileSmallDf(p, effectiveDf);
   }
 
-  return _studentTQuantileHill(p, effectiveDf);
+  return _polishStudentTQuantile(
+    _studentTQuantileHill(p, effectiveDf),
+    p,
+    effectiveDf,
+  );
+}
+
+double _polishStudentTQuantile(double t0, double p, double df) {
+  if (df > 1e5 || !t0.isFinite || t0 <= 0.0) return t0;
+  final halfDf = 0.5 * df;
+  final halfDfPlusHalf = 0.5 * (df + 1.0);
+  final logPdfConst =
+      _logGamma(halfDfPlusHalf) -
+      _logGamma(halfDf) -
+      0.5 * math.log(df * math.pi);
+  var t = t0;
+  for (var i = 0; i < 2; i++) {
+    final x = df / (df + t * t);
+    final cdf = 1.0 - 0.5 * _regularizedIncompleteBeta(x, halfDf, 0.5);
+    final pdf = math.exp(
+      logPdfConst - halfDfPlusHalf * math.log(1.0 + (t * t) / df),
+    );
+    if (!pdf.isFinite || pdf <= 0.0) break;
+    final next = t - (cdf - p) / pdf;
+    if (!next.isFinite || next <= 0.0) break;
+    t = next;
+  }
+  return t;
 }
 
 double _studentTQuantileSmallDf(double p, double df) {

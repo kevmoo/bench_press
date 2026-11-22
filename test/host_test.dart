@@ -162,6 +162,27 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
       check(mac.isSupported).isFalse;
       check(mac.isClean).isTrue;
 
+      // Mocking only no_turbo or only THP (without /proc/*) still reports
+      // isSupported: true.
+      final turboOnly = HostEnvironment.checkSync(
+        os: 'linux',
+        readFile: (p) =>
+            p == '/sys/devices/system/cpu/intel_pstate/no_turbo' ? '0\n' : null,
+        sleepFor: (_) {},
+      );
+      check(turboOnly.isSupported).isTrue;
+      check(turboOnly.turboBoostEnabled).equals(true);
+
+      final thpOnly = HostEnvironment.checkSync(
+        os: 'linux',
+        readFile: (p) => p == '/sys/kernel/mm/transparent_hugepage/enabled'
+            ? '[always] madvise never\n'
+            : null,
+        sleepFor: (_) {},
+      );
+      check(thpOnly.isSupported).isTrue;
+      check(thpOnly.transparentHugePages).equals('always');
+
       final live = HostEnvironment.checkSync(sampleDuration: Duration.zero);
       check(live.os).equals(Platform.operatingSystem);
       if (Platform.isLinux) {

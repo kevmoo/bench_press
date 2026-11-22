@@ -31,21 +31,26 @@ enum GolemByteMetric(
 abstract final class GolemExporter() {
   /// Renders canonical Golem stdout lines
   /// (`<Name>(<Metric>): <value>[ <unit>.]`) across all entries in [suite].
+  ///
+  /// When [suite] contains duplicate benchmark names across multiple groups or
+  /// coordinates, only colliding names are disambiguated with sanitized
+  /// group/coordinate prefixes so unique single-group names remain untouched.
   static String formatLines(
     BenchmarkSuiteResult suite, {
     GolemTimeMetric timeMetric = GolemTimeMetric.auto,
     GolemByteMetric byteMetric = GolemByteMetric.memoryUse,
     String namePrefix = '',
   }) {
+    final names = _buildEntryNames(suite.benchmarks);
     final buffer = StringBuffer();
     for (var i = 0; i < suite.benchmarks.length; i++) {
       if (i > 0) buffer.writeln();
       buffer.write(
         _formatEntryLine(
           suite.benchmarks[i],
+          resolvedName: '$namePrefix${names[i]}',
           timeMetric: timeMetric,
           byteMetric: byteMetric,
-          namePrefix: namePrefix,
         ),
       );
     }
@@ -54,14 +59,13 @@ abstract final class GolemExporter() {
 
   static String _formatEntryLine(
     BenchmarkEntry entry, {
+    required String resolvedName,
     required GolemTimeMetric timeMetric,
     required GolemByteMetric byteMetric,
-    required String namePrefix,
   }) {
-    final fullName = '$namePrefix${entry.name}';
     final mean = entry.metrics.meanNs;
     if (entry.unit == MetricUnit.bytes) {
-      return '$fullName(${byteMetric.golemTag}): ${mean.round()}';
+      return '$resolvedName(${byteMetric.golemTag}): ${mean.round()}';
     }
 
     final useRunTime = switch (timeMetric) {
@@ -73,14 +77,14 @@ abstract final class GolemExporter() {
     };
     if (useRunTime) {
       final us = mean / 1000.0;
-      return '$fullName(RunTime): ${_formatScore(us)} us.';
+      return '$resolvedName(RunTime): ${_formatScore(us)} us.';
     }
     if (mean >= 1e6) {
       final ms = mean / 1e6;
-      return '$fullName(RunTimeRaw): ${_formatScore(ms)} ms.';
+      return '$resolvedName(RunTimeRaw): ${_formatScore(ms)} ms.';
     }
     final us = mean / 1000.0;
-    return '$fullName(RunTimeRaw): ${_formatScore(us)} us.';
+    return '$resolvedName(RunTimeRaw): ${_formatScore(us)} us.';
   }
 
   static String _formatScore(double v) {
@@ -102,22 +106,100 @@ abstract final class GolemExporter() {
     String? cpu,
     String? machineType,
     GolemByteMetric byteMetric = GolemByteMetric.memoryUse,
-  }) => [
-    for (final entry in suite.benchmarks)
-      {
-        'cpu': ?cpu,
-        'machineType': ?machineType,
-        'target': ?target,
-        'benchmark': entry.name,
-        'metric': entry.unit == MetricUnit.bytes
-            ? byteMetric.golemTag
-            : ((entry.calibratedBatchIterations != null &&
-                      entry.calibratedBatchIterations! > 1)
-                  ? 'RunTime'
-                  : 'RunTimeRaw'),
-        'score': entry.unit == MetricUnit.bytes
-            ? entry.metrics.meanNs.round()
-            : entry.metrics.meanNs / 1000.0,
-      },
-  ];
+  }) {
+    final names = _buildEntryNames(suite.benchmarks);
+    return [
+      for (var i = 0; i < suite.benchmarks.length; i++)
+        _entryToLuciMap(
+          suite.benchmarks[i],
+          resolvedName: names[i],
+          target: target,
+          cpu: cpu,
+          machineType: machineType,
+          byteMetric: byteMetric,
+        ),
+    ];
+  }
+
+  static Map<String, Object?> _entryToLuciMap(
+    BenchmarkEntry entry, {
+    required String resolvedName,
+    required String? target,
+    required String? cpu,
+    required String? machineType,
+    required GolemByteMetric byteMetric,
+  }) {
+    final isRunTime =
+        entry.calibratedBatchIterations != null &&
+        entry.calibratedBatchIterations! > 1;
+    return {
+      'cpu': ?cpu,
+      'machineType': ?machineType,
+      'target': ?target,
+      'benchmark': resolvedName,
+      'metric': entry.unit == MetricUnit.bytes
+          ? byteMetric.golemTag
+          : (isRunTime ? 'RunTime' : 'RunTimeRaw'),
+      'score': entry.unit == MetricUnit.bytes
+          ? entry.metrics.meanNs.round()
+          : entry.metrics.meanNs / 1000.0,
+    };
+  }
+
+  static List<String> _buildEntryNames(List<BenchmarkEntry> entries) {
+    final seen = <String>{};
+    final duplicates = <String>{};
+    for (final e in entries) {
+      if (!seen.add(e.name)) duplicates.add(e.name);
+    }
+    if (duplicates.isEmpty) return [for (final e in entries) e.name];
+
+    final candidates = [
+      for (final e in entries)
+        duplicates.contains(e.name) ? _disambiguateByCoords(e) : e.name,
+    ];
+    return _disambiguateTargetCollisions(entries, candidates);
+  }
+
+  static String _disambiguateByCoords(BenchmarkEntry entry) {
+    if (entry.coordinates.isEmpty) return entry.name;
+    final parts = <String>[];
+    final group = entry.coordinates.group;
+    if (group != null && group.isNotEmpty) {
+      parts.add(_sanitizeGolemToken(group));
+    }
+    final otherKeys =
+        entry.coordinates.keys
+            .where((k) => k != BenchmarkCoordinates.groupKey)
+            .toList()
+          ..sort();
+    for (final key in otherKeys) {
+      parts.add(_sanitizeGolemToken('${key}_${entry.coordinates[key]}'));
+    }
+    return parts.isEmpty ? entry.name : '${parts.join('_')}_${entry.name}';
+  }
+
+  static List<String> _disambiguateTargetCollisions(
+    List<BenchmarkEntry> entries,
+    List<String> candidates,
+  ) {
+    final seen = <String>{};
+    final colliding = <String>{};
+    for (final c in candidates) {
+      if (!seen.add(c)) colliding.add(c);
+    }
+    if (colliding.isEmpty) return candidates;
+    return [
+      for (var i = 0; i < candidates.length; i++)
+        colliding.contains(candidates[i])
+            ? '${candidates[i]}_${_sanitizeGolemToken(entries[i].target)}'
+            : candidates[i],
+    ];
+  }
+
+  static final _nonGolemIdChars = RegExp('[^A-Za-z0-9_.-]+');
+  static final _trimUnderscores = RegExp(r'^_+|_+$');
+
+  static String _sanitizeGolemToken(String raw) =>
+      raw.replaceAll(_nonGolemIdChars, '_').replaceAll(_trimUnderscores, '');
 }

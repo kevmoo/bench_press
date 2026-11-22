@@ -336,16 +336,58 @@ abstract final class HostEnvironment() {
     final pinnedCpus = affinity?.cpus ?? const <int>[];
     final targetCpus = pinnedCpus.isEmpty ? const <int>[0] : pinnedCpus;
 
+    final governors = _readGovernors(targetCpus, reader);
+    final siblings = _readSmtSiblings(pinnedCpus, reader);
+    final isVm = _detectVirtualMachine(cpuinfo, reader('/sys/hypervisor/type'));
+    final turbo = _detectTurboBoost(
+      reader('/sys/devices/system/cpu/intel_pstate/no_turbo')?.trim(),
+      reader('/sys/devices/system/cpu/cpufreq/boost')?.trim(),
+    );
+    final thp = _parseBracketedMode(
+      reader('/sys/kernel/mm/transparent_hugepage/enabled'),
+    );
+
+    final hasBasicProc =
+        cpuinfo != null || loadavgRaw != null || procStatRaw != null;
+    final hasSysfsAttrs = isVm != null || turbo != null || thp != null;
+    final supported =
+        hasBasicProc ||
+        hasSysfsAttrs ||
+        governors.isNotEmpty ||
+        siblings.isNotEmpty;
+
+    return (
+      supported: supported,
+      isVm: isVm,
+      governors: governors,
+      turbo: turbo,
+      thp: thp,
+      loadAvg: _parseLoadAvg(loadavgRaw),
+      siblings: siblings,
+      beforeStat: _parseProcStat(procStatRaw),
+    );
+  }
+
+  static Map<int, String> _readGovernors(
+    List<int> cpus,
+    String? Function(String path) reader,
+  ) {
     final governors = <int, String>{};
-    for (final cpu in targetCpus) {
+    for (final cpu in cpus) {
       final gov = reader(
         '/sys/devices/system/cpu/cpu$cpu/cpufreq/scaling_governor',
       )?.trim();
       if (gov != null && gov.isNotEmpty) governors[cpu] = gov;
     }
+    return governors;
+  }
 
+  static Map<int, List<int>> _readSmtSiblings(
+    List<int> cpus,
+    String? Function(String path) reader,
+  ) {
     final siblings = <int, List<int>>{};
-    for (final cpu in pinnedCpus) {
+    for (final cpu in cpus) {
       final rawSib = reader(
         '/sys/devices/system/cpu/cpu$cpu/topology/thread_siblings_list',
       )?.trim();
@@ -358,29 +400,7 @@ abstract final class HostEnvironment() {
                 ..sort());
       }
     }
-
-    final supported =
-        cpuinfo != null ||
-        loadavgRaw != null ||
-        procStatRaw != null ||
-        governors.isNotEmpty ||
-        siblings.isNotEmpty;
-
-    return (
-      supported: supported,
-      isVm: _detectVirtualMachine(cpuinfo, reader('/sys/hypervisor/type')),
-      governors: governors,
-      turbo: _detectTurboBoost(
-        reader('/sys/devices/system/cpu/intel_pstate/no_turbo')?.trim(),
-        reader('/sys/devices/system/cpu/cpufreq/boost')?.trim(),
-      ),
-      thp: _parseBracketedMode(
-        reader('/sys/kernel/mm/transparent_hugepage/enabled'),
-      ),
-      loadAvg: _parseLoadAvg(loadavgRaw),
-      siblings: siblings,
-      beforeStat: _parseProcStat(procStatRaw),
-    );
+    return siblings;
   }
 
   static HostCheckResult _finalizeLinuxCheck(
