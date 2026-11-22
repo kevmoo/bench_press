@@ -349,19 +349,6 @@ package:bench_press/report.dart:
   GitDiffReporter (class extends Object, abstract, final):
     loadDiff (static method: GitBaselineDiffResult Function({required BenchmarkSuiteResult current, required String filePath, required String gitRef, String? workingDirectory}))
     renderGitDiffReport (static method: String Function({required BenchmarkSuiteResult current, required String filePath, bool gate, required String gitRef, ComparisonScale scale, double threshold, String? title, String? workingDirectory}))
-  GolemByteMetric (enum):
-    codeSize (enum constant: GolemByteMetric)
-    memoryUse (enum constant: GolemByteMetric)
-    values (static const getter: List<GolemByteMetric>)
-    golemTag (getter: String)
-  GolemExporter (class extends Object, abstract, final):
-    formatLines (static method: String Function(BenchmarkSuiteResult, {GolemByteMetric byteMetric, String namePrefix, GolemTimeMetric timeMetric}))
-    toLuciJson (static method: List<Map<String, Object?>> Function(BenchmarkSuiteResult, {GolemByteMetric byteMetric, String? cpu, String? machineType, String? target}))
-  GolemTimeMetric (enum):
-    auto (enum constant: GolemTimeMetric)
-    runTime (enum constant: GolemTimeMetric)
-    runTimeRaw (enum constant: GolemTimeMetric)
-    values (static const getter: List<GolemTimeMetric>)
   MarkdownReporter (class extends Object, abstract, final):
     renderAllGroupComparisonTables (static method: String Function(BenchmarkSuiteResult, {bool gate, ComparisonScale scale, double threshold}))
     renderDeltaFromFiles (static method: String Function({required File baselineFile, String baselineLabel, required File currentFile, String currentLabel, bool gate, ComparisonScale scale, double threshold, String? title}))

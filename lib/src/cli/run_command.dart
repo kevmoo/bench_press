@@ -12,7 +12,6 @@ import '../config/validator.dart';
 import '../host/cpu_affinity.dart';
 import '../schedule/pairing.dart' show PairingInfo, isReversedAbbaRound;
 import '../telemetry/git_diff.dart';
-import '../telemetry/golem_exporter.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
@@ -160,7 +159,7 @@ final class RunCommand({
       ..addOption(
         'format',
         defaultsTo: 'markdown',
-        allowed: ['markdown', 'table', 'json', 'golem'],
+        allowed: ['markdown', 'table', 'json'],
         help: 'Output formatting for stdout.',
       )
       ..addOption('title', help: 'Custom heading title for the report.')
@@ -535,8 +534,6 @@ final class RunCommand({
     String? report;
     if (format == 'json') {
       report = finalSuite.toFormattedJson();
-    } else if (format == 'golem') {
-      report = GolemExporter.formatLines(finalSuite);
     } else if (diffRef.isEmpty) {
       report = MarkdownReporter.renderSuite(
         finalSuite,

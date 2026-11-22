@@ -17,10 +17,9 @@
   - `package:bench_press/report.dart`: public telemetry schema
     (`BenchmarkSuiteResult`, `BenchmarkEntry.fromSamples` / `fromDurations` /
     `fromBytes`, `MetricUnit.bytes`, `PairingInfo` gating), `MarkdownReporter`,
-    `GitDiffReporter`, `ComparisonScale`, and `GolemExporter`.
+    `GitDiffReporter`, and `ComparisonScale`.
 - Added `--scale` (`ratio`, `difference`, `both`) to `bench_press report`,
-  `bench_press diff`, and `bench_press run`, plus `--format golem` (and
-  `golem-json` on `report`).
+  `bench_press diff`, and `bench_press run`.
 - Stamped explicit `PairingInfo` provenance on multi-process interleaved runs so
   paired confidence intervals pair matrix axes (`sdk`) within the same run and
   never falsely pair entries merged across separate runs.

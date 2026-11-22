@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:bench_press/report.dart';
@@ -424,197 +423,77 @@ void main() {
     );
   });
 
-  group('GolemExporter and CLI flags', () {
-    test('formats Golem stdout lines and LUCI JSON accurately', () {
-      final sub10ns = BenchmarkEntry(
-        name: 'TightLoop',
-        target: 'jit',
-        mode: 'sync',
-        samples: 3,
-        metrics: BenchmarkMetrics.fromSamples(const [2.94, 2.94, 2.94]),
-        rawTrialsNs: const [2.94, 2.94, 2.94],
-        calibratedBatchIterations: 1000000,
+  group('CLI --scale and reporter edge cases', () {
+    test('CLI report and diff accept --scale', () async {
+      final baseFile = File(d.path('base.json'));
+      final curFile = File(d.path('cur.json'));
+      final reportOut = File(d.path('report.md'));
+      final diffOut = File(d.path('diff.md'));
+
+      const env = EnvironmentInfo(
+        dartVersion: '3.13.0',
+        os: 'linux',
+        arch: 'x64',
       );
-      final ultraTiny = BenchmarkEntry(
-        name: 'SubPicosecond',
-        target: 'jit',
-        mode: 'sync',
-        samples: 2,
-        metrics: BenchmarkMetrics.fromSamples(const [0.0001, 0.0001]),
-        rawTrialsNs: const [0.0001, 0.0001],
-        calibratedBatchIterations: 1000000,
-      );
-      final tinyLines = GolemExporter.formatLines(
-        BenchmarkSuiteResult(
-          timestamp: DateTime.utc(2026, 11, 22),
-          environment: const EnvironmentInfo(
-            dartVersion: '3.13.0',
-            os: 'linux',
-            arch: 'x64',
-          ),
-          benchmarks: [sub10ns, ultraTiny],
-        ),
-      ).split('\n');
-      check(tinyLines[0]).equals('TightLoop(RunTime): 0.00294 us.');
-      check(tinyLines[1]).startsWith('SubPicosecond(RunTime): ');
-      check(tinyLines[1].contains(': 0 us.')).isFalse;
-      final tinyScore = double.parse(
-        tinyLines[1]
-            .replaceFirst('SubPicosecond(RunTime): ', '')
-            .replaceFirst(' us.', ''),
-      );
-      check(tinyScore).isCloseTo(1e-7, 1e-15);
-      final micro = BenchmarkEntry(
-        name: 'JsonDecode',
-        target: 'aot',
-        mode: 'sync',
-        samples: 3,
-        metrics: BenchmarkMetrics.fromSamples(const [45200, 45200, 45200]),
-        rawTrialsNs: const [45200, 45200, 45200],
-        calibratedBatchIterations: 2000,
-      );
-      final macro = BenchmarkEntry.fromDurations(
-        name: 'Dart2WasmSelfCompile',
-        durations: const [
-          Duration(milliseconds: 1234),
-          Duration(milliseconds: 1234),
-        ],
-      );
-      final mem = BenchmarkEntry.fromBytes(
-        name: 'ServerPeakRss',
-        bytes: const [83886080, 83886080],
-      );
-      final suite = BenchmarkSuiteResult(
+      BenchmarkSuiteResult(
         timestamp: DateTime.utc(2026, 11, 22),
-        environment: const EnvironmentInfo(
-          dartVersion: '3.13.0',
-          os: 'linux',
-          arch: 'x64',
-        ),
-        benchmarks: [micro, macro, mem],
-      );
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry.fromDurations(
+            name: 'WarmAnalysis',
+            durations: const [
+              Duration(milliseconds: 500),
+              Duration(milliseconds: 502),
+              Duration(milliseconds: 498),
+            ],
+          ),
+        ],
+      ).saveToFile(baseFile);
 
-      final lines = GolemExporter.formatLines(suite);
-      check(lines).equals(
-        'JsonDecode(RunTime): 45.2 us.\n'
-        'Dart2WasmSelfCompile(RunTimeRaw): 1234 ms.\n'
-        'ServerPeakRss(MemoryUse): 83886080',
-      );
+      BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22, 1),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry.fromDurations(
+            name: 'WarmAnalysis',
+            durations: const [
+              Duration(milliseconds: 300),
+              Duration(milliseconds: 301),
+              Duration(milliseconds: 299),
+            ],
+          ),
+        ],
+      ).saveToFile(curFile);
 
-      final codeSizeLines = GolemExporter.formatLines(
-        BenchmarkSuiteResult(
-          timestamp: DateTime.utc(2026, 11, 22),
-          environment: suite.environment,
-          benchmarks: [mem],
-        ),
-        byteMetric: GolemByteMetric.codeSize,
-      );
-      check(codeSizeLines).equals('ServerPeakRss(CodeSize): 83886080');
+      final runner = BenchPressCommandRunner();
+      check(
+        await runner.run([
+          'report',
+          curFile.path,
+          '--scale',
+          'difference',
+          '-o',
+          reportOut.path,
+        ]),
+      ).equals(0);
+      check(reportOut.readAsStringSync()).contains('WarmAnalysis');
 
-      final luci = GolemExporter.toLuciJson(
-        suite,
-        target: 'dart-aot-linux',
-        cpu: 'AMD EPYC',
-        machineType: 'linux-x64',
-      );
-      check(luci.length).equals(3);
-      check(luci[0]['metric']).equals('RunTime');
-      check(luci[0]['score']).equals(45.2);
-      check(luci[1]['metric']).equals('RunTimeRaw');
-      check(luci[1]['score']).equals(1234000.0);
-      check(luci[2]['metric']).equals('MemoryUse');
-      check(luci[2]['score']).equals(83886080);
+      check(
+        await runner.run([
+          'diff',
+          baseFile.path,
+          curFile.path,
+          '--scale',
+          'difference',
+          '-o',
+          diffOut.path,
+        ]),
+      ).equals(0);
+      final diffMd = diffOut.readAsStringSync();
+      check(diffMd).contains('95% CI (Diff)');
+      check(diffMd).contains('-200.00 ms');
+      check(diffMd).contains('🚀 Faster');
     });
-
-    test(
-      'CLI report and diff accept --scale and --format golem/golem-json',
-      () async {
-        final baseFile = File(d.path('base.json'));
-        final curFile = File(d.path('cur.json'));
-        final golemOut = File(d.path('golem.txt'));
-        final golemJsonOut = File(d.path('golem.json'));
-        final diffOut = File(d.path('diff.md'));
-
-        const env = EnvironmentInfo(
-          dartVersion: '3.13.0',
-          os: 'linux',
-          arch: 'x64',
-        );
-        BenchmarkSuiteResult(
-          timestamp: DateTime.utc(2026, 11, 22),
-          environment: env,
-          benchmarks: [
-            BenchmarkEntry.fromDurations(
-              name: 'WarmAnalysis',
-              durations: const [
-                Duration(milliseconds: 500),
-                Duration(milliseconds: 502),
-                Duration(milliseconds: 498),
-              ],
-            ),
-          ],
-        ).saveToFile(baseFile);
-
-        BenchmarkSuiteResult(
-          timestamp: DateTime.utc(2026, 11, 22, 1),
-          environment: env,
-          benchmarks: [
-            BenchmarkEntry.fromDurations(
-              name: 'WarmAnalysis',
-              durations: const [
-                Duration(milliseconds: 300),
-                Duration(milliseconds: 301),
-                Duration(milliseconds: 299),
-              ],
-            ),
-          ],
-        ).saveToFile(curFile);
-
-        final runner = BenchPressCommandRunner();
-        check(
-          await runner.run([
-            'report',
-            curFile.path,
-            '--format',
-            'golem',
-            '-o',
-            golemOut.path,
-          ]),
-        ).equals(0);
-        check(golemOut.readAsStringSync().trim())
-            .equals('WarmAnalysis(RunTimeRaw): 300 ms.');
-
-        check(
-          await runner.run([
-            'report',
-            curFile.path,
-            '--format',
-            'golem-json',
-            '-o',
-            golemJsonOut.path,
-          ]),
-        ).equals(0);
-        final decoded =
-            jsonDecode(golemJsonOut.readAsStringSync()) as List<Object?>;
-        check(decoded.length).equals(1);
-
-        check(
-          await runner.run([
-            'diff',
-            baseFile.path,
-            curFile.path,
-            '--scale',
-            'difference',
-            '-o',
-            diffOut.path,
-          ]),
-        ).equals(0);
-        final diffMd = diffOut.readAsStringSync();
-        check(diffMd).contains('95% CI (Diff)');
-        check(diffMd).contains('-200.00 ms');
-        check(diffMd).contains('🚀 Faster');
-      },
-    );
 
     test('ungated Fieller suppresses false Peak/Faster when unstable CI straddles 1.00x', () {
       const env = EnvironmentInfo(
@@ -739,18 +618,6 @@ void main() {
         check(summaryMd).contains('| lsp_no_excludes (group=packages=25) |');
         check(summaryMd).contains('| lsp_no_excludes (group=packages=100) |');
         check(summaryMd).contains('| UniqueBench |');
-
-        // GolemExporter disambiguates colliding names in both stdout and LUCI
-        // JSON while leaving UniqueBench untouched.
-        final golemLines = GolemExporter.formatLines(suite);
-        check(golemLines).contains('packages_25_lsp_no_excludes(RunTimeRaw):');
-        check(golemLines).contains('packages_100_lsp_3p_excludes(RunTimeRaw):');
-        check(golemLines).contains('UniqueBench(RunTimeRaw): 10 ms.');
-
-        final luci = GolemExporter.toLuciJson(suite);
-        final luciNames = [for (final m in luci) m['benchmark'] as String];
-        check(luciNames.toSet().length).equals(entries.length);
-        check(luciNames.last).equals('UniqueBench');
       },
     );
   });
