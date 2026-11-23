@@ -1,8 +1,6 @@
 import 'dart:io';
 
-import 'package:bench_press/bench_press.dart';
-import 'package:bench_press/src/telemetry/markdown_reporter.dart';
-import 'package:bench_press/src/telemetry/schema.dart';
+import 'package:bench_press/report.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
@@ -615,102 +613,203 @@ void main() {
       check(ungated).not(.it()..contains('unresolved'));
     });
 
-    test('Change 1: !isStable renders unresolved and all-unresolved table '
-        'guards against NaN GeoMean while keeping baseline 1.00x (ref)', () {
-      const env = EnvironmentInfo(
-        dartVersion: '3.14.0',
-        os: 'linux',
-        arch: 'x64',
-      );
+    test(
+      'Change 1: unconverged warmup renders unresolved and all-unresolved '
+      'table guards against NaN GeoMean while keeping baseline 1.00x (ref)',
+      () {
+        const env = EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        );
 
-      final baseEntry = _createEntry(
-        'unstable_bench',
-        'jit',
-        100.0,
-        isStable: true,
-        group: 'G1',
-        isBaseline: true,
-      );
-      final unstableCur = _createEntry(
-        'unstable_cand',
-        'jit',
-        50.0,
-        isStable: false,
-        group: 'G1',
-      );
+        final baseEntry = _createEntry(
+          'unstable_bench',
+          'jit',
+          100.0,
+          isStable: true,
+          group: 'G1',
+          isBaseline: true,
+        );
+        final unstableCur = _createEntry(
+          'unstable_cand',
+          'jit',
+          50.0,
+          isStable: false,
+          warmup: const {'is_stable': false},
+          group: 'G1',
+        );
 
-      // Matrix/Group table check: baseline renders 1.00x (ref), candidate
-      // renders unresolved with 'candidate samples unstable'
-      final groupTable = MarkdownReporter.renderGroupComparisonTable(
-        groupName: 'G1',
-        target: 'jit',
-        entries: [baseEntry, unstableCur],
-      );
-      check(groupTable).contains('1.00x (ref)');
-      check(groupTable).contains('unresolved');
-      check(groupTable).contains('❓ Unresolved');
-      check(groupTable).contains(
-        '> ❓ **Unresolved**: Speedup omitted due to '
-        'candidate samples unstable.',
-      );
+        // Matrix/Group table check: baseline renders 1.00x (ref), candidate
+        // renders unresolved with 'candidate warmup did not converge'
+        final groupTable = MarkdownReporter.renderGroupComparisonTable(
+          groupName: 'G1',
+          target: 'jit',
+          entries: [baseEntry, unstableCur],
+        );
+        check(groupTable).contains('1.00x (ref)');
+        check(groupTable).contains('unresolved');
+        check(groupTable).contains('❓ Unresolved');
+        check(groupTable).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'candidate warmup did not converge.',
+        );
 
-      // When the baseline is unstable and the candidate is stable, the
-      // footnote explicitly attributes the failure to the baseline:
-      final unstableBase = _createEntry(
-        'unstable_base',
-        'jit',
-        100.0,
-        isStable: false,
-        group: 'G1',
-        isBaseline: true,
-      );
-      final stableCur = _createEntry(
-        'stable_cand',
-        'jit',
-        50.0,
-        isStable: true,
-        group: 'G1',
-      );
-      final baselineUnstableTable = MarkdownReporter.renderGroupComparisonTable(
-        groupName: 'G1',
-        target: 'jit',
-        entries: [unstableBase, stableCur],
-      );
-      check(baselineUnstableTable).contains(
-        '> ❓ **Unresolved**: Speedup omitted due to '
-        'baseline samples unstable.',
-      );
+        // When the baseline warmup failed to converge and the candidate is
+        // stable, the footnote explicitly attributes the failure to baseline:
+        final unstableBase = _createEntry(
+          'unstable_base',
+          'jit',
+          100.0,
+          isStable: false,
+          warmup: const {'is_stable': false},
+          group: 'G1',
+          isBaseline: true,
+        );
+        final stableCur = _createEntry(
+          'stable_cand',
+          'jit',
+          50.0,
+          isStable: true,
+          group: 'G1',
+        );
+        final baselineUnstableTable =
+            MarkdownReporter.renderGroupComparisonTable(
+              groupName: 'G1',
+              target: 'jit',
+              entries: [unstableBase, stableCur],
+            );
+        check(baselineUnstableTable).contains(
+          '> ❓ **Unresolved**: Speedup omitted due to '
+          'baseline warmup did not converge.',
+        );
 
-      // Delta table where EVERY row is unresolved must not emit NaN
-      final baseSuite = BenchmarkSuiteResult(
-        timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
-        environment: env,
-        benchmarks: [baseEntry],
-      );
-      final curSuite = BenchmarkSuiteResult(
-        timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
-        environment: env,
-        benchmarks: [
-          _createEntry(
-            'unstable_bench',
-            'jit',
-            50.0,
-            isStable: false,
-            group: 'G1',
-          ),
-        ],
-      );
+        // Delta table where EVERY row is unresolved must not emit NaN
+        final baseSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T00:00:00.000Z'),
+          environment: env,
+          benchmarks: [baseEntry],
+        );
+        final curSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.parse('2026-08-30T01:00:00.000Z'),
+          environment: env,
+          benchmarks: [
+            _createEntry(
+              'unstable_bench',
+              'jit',
+              50.0,
+              isStable: false,
+              warmup: const {'is_stable': false},
+              group: 'G1',
+            ),
+          ],
+        );
 
-      final delta = MarkdownReporter.renderDeltaTable(
-        baseline: baseSuite,
-        current: curSuite,
-      );
-      check(delta).not(.it()..contains('NaN'));
-      check(
-        delta,
-      ).contains('No resolved measurements to compute Geometric Mean Speedup');
-      check(delta).contains('❓ **1** Unresolved (excluded from GeoMean)');
-    });
+        final delta = MarkdownReporter.renderDeltaTable(
+          baseline: baseSuite,
+          current: curSuite,
+        );
+        check(delta).not(.it()..contains('NaN'));
+        check(delta).contains(
+          'No resolved measurements to compute Geometric Mean Speedup',
+        );
+        check(delta).contains('❓ **1** Unresolved (excluded from GeoMean)');
+      },
+    );
+
+    test(
+      'high variance (> 5% CV) with converged warmup resolves via 95% CI and '
+      'emits High variance footnote, while paired drift cancels cleanly',
+      () {
+        final noisyBase = BenchmarkEntry.fromSamples(
+          name: 'base_noisy',
+          target: 'jit',
+          samples: const [184.0, 200.0, 216.0], // CV = 8.0%
+          coordinates: const {'group': 'G1'},
+          isBaseline: true,
+        );
+        final fastCand = BenchmarkEntry.fromSamples(
+          name: 'cand_fast',
+          target: 'jit',
+          samples: const [99.0, 100.0, 101.0], // CV = 1.0%
+          coordinates: const {'group': 'G1'},
+        );
+        final noisyCand = BenchmarkEntry.fromSamples(
+          name: 'cand_noisy',
+          target: 'jit',
+          samples: const [90.0, 100.0, 110.0], // CV = 10.0%
+          coordinates: const {'group': 'G1'},
+        );
+
+        final unpairedGroup = MarkdownReporter.renderGroupComparisonTable(
+          groupName: 'G1',
+          target: 'jit',
+          entries: [noisyBase, fastCand, noisyCand],
+        );
+        check(unpairedGroup).not(.it()..contains('❓ Unresolved'));
+        check(unpairedGroup).contains('🚀 🥇 Peak');
+        check(unpairedGroup).contains('> ⚠️ **High variance**:');
+        // Deduplicated baseline note + noisy candidate note
+        check(RegExp('`base_noisy`: CV 8.0%').allMatches(unpairedGroup).length)
+            .equals(1);
+        check(unpairedGroup).contains('> - `cand_noisy`: CV 10.0%');
+
+        // Paired comparison with shared multiplicative drift (~6.4% solo CV,
+        // ~0.1% paired ratio CV) resolves cleanly WITH NO high-variance note.
+        const sharedPairing = PairingInfo(
+          groupId: 'cfe_drift_run',
+          schedule: 'abba_baab',
+          interleaved: true,
+          rounds: 6,
+        );
+        final driftedBase = BenchmarkEntry.fromSamples(
+          name: 'compile_base',
+          target: 'aot',
+          samples: const [2326, 2324, 2404, 2117, 2131, 2248],
+          coordinates: const {'group': 'CFE'},
+          isBaseline: true,
+          pairing: sharedPairing,
+        );
+        final driftedCand = BenchmarkEntry.fromSamples(
+          name: 'compile_opt',
+          target: 'aot',
+          samples: const [2010, 2008, 2077, 1830, 1842, 1943],
+          coordinates: const {'group': 'CFE'},
+          pairing: sharedPairing,
+        );
+        check(driftedBase.metrics.isStable).isFalse;
+        check(driftedCand.metrics.isStable).isFalse;
+
+        final pairedGroup = MarkdownReporter.renderGroupComparisonTable(
+          groupName: 'CFE',
+          target: 'aot',
+          entries: [driftedBase, driftedCand],
+          scale: ComparisonScale.difference,
+        );
+        check(pairedGroup).not(.it()..contains('❓ Unresolved'));
+        check(pairedGroup).not(.it()..contains('High variance'));
+        check(pairedGroup).contains('🚀 🥇 Peak');
+
+        // Paired comparison whose pairwise ratios still have > 5% CV emits a
+        // paired ratio CV note while still resolving via its paired CI.
+        final jitteryCand = BenchmarkEntry.fromSamples(
+          name: 'compile_jittery',
+          target: 'aot',
+          samples: const [1700, 2050, 1680, 1920, 1550, 1980],
+          coordinates: const {'group': 'CFE'},
+          pairing: sharedPairing,
+        );
+        final jitteryPairedGroup = MarkdownReporter.renderGroupComparisonTable(
+          groupName: 'CFE',
+          target: 'aot',
+          entries: [driftedBase, jitteryCand],
+          scale: ComparisonScale.difference,
+        );
+        check(jitteryPairedGroup).not(.it()..contains('❓ Unresolved'));
+        check(jitteryPairedGroup)
+            .contains('`compile_jittery`: paired ratio CV');
+      },
+    );
 
     test('matrix drops the Batch column and footnotes only cells whose trial '
         'median drifted more than 25% from the warmup estimate', () {
@@ -1014,6 +1113,7 @@ void main() {
           'jit',
           50.0,
           isStable: false,
+          warmup: const {'is_stable': false},
           group: 'String Construction',
           isBaseline: false,
         );
@@ -1062,7 +1162,7 @@ void main() {
         // Reasons must be sorted alphabetically
         check(report).contains(
           '> ❓ **Unresolved**: Speedup omitted due to '
-          'candidate samples unstable and unbounded CI.',
+          'candidate warmup did not converge and unbounded CI.',
         );
         check(report).contains(
           '> **Summary**: No resolved measurements to compute Geometric Mean '
@@ -1459,6 +1559,7 @@ BenchmarkEntry _createEntry(
   String target,
   double meanNs, {
   bool isStable = true,
+  Map<String, Object?>? warmup,
   String? group,
   bool isBaseline = false,
 }) {
@@ -1482,6 +1583,7 @@ BenchmarkEntry _createEntry(
     samples: 15,
     metrics: metrics,
     rawTrialsNs: [meanNs * 0.95, meanNs, meanNs * 1.05],
+    warmup: warmup,
     coordinates: BenchmarkCoordinates({'group': ?group}),
     isBaseline: isBaseline,
   );

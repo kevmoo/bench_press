@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import '../stats/difference.dart';
 import '../stats/fieller.dart';
+import '../stats/metrics.dart';
+import '../stats/sample_summary.dart';
 import 'plausibility.dart';
 import 'schema.dart';
 
@@ -485,6 +487,7 @@ abstract final class MarkdownReporter() {
       return '| ${baseCols.join(' | ')} |';
     }
 
+    final prevUnresolved = stats.unresolvedCount;
     final suffix = switch (scale) {
       ComparisonScale.ratio => _formatMatrixRatioSuffix(
         entry,
@@ -511,6 +514,27 @@ abstract final class MarkdownReporter() {
         stats: stats,
       ),
     };
+    if (stats.unresolvedCount == prevUnresolved) {
+      final baseLabel = _formatBaselineLabel(
+        baselineEntry,
+        axes,
+        includeNameCol: includeNameCol,
+      );
+      final curLabel = _formatBaselineLabel(
+        entry,
+        axes,
+        includeNameCol: includeNameCol,
+      );
+      _recordComparisonVariance(
+        stats.varianceNotes,
+        base: baselineEntry,
+        cur: entry,
+        baseLabel: baseLabel,
+        curLabel: curLabel,
+        pairLabel: curLabel,
+        isDelta: false,
+      );
+    }
     return '| ${[...prefixCols, ...suffix].join(' | ')} |';
   }
 
@@ -1004,6 +1028,17 @@ abstract final class MarkdownReporter() {
       buffer.writeln(row);
       _tally(stats, reasons, speedup, movement, unresolved: unresolved);
       final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
+      if (!unresolved) {
+        _recordComparisonVariance(
+          stats.varianceNotes,
+          base: base,
+          cur: cur,
+          baseLabel: '$rowLabel, $baselineLabel',
+          curLabel: '$rowLabel, $currentLabel',
+          pairLabel: rowLabel,
+          isDelta: true,
+        );
+      }
       _recordDrift(stats.driftNotes, '$rowLabel, $baselineLabel', base);
       _recordDrift(stats.driftNotes, '$rowLabel, $currentLabel', cur);
     }
@@ -1169,6 +1204,7 @@ abstract final class MarkdownReporter() {
     ComparisonScale scale = ComparisonScale.ratio,
   }) {
     _writeDriftNotes(buffer, stats.driftNotes);
+    _writeVarianceNotes(buffer, stats.varianceNotes);
     if (stats.reasons.isNotEmpty) {
       final joinedReasons = (stats.reasons.toList()..sort()).join(' and ');
       final what = scale == ComparisonScale.difference ? 'Delta' : 'Speedup';
@@ -1176,6 +1212,18 @@ abstract final class MarkdownReporter() {
       buffer.writeln(
         '> ❓ **Unresolved**: $what omitted due to $joinedReasons.',
       );
+    }
+  }
+
+  static void _writeVarianceNotes(StringBuffer buffer, Set<String> notes) {
+    if (notes.isEmpty) return;
+    buffer.writeln();
+    buffer.writeln(
+      '> ⚠️ **High variance**: sample dispersion exceeded 5% on one or more '
+      'resolved comparisons; confidence intervals reflect the wider spread.',
+    );
+    for (final note in notes) {
+      buffer.writeln('> - $note');
     }
   }
 
@@ -1608,10 +1656,10 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry cur, {
     required bool isDelta,
   }) {
-    if (isDelta) return false;
     if (base.pairing != null || cur.pairing != null) {
       return BenchmarkEntry.canPair(base, cur);
     }
+    if (isDelta) return false;
     return base.processes > 1 &&
         base.processes == cur.processes &&
         _sharedProcessLaunchCoordinates(base, cur);
@@ -1622,16 +1670,66 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry cur,
   ) {
     if (base.unit != cur.unit) return const ['incompatible metric units'];
-    final baseUnstable = !base.metrics.isStable;
-    final curUnstable = !cur.metrics.isStable;
-    if (baseUnstable || curUnstable) {
+    final baseUnconverged = base.warmup?['is_stable'] == false;
+    final curUnconverged = cur.warmup?['is_stable'] == false;
+    if (baseUnconverged || curUnconverged) {
       return [
-        if (baseUnstable) 'baseline samples unstable',
-        if (curUnstable) 'candidate samples unstable',
+        if (baseUnconverged) 'baseline warmup did not converge',
+        if (curUnconverged) 'candidate warmup did not converge',
       ];
     }
     return null;
   }
+
+  static void _recordComparisonVariance(
+    Set<String> notes, {
+    required BenchmarkEntry base,
+    required BenchmarkEntry cur,
+    required String baseLabel,
+    required String curLabel,
+    required String pairLabel,
+    required bool isDelta,
+  }) {
+    if (_shouldUsePairedComparison(base, cur, isDelta: isDelta)) {
+      final pairedCv = _pairedHighVarianceCv(base, cur);
+      if (pairedCv != null) {
+        final pct = (pairedCv * 100).toStringAsFixed(1);
+        notes.add('`$pairLabel`: paired ratio CV $pct%');
+      }
+      return;
+    }
+    if (_hasHighSoloVariance(base)) {
+      final pct = (base.metrics.cv * 100).toStringAsFixed(1);
+      notes.add('`$baseLabel`: CV $pct%');
+    }
+    if (_hasHighSoloVariance(cur)) {
+      final pct = (cur.metrics.cv * 100).toStringAsFixed(1);
+      notes.add('`$curLabel`: CV $pct%');
+    }
+  }
+
+  static double? _pairedHighVarianceCv(
+    BenchmarkEntry base,
+    BenchmarkEntry cur,
+  ) {
+    final a = base.effectiveSamplesNs;
+    final b = cur.effectiveSamplesNs;
+    if (a.length < 2 || a.length != b.length) return null;
+    final ratios = <double>[];
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] <= 0.0 || b[i] <= 0.0) return null;
+      ratios.add(b[i] / a[i]);
+    }
+    final summary = SampleSummary.fromSamples(ratios);
+    if (summary.cv <= BenchmarkMetrics.maxCvThreshold ||
+        summary.robustCv <= BenchmarkMetrics.maxCvThreshold) {
+      return null;
+    }
+    return summary.cv;
+  }
+
+  static bool _hasHighSoloVariance(BenchmarkEntry entry) =>
+      !entry.metrics.isStable && entry.warmup?['is_stable'] != false;
 
   static _DiffVerdict _computeDiffVerdict(
     BenchmarkEntry base,
@@ -1822,5 +1920,6 @@ final class _DeltaStats() {
   double logSum = 0.0;
   int includedInGeoMean = 0;
   final List<String> driftNotes = [];
+  final Set<String> varianceNotes = {};
   Set<String> reasons = {};
 }

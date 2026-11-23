@@ -39,9 +39,9 @@ final class RunCommand({
         'gate',
         defaultsTo: true,
         help:
-            'Withhold speedup ratios whose confidence interval is unbounded '
-            'or whose samples are not stable. Pass --no-gate to '
-            'publish them anyway (exploration only).',
+            'Withhold comparisons whose confidence interval is unbounded or '
+            'whose warmup did not converge. Pass --no-gate to publish point '
+            'estimates anyway (exploration only).',
       )
       ..addOption(
         'config',

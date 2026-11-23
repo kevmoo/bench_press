@@ -18,6 +18,14 @@
     (`BenchmarkSuiteResult`, `BenchmarkEntry.fromSamples` / `fromDurations` /
     `fromBytes`, `MetricUnit.bytes`, `PairingInfo` gating), `MarkdownReporter`,
     `GitDiffReporter`, and `ComparisonScale`.
+- `MarkdownReporter` comparison tables (`run`, `report`, and `diff`) now gate
+  rows as `❓ Unresolved` only on incompatible metric units, unconverged warmup
+  (`warmup.is_stable == false`), or invalid/unbounded confidence intervals
+  (`n < 2` or Fieller `g >= 1.0`). Sample dispersion above 5% no longer censors
+  bounded confidence intervals; instead, the 95% CI and `--threshold` govern the
+  verdict and a `⚠️ High variance` footnote flags comparisons whose solo or
+  paired-ratio dispersion exceeds 5%. `BenchmarkMetrics.isStable`, summary-table
+  `⚠️ Unstable` badges, and `--fail-on-unstable` remain unchanged.
 - Added `--scale` (`ratio`, `difference`, `both`) to `bench_press report`,
   `bench_press diff`, and `bench_press run`.
 - Stamped explicit `PairingInfo` provenance on multi-process interleaved runs so

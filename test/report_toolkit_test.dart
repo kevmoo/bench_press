@@ -343,28 +343,48 @@ void main() {
           samples: const [120.0],
           coordinates: grp,
         );
-        final baseUnstable = BenchmarkEntry.fromSamples(
+        final baseNoisy = BenchmarkEntry.fromSamples(
           name: 'noisy_shot',
           samples: const [200.0, 202.0, 198.0],
           coordinates: grp,
           isBaseline: true,
         );
-        final curUnstable = BenchmarkEntry.fromSamples(
+        final curNoisy = BenchmarkEntry.fromSamples(
           name: 'noisy_shot',
-          // CV ~ 10% (> 5% default maxCvThreshold -> !isStable), clearly faster
+          // CV = 10% (> 5% default maxCvThreshold -> !isStable), clearly faster
           samples: const [90.0, 100.0, 110.0],
+          coordinates: grp,
+        );
+        final baseUnconverged = BenchmarkEntry.fromSamples(
+          name: 'unconverged_shot',
+          samples: const [200.0, 202.0, 198.0],
+          coordinates: grp,
+          isBaseline: true,
+        );
+        final curUnconverged = BenchmarkEntry(
+          name: 'unconverged_shot',
+          target: 'aot',
+          mode: 'sync',
+          samples: 3,
+          metrics: BenchmarkMetrics.fromSamples(const [
+            99.0,
+            100.0,
+            101.0,
+          ], isStable: false),
+          rawTrialsNs: const [99.0, 100.0, 101.0],
+          warmup: const {'is_stable': false},
           coordinates: grp,
         );
 
         final baseSuite = BenchmarkSuiteResult(
           timestamp: DateTime.utc(2026, 11, 22),
           environment: env,
-          benchmarks: [baseSingle, baseUnstable],
+          benchmarks: [baseSingle, baseNoisy, baseUnconverged],
         );
         final curSuite = BenchmarkSuiteResult(
           timestamp: DateTime.utc(2026, 11, 22, 1),
           environment: env,
-          benchmarks: [curSingle, curUnstable],
+          benchmarks: [curSingle, curNoisy, curUnconverged],
         );
 
         final gatedDelta = MarkdownReporter.renderDeltaTable(
@@ -377,10 +397,21 @@ void main() {
           'unresolved | unresolved | [N/A] | ❓ Unresolved |',
         );
         check(gatedDelta).contains(
-          '| noisy_shot (group=G) | `aot` | 200.0 ns | 100.0 ns | '
+          '| unconverged_shot (group=G) | `aot` | 200.0 ns | 100.0 ns | '
           'unresolved | unresolved | [N/A] | ❓ Unresolved |',
         );
-        check(gatedDelta).contains('Delta omitted due to');
+        // High-CV row resolves via its 95% CI and emits a High variance note
+        check(gatedDelta).contains('-100.0 ns | -50.0% | [');
+        check(gatedDelta).contains('🚀 **1** Faster');
+        check(gatedDelta).contains('❓ **2** Unresolved');
+        check(gatedDelta)
+            .contains('> ⚠️ **High variance**: sample dispersion exceeded 5%');
+        check(gatedDelta)
+            .contains('`noisy_shot (group=G), aot, Current`: CV 10.0%');
+        check(gatedDelta).contains(
+          'Delta omitted due to candidate warmup did not converge and '
+          'unbounded CI.',
+        );
 
         final ungatedDelta = MarkdownReporter.renderDeltaTable(
           baseline: baseSuite,
@@ -392,20 +423,13 @@ void main() {
         check(ungatedDelta.contains('❓ Unresolved')).isFalse;
         check(ungatedDelta).contains('-80.0 ns | -40.0% | [N/A] | 🚀 Faster');
         check(ungatedDelta).contains('-100.0 ns | -50.0% | [');
-        check(ungatedDelta).contains('🚀 **2** Faster');
+        check(ungatedDelta).contains('🚀 **3** Faster');
 
-        // Matrix/group suite table with gate: false also classifies movement.
+        // Matrix/group suite table with unconverged warmup honors gate: false.
         final groupSuite = BenchmarkSuiteResult(
           timestamp: DateTime.utc(2026, 11, 22),
           environment: env,
-          benchmarks: [
-            baseUnstable,
-            BenchmarkEntry.fromSamples(
-              name: 'noisy_cand',
-              samples: const [90.0, 100.0, 110.0],
-              coordinates: grp,
-            ),
-          ],
+          benchmarks: [baseUnconverged, curUnconverged],
         );
         final gatedGroup = MarkdownReporter.renderSuite(
           groupSuite,
