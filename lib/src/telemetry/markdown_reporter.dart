@@ -9,29 +9,26 @@ import 'plausibility.dart';
 import 'schema.dart';
 
 /// Scale used when comparing candidate benchmark cells against a baseline.
-enum ComparisonScale(
-  /// Canonical CLI flag token (`'ratio'`, `'difference'`, or `'both'`).
-  final String cliName,
-) {
+enum ComparisonScale() {
   /// Multiplicative speedup ratio (`baseline / candidate`, Fieller 95% CI).
-  ratio('ratio'),
+  ratio,
 
   /// Additive delta (`candidate - baseline`, Student/Welch 95% CI).
-  difference('difference'),
+  difference,
 
   /// Both additive delta CI and multiplicative Fieller ratio CI.
-  both('both');
-
-  /// Parses [raw] (`'ratio'`, `'difference'`, or `'both'`), returning `null` if
-  /// unrecognized.
-  static ComparisonScale? tryParse(String raw) {
-    final clean = raw.trim().toLowerCase();
-    for (final value in ComparisonScale.values) {
-      if (value.cliName == clean) return value;
-    }
-    return null;
-  }
+  both,
 }
+
+/// Parses [raw] (`'ratio'`, `'difference'`, or `'both'`), returning `null` if
+/// unrecognized (internal to `lib/src/`).
+ComparisonScale? tryParseComparisonScale(String raw) =>
+    switch (raw.trim().toLowerCase()) {
+      'ratio' => ComparisonScale.ratio,
+      'difference' => ComparisonScale.difference,
+      'both' => ComparisonScale.both,
+      _ => null,
+    };
 
 /// Generates formatted Markdown tables and performance telemetry reports.
 abstract final class MarkdownReporter() {
@@ -92,7 +89,7 @@ abstract final class MarkdownReporter() {
                 ? 'Benchmark: `$workloadName` (`$target`)'
                 : 'Benchmark: `$workloadName`');
       buffer.writeln(
-        renderMatrixComparisonTable(
+        _renderMatrixComparisonTable(
           workloadName: workloadName,
           entries: workload.value,
           title: defaultTitle,
@@ -122,7 +119,7 @@ abstract final class MarkdownReporter() {
         buffer.writeln();
       }
     }
-    final groupTables = renderAllGroupComparisonTables(
+    final groupTables = _renderAllGroupComparisonTables(
       suite,
       gate: gate,
       threshold: threshold,
@@ -151,46 +148,6 @@ abstract final class MarkdownReporter() {
       _recordDrift(notes, entry.name, entry);
     }
     _writeDriftNotes(buffer, notes);
-  }
-
-  /// Renders a top-level Suite Summary table rolling up candidate performance
-  /// across multiple `coordinates.group` comparison groups using geometric mean
-  /// speedup.
-  ///
-  /// Returns an empty string when there are fewer than 2 distinct comparison
-  /// groups with a baseline and at least one candidate participating across
-  /// multiple groups.
-  static String renderSuiteSummaryTable(
-    BenchmarkSuiteResult suite, {
-    String? title,
-    bool gate = true,
-  }) {
-    final (distinctGroupCount, candidateSpeedups) =
-        _collectCandidateGroupSpeedups(suite, gate: gate);
-    if (distinctGroupCount < 2 || candidateSpeedups.isEmpty) {
-      return '';
-    }
-
-    final buffer = StringBuffer();
-    final heading = title ?? 'Suite Summary';
-    buffer.writeln('### $heading\n');
-    buffer.writeln(
-      '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
-      'Max Speedup | Groups |',
-    );
-    buffer.writeln('| :--- | :--- | :---: | :---: | :---: | :---: |');
-
-    final targets = <String>{for (final key in candidateSpeedups.keys) key.$2};
-    for (final target in targets) {
-      for (final key in candidateSpeedups.keys) {
-        if (key.$2 == target) {
-          buffer.writeln(
-            _formatSuiteSummaryRow(key.$1, target, candidateSpeedups[key]!),
-          );
-        }
-      }
-    }
-    return buffer.toString().trimRight();
   }
 
   static (int, Map<(String, String), List<double>>)
@@ -292,7 +249,7 @@ abstract final class MarkdownReporter() {
     return map;
   }
 
-  static String renderMatrixComparisonTable({
+  static String _renderMatrixComparisonTable({
     required String workloadName,
     required List<BenchmarkEntry> entries,
     String? title,
@@ -730,7 +687,7 @@ abstract final class MarkdownReporter() {
     ];
   }
 
-  static String renderAllGroupComparisonTables(
+  static String _renderAllGroupComparisonTables(
     BenchmarkSuiteResult suite, {
     bool gate = true,
     double threshold = 0.0,
@@ -759,33 +716,6 @@ abstract final class MarkdownReporter() {
       buffer.writeln();
     }
     return buffer.toString();
-  }
-
-  /// Renders a Model 1 direct variant comparison table for a specific group.
-  static String renderGroupComparisonTable({
-    required String groupName,
-    required String target,
-    required List<BenchmarkEntry> entries,
-    String? title,
-    bool gate = true,
-    double threshold = 0.0,
-    ComparisonScale scale = ComparisonScale.ratio,
-  }) {
-    if (entries.isEmpty) return '';
-    final strippedEntries = entries.map((e) {
-      final newCoords = Map<String, String>.from(e.coordinates);
-      newCoords.remove(BenchmarkCoordinates.groupKey);
-      return e.copyWith(coordinates: newCoords);
-    }).toList();
-    final legacyHeading = 'Group: $groupName (`$target`)';
-    return renderMatrixComparisonTable(
-      workloadName: groupName,
-      entries: strippedEntries,
-      title: title ?? legacyHeading,
-      gate: gate,
-      threshold: threshold,
-      scale: scale,
-    );
   }
 
   /// Renders a single-run summary table for all benchmarks in [suite].
@@ -919,9 +849,9 @@ abstract final class MarkdownReporter() {
     return buffer.toString();
   }
 
-  /// Pairs cells by [BenchmarkEntry.key] (name, target, and every
-  /// coordinate, including group), so a benchmark name reused across groups
-  /// or matrix cells is never compared against the wrong cell.
+  /// Pairs cells by composite key (name, target, and every coordinate,
+  /// including group), so a benchmark name reused across groups or matrix
+  /// cells is never compared against the wrong cell.
   ///
   /// On a duplicate key within one run, the last entry wins, matching
   /// `deepMerge`.
@@ -1450,65 +1380,6 @@ abstract final class MarkdownReporter() {
     );
   }
 
-  /// Renders a Markdown summary report directly from a stored JSON file.
-  static String renderFromFile(
-    File file, {
-    String? title,
-    bool gate = true,
-    double threshold = 0.0,
-    ComparisonScale scale = ComparisonScale.ratio,
-  }) {
-    final suite = BenchmarkSuiteResult.loadFromFile(file);
-    return renderSuite(
-      suite,
-      title: title,
-      gate: gate,
-      threshold: threshold,
-      scale: scale,
-    );
-  }
-
-  /// Renders a Markdown summary report directly from a stored JSON file path.
-  static String renderFromPath(
-    String path, {
-    String? title,
-    bool gate = true,
-    double threshold = 0.0,
-    ComparisonScale scale = ComparisonScale.ratio,
-  }) => renderFromFile(
-    File(path),
-    title: title,
-    gate: gate,
-    threshold: threshold,
-    scale: scale,
-  );
-
-  /// Renders an isolated delta comparison table comparing two stored JSON
-  /// files.
-  static String renderDeltaFromFiles({
-    required File baselineFile,
-    required File currentFile,
-    String? title,
-    String baselineLabel = 'Baseline',
-    String currentLabel = 'Current',
-    bool gate = true,
-    double threshold = 0.0,
-    ComparisonScale scale = ComparisonScale.ratio,
-  }) {
-    final baseline = BenchmarkSuiteResult.loadFromFile(baselineFile);
-    final current = BenchmarkSuiteResult.loadFromFile(currentFile);
-    return renderDeltaTable(
-      baseline: baseline,
-      current: current,
-      title: title,
-      baselineLabel: baselineLabel,
-      currentLabel: currentLabel,
-      gate: gate,
-      threshold: threshold,
-      scale: scale,
-    );
-  }
-
   /// Classifies [speedup] and [verdict] against the ±5% default band or an
   /// explicit equivalence [threshold].
   ///
@@ -1625,7 +1496,7 @@ abstract final class MarkdownReporter() {
         isDelta: isDelta,
       );
     }
-    if (interval != null && interval.containsZero) return ('➖ ⚪ Neutral', 0);
+    if (interval != null && !interval.isSignificant) return ('➖ ⚪ Neutral', 0);
     final estimate = interval?.meanDiff ?? rawDiff;
     final defaultBand = 0.05 * baseMeanNs.abs();
     if (estimate <= -defaultBand) return _fasterMovement(isDelta);
@@ -1922,4 +1793,98 @@ final class _DeltaStats() {
   final List<String> driftNotes = [];
   final Set<String> varianceNotes = {};
   Set<String> reasons = {};
+}
+
+/// Renders a top-level Suite Summary table rolling up candidate performance
+/// across multiple `coordinates.group` comparison groups using geometric mean
+/// speedup (internal to `lib/src/`).
+String renderSuiteSummaryTable(
+  BenchmarkSuiteResult suite, {
+  String? title,
+  bool gate = true,
+}) {
+  final (distinctGroupCount, candidateSpeedups) =
+      MarkdownReporter._collectCandidateGroupSpeedups(suite, gate: gate);
+  if (distinctGroupCount < 2 || candidateSpeedups.isEmpty) {
+    return '';
+  }
+
+  final buffer = StringBuffer();
+  final heading = title ?? 'Suite Summary';
+  buffer.writeln('### $heading\n');
+  buffer.writeln(
+    '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
+    'Max Speedup | Groups |',
+  );
+  buffer.writeln('| :--- | :--- | :---: | :---: | :---: | :---: |');
+
+  final targets = <String>{for (final key in candidateSpeedups.keys) key.$2};
+  for (final target in targets) {
+    for (final key in candidateSpeedups.keys) {
+      if (key.$2 == target) {
+        buffer.writeln(
+          MarkdownReporter._formatSuiteSummaryRow(
+            key.$1,
+            target,
+            candidateSpeedups[key]!,
+          ),
+        );
+      }
+    }
+  }
+  return buffer.toString().trimRight();
+}
+
+/// Renders a direct variant comparison table for a single `group` (internal to
+/// `lib/src/`).
+String renderGroupComparisonTable({
+  required String groupName,
+  required String target,
+  required List<BenchmarkEntry> entries,
+  String? title,
+  bool gate = true,
+  double threshold = 0.0,
+  ComparisonScale scale = ComparisonScale.ratio,
+}) {
+  if (entries.isEmpty) return '';
+  final strippedEntries = entries.map((e) {
+    final newCoords = Map<String, String>.from(e.coordinates);
+    newCoords.remove(BenchmarkCoordinates.groupKey);
+    return e.copyWith(coordinates: newCoords);
+  }).toList();
+  final legacyHeading = 'Group: $groupName (`$target`)';
+  return MarkdownReporter._renderMatrixComparisonTable(
+    workloadName: groupName,
+    entries: strippedEntries,
+    title: title ?? legacyHeading,
+    gate: gate,
+    threshold: threshold,
+    scale: scale,
+  );
+}
+
+/// Renders an isolated delta comparison table comparing two stored JSON files
+/// (internal to `lib/src/`).
+String renderDeltaFromFiles({
+  required File baselineFile,
+  required File currentFile,
+  String? title,
+  String baselineLabel = 'Baseline',
+  String currentLabel = 'Current',
+  bool gate = true,
+  double threshold = 0.0,
+  ComparisonScale scale = ComparisonScale.ratio,
+}) {
+  final baseline = BenchmarkSuiteResult.loadFromFile(baselineFile);
+  final current = BenchmarkSuiteResult.loadFromFile(currentFile);
+  return MarkdownReporter.renderDeltaTable(
+    baseline: baseline,
+    current: current,
+    title: title,
+    baselineLabel: baselineLabel,
+    currentLabel: currentLabel,
+    gate: gate,
+    threshold: threshold,
+    scale: scale,
+  );
 }

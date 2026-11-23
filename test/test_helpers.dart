@@ -92,7 +92,7 @@ BenchmarkEntry createSampleEntry({
   int samples = 5,
   BenchmarkMetrics? metrics,
   List<double> rawTrialsNs = const [],
-}) => BenchmarkEntry(
+}) => createBenchmarkEntry(
   name: name,
   target: target,
   mode: mode,

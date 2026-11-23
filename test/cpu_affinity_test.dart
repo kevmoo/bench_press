@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:bench_press/host.dart';
+import 'package:bench_press/src/host/cpu_affinity.dart'
+    show checkHostCpuPinningSupport, cpuPinningUnsupportedReason;
 import 'package:checks/checks.dart';
 import 'package:test/test.dart';
 
@@ -189,23 +191,30 @@ void main() {
       // independently of the code under test and require the same answer.
       if (!Platform.isLinux) {
         check(cpuPinningUnsupportedReason()).isNotNull();
+        check(CpuAffinity.unsupportedReason).isNotNull();
         return;
       }
       final found = Platform.environment['PATH']!
           .split(':')
           .any((dir) => File('$dir/taskset').existsSync());
       final reason = cpuPinningUnsupportedReason();
+      final libReason = CpuAffinity.unsupportedReason;
       if (found) {
         check(
           because: 'taskset is on PATH, so pinning must report available',
           reason,
         ).isNull;
+        check(libReason).isNull;
       } else {
         check(
           because: 'taskset is absent, so pinning must say so',
           reason,
         ).isNotNull();
+        check(libReason).isNotNull();
       }
+      check(checkHostCpuPinningSupport(os: 'macos', hasTaskset: () => true))
+          .isNotNull()
+          .not(.it()..contains('--trials'));
     });
   });
 }

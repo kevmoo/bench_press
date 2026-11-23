@@ -10,7 +10,7 @@ import 'sample_summary.dart';
 /// `d_i = candidate[i] - baseline[i]` with `df = n - 1`, cancelling shared
 /// per-round host drift. Otherwise uses the heteroscedastic Welch-Satterthwaite
 /// two-sample $t$-interval.
-final class const DifferenceInterval({
+final class const DifferenceInterval._({
   /// Arithmetic mean of the baseline series.
   required final double baselineMean,
 
@@ -93,7 +93,7 @@ final class const DifferenceInterval({
         : _computeUnpairedStats(a, b, baseSummary.mean, candSummary.mean);
 
     if (se == 0.0) {
-      return DifferenceInterval(
+      return DifferenceInterval._(
         baselineMean: baseSummary.mean,
         candidateMean: candSummary.mean,
         meanDiff: meanDiff,
@@ -115,7 +115,7 @@ final class const DifferenceInterval({
     final t = studentTQuantile(p, df);
     final hw = t * se;
 
-    return DifferenceInterval(
+    return DifferenceInterval._(
       baselineMean: baseSummary.mean,
       candidateMean: candSummary.mean,
       meanDiff: meanDiff,
@@ -152,7 +152,7 @@ final class const DifferenceInterval({
     final candSummary = hasValidMeans ? SampleSummary.fromSamples(b) : null;
     final baseMean = baseSummary?.mean ?? double.nan;
     final candMean = candSummary?.mean ?? double.nan;
-    return DifferenceInterval(
+    return DifferenceInterval._(
       baselineMean: baseMean,
       candidateMean: candMean,
       meanDiff: hasValidMeans ? candMean - baseMean : double.nan,
@@ -238,12 +238,8 @@ final class const DifferenceInterval({
       ? null
       : (halfWidth * 100.0) / baselineMean.abs();
 
-  /// Whether a valid confidence interval includes `0.0` (no detectable additive
-  /// change).
-  bool get containsZero => isValid && lowerBound <= 0.0 && upperBound >= 0.0;
-
   /// Whether a valid confidence interval strictly excludes `0.0`.
-  bool get isSignificant => isValid && !containsZero;
+  bool get isSignificant => isValid && (lowerBound > 0.0 || upperBound < 0.0);
 
   /// Schuirmann's Two One-Sided Tests (TOST) equivalence test at one-sided
   /// significance [alpha] (`0.05` by default, corresponding to the `90%` CI):
@@ -269,60 +265,6 @@ final class const DifferenceInterval({
     final t = studentTQuantile(1.0 - alpha, degreesOfFreedom);
     final hw = t * standardError;
     return (meanDiff - hw) >= -margin && (meanDiff + hw) <= margin;
-  }
-
-  /// Converts this interval to a JSON-compatible map.
-  Map<String, Object?> toJson() => {
-    'baseline_mean': baselineMean,
-    'candidate_mean': candidateMean,
-    'mean_diff': meanDiff,
-    'median_diff': medianDiff,
-    if (pairedMedianDiff != null) 'paired_median_diff': pairedMedianDiff,
-    'lower_bound': lowerBound,
-    'upper_bound': upperBound,
-    'half_width': halfWidth,
-    'standard_error': standardError,
-    'degrees_of_freedom': degreesOfFreedom,
-    if (diffStddev != null) 'diff_stddev': diffStddev,
-    'is_valid': isValid,
-    'confidence_level': confidenceLevel,
-    if (paired) 'paired': paired,
-  };
-
-  /// Reconstructs a [DifferenceInterval] from a JSON map.
-  factory fromJson(Map<String, Object?> json) {
-    final isValid = json['is_valid'];
-    if (isValid is! bool) {
-      throw const FormatException(
-        'Invalid or incomplete DifferenceInterval JSON',
-      );
-    }
-    double readNumOrNan(String key) => switch (json[key]) {
-      final num n => n.toDouble(),
-      null => double.nan,
-      _ => throw FormatException('Invalid "$key" in DifferenceInterval JSON'),
-    };
-    double? readOptNum(String key) => switch (json[key]) {
-      final num n => n.toDouble(),
-      null => null,
-      _ => throw FormatException('Invalid "$key" in DifferenceInterval JSON'),
-    };
-    return DifferenceInterval(
-      baselineMean: readNumOrNan('baseline_mean'),
-      candidateMean: readNumOrNan('candidate_mean'),
-      meanDiff: readNumOrNan('mean_diff'),
-      medianDiff: readNumOrNan('median_diff'),
-      pairedMedianDiff: readOptNum('paired_median_diff'),
-      lowerBound: readNumOrNan('lower_bound'),
-      upperBound: readNumOrNan('upper_bound'),
-      halfWidth: readNumOrNan('half_width'),
-      standardError: readNumOrNan('standard_error'),
-      degreesOfFreedom: readNumOrNan('degrees_of_freedom'),
-      diffStddev: readOptNum('diff_stddev'),
-      isValid: isValid,
-      confidenceLevel: readOptNum('confidence_level') ?? 0.95,
-      paired: (json['paired'] as bool?) ?? false,
-    );
   }
 
   @override

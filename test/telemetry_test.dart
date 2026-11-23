@@ -83,14 +83,14 @@ void main() {
         isStable: true,
       );
 
-      const entry = BenchmarkEntry(
+      final entry = createBenchmarkEntry(
         name: 'crypto/sha256',
         target: 'wasm',
         mode: 'sync',
         samples: 15,
         metrics: metrics,
-        rawTrialsNs: [480.0, 490.0, 500.0, 510.0, 520.0],
-        warmup: {'is_stable': true, 'total_iterations': 45},
+        rawTrialsNs: const [480.0, 490.0, 500.0, 510.0, 520.0],
+        warmup: const {'is_stable': true, 'total_iterations': 45},
         calibratedBatchIterations: 2000,
       );
 
@@ -322,21 +322,21 @@ void main() {
           isStable: true,
         );
 
-        const entry = BenchmarkEntry(
+        final entry = createBenchmarkEntry(
           name: 'grouped_task',
           target: 'aot',
           mode: 'sync',
           samples: 10,
           metrics: metrics,
-          coordinates: BenchmarkCoordinates({
+          coordinates: const {
             BenchmarkCoordinates.groupKey: 'CryptoGroup',
             BenchmarkCoordinates.sdkKey: 'stock',
             BenchmarkCoordinates.runtimeKey: 'aot',
             BenchmarkCoordinates.compilerFlagsKey: '-O3',
             BenchmarkCoordinates.vmFlagsKey: '--test',
-          }),
+          },
           isBaseline: true,
-          throughput: Throughput.bytes(1024),
+          throughput: const Throughput.bytes(1024),
         );
 
         check(entry.coordinates.group).equals('CryptoGroup');
@@ -372,7 +372,7 @@ void main() {
         final result = await BenchmarkRunner.runAsync(benchmark);
         check(result.mode).equals('async');
 
-        final entry = BenchmarkEntry.fromResult(result, target: 'jit');
+        final entry = benchmarkEntryFromResult(result, target: 'jit');
         check(entry.mode).equals('async');
 
         final json = entry.toJson();
@@ -395,15 +395,15 @@ void main() {
       final resultWarmup = result.toJson()['warmup'] as Map;
       check(resultWarmup['estimated_op_ns']).equals(estimate);
 
-      final json = BenchmarkEntry.fromResult(result, target: 'jit').toJson();
+      final json = benchmarkEntryFromResult(result, target: 'jit').toJson();
       check((json['warmup'] as Map)['estimated_op_ns']).equals(estimate);
       final decoded = jsonDecode(jsonEncode(json)) as Map<String, dynamic>;
       check(BenchmarkEntry.fromJson(decoded).warmup?['estimated_op_ns'])
           .equals(estimate);
     });
 
-    test('BenchmarkEntry.fromProcesses and '
-        'BenchmarkSuiteResult.aggregateProcesses aggregate multi-process runs '
+    test('aggregateProcessEntries and '
+        'aggregateProcessSuites aggregate multi-process runs '
         'and round-trip JSON', () {
       const env = EnvironmentInfo(
         dartVersion: '3.14.0',
@@ -430,11 +430,7 @@ void main() {
         benchmarks: [p3],
       );
 
-      final aggregated = BenchmarkSuiteResult.aggregateProcesses([
-        suite1,
-        suite2,
-        suite3,
-      ]);
+      final aggregated = aggregateProcessSuites([suite1, suite2, suite3]);
       final entry = aggregated.benchmarks.single;
       check(entry.processes).equals(3);
       check(entry.processMeansNs.length).equals(3);
@@ -452,11 +448,9 @@ void main() {
       check(rtEntry.metrics.varianceComponents).isNotNull();
 
       // Single-process passthrough and empty-list ArgumentError:
-      check(identical(BenchmarkEntry.fromProcesses([p1]), p1)).isTrue;
-      check(() => BenchmarkEntry.fromProcesses(const []))
-          .throws<ArgumentError>();
-      check(() => BenchmarkSuiteResult.aggregateProcesses(const []))
-          .throws<ArgumentError>();
+      check(identical(aggregateProcessEntries([p1]), p1)).isTrue;
+      check(() => aggregateProcessEntries(const [])).throws<ArgumentError>();
+      check(() => aggregateProcessSuites(const [])).throws<ArgumentError>();
     });
   });
 }
@@ -492,7 +486,7 @@ BenchmarkEntry _createEntry(String name, String target, double meanNs) {
     opsPerSec: 1e9 / meanNs,
     isStable: true,
   );
-  return BenchmarkEntry(
+  return createBenchmarkEntry(
     name: name,
     target: target,
     mode: 'sync',

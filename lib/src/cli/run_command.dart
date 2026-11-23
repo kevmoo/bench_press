@@ -10,7 +10,12 @@ import '../config.dart' show BenchmarkConfig;
 import '../config/bench_press_config.dart';
 import '../config/validator.dart';
 import '../host/cpu_affinity.dart';
-import '../schedule/pairing.dart' show PairingInfo, isReversedAbbaRound;
+import '../schedule/pairing.dart'
+    show
+        PairingInfo,
+        createPairingInfo,
+        generatePairingGroupId,
+        isReversedAbbaRound;
 import '../telemetry/git_diff.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
@@ -529,7 +534,7 @@ final class RunCommand({
     final title = argResults!.option('title');
     final diffRef = argResults!.option('diff') ?? '';
     final gate = argResults!.flag('gate');
-    final scale = ComparisonScale.tryParse(argResults!.option('scale')!)!;
+    final scale = tryParseComparisonScale(argResults!.option('scale')!)!;
 
     String? report;
     if (format == 'json') {
@@ -681,8 +686,8 @@ final class RunCommand({
   ) {
     if (processes <= 1 || hasFailures || cellSuites.isEmpty) return null;
     if (!cellSuites.every((s) => s.length == processes)) return null;
-    return PairingInfo(
-      groupId: PairingInfo.generateGroupId(),
+    return createPairingInfo(
+      groupId: generatePairingGroupId(),
       schedule: 'abba_baab',
       interleaved: true,
       rounds: processes,
@@ -696,7 +701,7 @@ final class RunCommand({
     BenchmarkSuiteResult? fileAccumulated;
     for (final suites in cellSuites) {
       if (suites.isEmpty) continue;
-      final aggregated = BenchmarkSuiteResult.aggregateProcesses(suites);
+      final aggregated = aggregateProcessSuites(suites);
       final stamped = pairing == null
           ? aggregated
           : BenchmarkSuiteResult(

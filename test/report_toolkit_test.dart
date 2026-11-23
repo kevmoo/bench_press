@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:bench_press/report.dart';
 import 'package:bench_press/schedule.dart';
 import 'package:bench_press/src/cli/command_runner.dart';
+import 'package:bench_press/src/schedule/pairing.dart' show createPairingInfo;
+import 'package:bench_press/src/telemetry/schema.dart'
+    show InternalBenchmarkEntry, createBenchmarkEntry;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
@@ -166,20 +169,20 @@ void main() {
     test(
       'PairingInfo pairs sdk matrix axes within one run and blocks merged runs',
       () {
-        const run1Pairing = PairingInfo(
+        final run1Pairing = createPairingInfo(
           groupId: 'run_1',
           schedule: 'abba_baab',
           interleaved: true,
           rounds: 4,
         );
-        const run2Pairing = PairingInfo(
+        final run2Pairing = createPairingInfo(
           groupId: 'run_2',
           schedule: 'abba_baab',
           interleaved: true,
           rounds: 4,
         );
 
-        final stock = BenchmarkEntry(
+        final stock = createBenchmarkEntry(
           name: 'parse',
           target: 'aot',
           mode: 'sync',
@@ -190,13 +193,13 @@ void main() {
             120,
             130,
           ], maxCvThreshold: 0.2),
-          coordinates: const BenchmarkCoordinates({'sdk': 'stock'}),
+          coordinates: const {'sdk': 'stock'},
           isBaseline: true,
           processes: 4,
           processMeansNs: const [100, 110, 120, 130],
           pairing: run1Pairing,
         );
-        final patchedSameRun = BenchmarkEntry(
+        final patchedSameRun = createBenchmarkEntry(
           name: 'parse',
           target: 'aot',
           mode: 'sync',
@@ -207,7 +210,7 @@ void main() {
             100,
             110,
           ], maxCvThreshold: 0.2),
-          coordinates: const BenchmarkCoordinates({'sdk': 'patched'}),
+          coordinates: const {'sdk': 'patched'},
           processes: 4,
           processMeansNs: const [80, 90, 100, 110],
           pairing: run1Pairing,
@@ -246,13 +249,13 @@ void main() {
         name: 'control',
         samples: aligned['control']!,
         isBaseline: true,
-        coordinates: const BenchmarkCoordinates({'group': 'aligned_grp'}),
+        coordinates: const {'group': 'aligned_grp'},
         pairing: run.pairing,
       );
       final e1 = BenchmarkEntry.fromSamples(
         name: 'candidate',
         samples: aligned['candidate']!,
-        coordinates: const BenchmarkCoordinates({'group': 'aligned_grp'}),
+        coordinates: const {'group': 'aligned_grp'},
         pairing: run.pairing,
       );
       check(BenchmarkEntry.canPair(e0, e1)).isTrue;
@@ -270,17 +273,17 @@ void main() {
         timestamp: DateTime.utc(2026, 11, 22),
         environment: env,
         benchmarks: [
-          BenchmarkEntry(
+          createBenchmarkEntry(
             name: 'single_a',
             target: 'jit',
             mode: 'sync',
             samples: 4,
             metrics: BenchmarkMetrics.fromSamples(drift),
-            coordinates: const BenchmarkCoordinates({'group': 'G'}),
+            coordinates: const {'group': 'G'},
             isBaseline: true,
             processes: 4,
             processMeansNs: drift,
-            pairing: const PairingInfo(
+            pairing: createPairingInfo(
               groupId: 'proc_run_1',
               schedule: 'abba_baab',
               interleaved: true,
@@ -293,16 +296,16 @@ void main() {
         timestamp: DateTime.utc(2026, 11, 22, 0, 1),
         environment: env,
         benchmarks: [
-          BenchmarkEntry(
+          createBenchmarkEntry(
             name: 'single_b',
             target: 'jit',
             mode: 'sync',
             samples: 4,
             metrics: BenchmarkMetrics.fromSamples(candSamples),
-            coordinates: const BenchmarkCoordinates({'group': 'G'}),
+            coordinates: const {'group': 'G'},
             processes: 4,
             processMeansNs: candSamples,
-            pairing: const PairingInfo(
+            pairing: createPairingInfo(
               groupId: 'proc_run_2',
               schedule: 'abba_baab',
               interleaved: true,
@@ -331,7 +334,7 @@ void main() {
           os: 'linux',
           arch: 'x64',
         );
-        const grp = BenchmarkCoordinates({'group': 'G'});
+        const grp = {'group': 'G'};
         final baseSingle = BenchmarkEntry.fromSamples(
           name: 'single_shot',
           samples: const [200.0],
@@ -361,7 +364,7 @@ void main() {
           coordinates: grp,
           isBaseline: true,
         );
-        final curUnconverged = BenchmarkEntry(
+        final curUnconverged = createBenchmarkEntry(
           name: 'unconverged_shot',
           target: 'aot',
           mode: 'sync',
@@ -525,7 +528,7 @@ void main() {
         os: 'linux',
         arch: 'x64',
       );
-      const grp = BenchmarkCoordinates({'group': 'G'});
+      const grp = {'group': 'G'};
       // Mean 108 vs 100 -> 1.08x (> 1.05x default band), but CV ~ 25% so
       // 95% Fieller CI straddles 1.00x.
       final noisyBase = BenchmarkEntry.fromSamples(
@@ -597,9 +600,7 @@ void main() {
                 Duration(milliseconds: pkgCount * 4),
                 Duration(milliseconds: pkgCount * 4 + 1),
               ],
-              coordinates: BenchmarkCoordinates({
-                'group': 'packages=$pkgCount',
-              }),
+              coordinates: {'group': 'packages=$pkgCount'},
               isBaseline: true,
             ),
             BenchmarkEntry.fromDurations(
@@ -608,9 +609,7 @@ void main() {
                 Duration(milliseconds: pkgCount * 5),
                 Duration(milliseconds: pkgCount * 5 + 1),
               ],
-              coordinates: BenchmarkCoordinates({
-                'group': 'packages=$pkgCount',
-              }),
+              coordinates: {'group': 'packages=$pkgCount'},
             ),
           ],
           BenchmarkEntry.fromDurations(
@@ -628,7 +627,7 @@ void main() {
         );
 
         // Group tables preserve appearance order (25 -> 50 -> 100).
-        final groupsMd = MarkdownReporter.renderAllGroupComparisonTables(suite);
+        final groupsMd = MarkdownReporter.renderSuite(suite);
         final idx25 = groupsMd.indexOf('### Group: packages=25');
         final idx50 = groupsMd.indexOf('### Group: packages=50');
         final idx100 = groupsMd.indexOf('### Group: packages=100');

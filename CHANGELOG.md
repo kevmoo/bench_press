@@ -11,13 +11,11 @@
     sync or async callbacks.
   - `package:bench_press/stats.dart`: unit-agnostic `SampleSummary`, additive
     paired/Welch-Satterthwaite `DifferenceInterval` (with Schuirmann TOST
-    `isEquivalentWithin`), `LinearTrend` drift detection,
-    `bonferroniConfidenceLevel`, `studentTQuantile`, and
-    `studentTTwoSidedPValue`.
+    `isEquivalentWithin`), and `LinearTrend` drift detection.
   - `package:bench_press/report.dart`: public telemetry schema
     (`BenchmarkSuiteResult`, `BenchmarkEntry.fromSamples` / `fromDurations` /
     `fromBytes`, `MetricUnit.bytes`, `PairingInfo` gating), `MarkdownReporter`,
-    `GitDiffReporter`, and `ComparisonScale`.
+    and `ComparisonScale`.
 - `MarkdownReporter` comparison tables (`run`, `report`, and `diff`) now gate
   rows as `❓ Unresolved` only on incompatible metric units, unconverged warmup
   (`warmup.is_stable == false`), or invalid/unbounded confidence intervals

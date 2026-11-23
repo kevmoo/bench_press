@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:bench_press/host.dart';
+import 'package:bench_press/src/host/machine_check.dart'
+    show runHostCheck, runHostCheckSync, validateAffinityWith, validateCoreWith;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
@@ -19,49 +21,33 @@ void main() {
   });
 
   group('HostEnvironment validation and preflight checks', () {
-    test(
-      'validateCore and validateAffinity detect missing and offline CPUs',
-      () {
-        final files = <String, String>{
-          '/sys/devices/system/cpu/present': '0-7',
-          '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list': '2,6',
-          '/sys/devices/system/cpu/cpu2/online': '1',
-          '/sys/devices/system/cpu/cpu3/topology/thread_siblings_list': '3,7',
-          '/sys/devices/system/cpu/cpu3/online': '0',
-        };
+    test('validateCoreWith and validateAffinityWith detect missing and '
+        'offline CPUs', () {
+      final files = <String, String>{
+        '/sys/devices/system/cpu/present': '0-7',
+        '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list': '2,6',
+        '/sys/devices/system/cpu/cpu2/online': '1',
+        '/sys/devices/system/cpu/cpu3/topology/thread_siblings_list': '3,7',
+        '/sys/devices/system/cpu/cpu3/online': '0',
+      };
 
-        check(
-          HostEnvironment.validateCore(
-            2,
-            os: 'linux',
-            readFile: (p) => files[p],
-          ),
-        ).isNull;
-        check(
-          HostEnvironment.validateCore(
-            3,
-            os: 'linux',
-            readFile: (p) => files[p],
-          ),
-        ).isNotNull().contains('offline');
-        check(
-          HostEnvironment.validateCore(
-            99,
-            os: 'linux',
-            readFile: (p) => files[p],
-          ),
-        ).isNotNull().contains('0-7');
-        check(
-          HostEnvironment.validateAffinity(
-            CpuAffinity.parse('2,3'),
-            os: 'linux',
-            readFile: (p) => files[p],
-          ),
-        ).isNotNull().contains('CPU 3');
-        // Non-Linux returns null without reading /sys.
-        check(HostEnvironment.validateCore(99, os: 'macos')).isNull;
-      },
-    );
+      check(validateCoreWith(2, os: 'linux', readFile: (p) => files[p])).isNull;
+      check(validateCoreWith(3, os: 'linux', readFile: (p) => files[p]))
+          .isNotNull()
+          .contains('offline');
+      check(validateCoreWith(99, os: 'linux', readFile: (p) => files[p]))
+          .isNotNull()
+          .contains('0-7');
+      check(
+        validateAffinityWith(
+          CpuAffinity.parse('2,3'),
+          os: 'linux',
+          readFile: (p) => files[p],
+        ),
+      ).isNotNull().contains('CPU 3');
+      // Non-Linux returns null without reading /sys.
+      check(validateCoreWith(99, os: 'macos')).isNull;
+    });
 
     test(
       'detects all 8 HostWarningKind conditions from synthetic /proc and /sys',
@@ -101,7 +87,7 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
           return files[path];
         }
 
-        final result = await HostEnvironment.check(
+        final result = await runHostCheck(
           affinity: CpuAffinity.parse('2,6'),
           sampleDuration: const Duration(milliseconds: 50),
           os: 'linux',
@@ -122,9 +108,12 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
         final kinds = {for (final w in result.warnings) w.kind};
         check(kinds).deepEquals(HostWarningKind.values.toSet());
 
-        final rt = HostCheckResult.fromJson(result.toJson());
-        check(rt.warnings.length).equals(result.warnings.length);
-        check(rt.cpuGovernors[2]).equals('powersave');
+        final json = result.toJson();
+        check(json['os']).equals('linux');
+        check((json['cpu_governors'] as Map<String, Object?>)['2'])
+            .equals('powersave');
+        check((json['warnings'] as List<Object?>).length)
+            .equals(result.warnings.length);
       },
     );
 
@@ -145,7 +134,7 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
           '/proc/stat': stat,
         };
 
-        final res = HostEnvironment.checkSync(
+        final res = runHostCheckSync(
           affinity: CpuAffinity.singleCore(2),
           os: 'linux',
           readFile: (p) => files[p],
@@ -156,38 +145,48 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
       },
     );
 
-    test('degrades gracefully on macOS and Windows and works live on host', () {
-      final mac = HostEnvironment.checkSync(os: 'macos');
-      check(mac.os).equals('macos');
-      check(mac.isSupported).isFalse;
-      check(mac.isClean).isTrue;
+    test(
+      'degrades gracefully on macOS and Windows and works live on host',
+      () async {
+        final mac = runHostCheckSync(os: 'macos');
+        check(mac.os).equals('macos');
+        check(mac.isSupported).isFalse;
+        check(mac.isClean).isTrue;
 
-      // Mocking only no_turbo or only THP (without /proc/*) still reports
-      // isSupported: true.
-      final turboOnly = HostEnvironment.checkSync(
-        os: 'linux',
-        readFile: (p) =>
-            p == '/sys/devices/system/cpu/intel_pstate/no_turbo' ? '0\n' : null,
-        sleepFor: (_) {},
-      );
-      check(turboOnly.isSupported).isTrue;
-      check(turboOnly.turboBoostEnabled).equals(true);
+        // Mocking only no_turbo or only THP (without /proc/*) still reports
+        // isSupported: true.
+        final turboOnly = runHostCheckSync(
+          os: 'linux',
+          readFile: (p) => p == '/sys/devices/system/cpu/intel_pstate/no_turbo'
+              ? '0\n'
+              : null,
+          sleepFor: (_) {},
+        );
+        check(turboOnly.isSupported).isTrue;
+        check(turboOnly.turboBoostEnabled).equals(true);
 
-      final thpOnly = HostEnvironment.checkSync(
-        os: 'linux',
-        readFile: (p) => p == '/sys/kernel/mm/transparent_hugepage/enabled'
-            ? '[always] madvise never\n'
-            : null,
-        sleepFor: (_) {},
-      );
-      check(thpOnly.isSupported).isTrue;
-      check(thpOnly.transparentHugePages).equals('always');
+        final thpOnly = runHostCheckSync(
+          os: 'linux',
+          readFile: (p) => p == '/sys/kernel/mm/transparent_hugepage/enabled'
+              ? '[always] madvise never\n'
+              : null,
+          sleepFor: (_) {},
+        );
+        check(thpOnly.isSupported).isTrue;
+        check(thpOnly.transparentHugePages).equals('always');
 
-      final live = HostEnvironment.checkSync(sampleDuration: Duration.zero);
-      check(live.os).equals(Platform.operatingSystem);
-      if (Platform.isLinux) {
-        check(live.isSupported).isTrue;
-      }
-    });
+        final live = HostEnvironment.checkSync(sampleDuration: Duration.zero);
+        check(live.os).equals(Platform.operatingSystem);
+        final asyncLive = await HostEnvironment.check(
+          sampleDuration: Duration.zero,
+        );
+        check(asyncLive.os).equals(Platform.operatingSystem);
+        check(HostEnvironment.validateAffinity(CpuAffinity.singleCore(0)))
+            .isNull;
+        if (Platform.isLinux) {
+          check(live.isSupported).isTrue;
+        }
+      },
+    );
   });
 }

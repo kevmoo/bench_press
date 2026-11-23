@@ -1,6 +1,14 @@
 import 'dart:io';
 
 import 'package:bench_press/report.dart';
+import 'package:bench_press/src/schedule/pairing.dart' show createPairingInfo;
+import 'package:bench_press/src/telemetry/markdown_reporter.dart'
+    show
+        renderDeltaFromFiles,
+        renderGroupComparisonTable,
+        renderSuiteSummaryTable;
+import 'package:bench_press/src/telemetry/schema.dart'
+    show InternalBenchmarkEntry, createBenchmarkEntry;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
@@ -137,12 +145,14 @@ void main() {
       );
       curSuite.saveToFile(curFile);
 
-      final rehydratedReport = MarkdownReporter.renderFromFile(curFile);
+      final rehydratedReport = MarkdownReporter.renderSuite(
+        BenchmarkSuiteResult.loadFromFile(curFile),
+      );
       check(rehydratedReport).contains('# Benchmark Suite Results');
       check(rehydratedReport).contains('crypto_sign');
       check(rehydratedReport).contains('100.0 ns');
 
-      final deltaReport = MarkdownReporter.renderDeltaFromFiles(
+      final deltaReport = renderDeltaFromFiles(
         baselineFile: baseFile,
         currentFile: curFile,
       );
@@ -178,7 +188,7 @@ void main() {
         isBaseline: false,
       );
 
-      final table = MarkdownReporter.renderGroupComparisonTable(
+      final table = renderGroupComparisonTable(
         groupName: 'String Construction',
         target: 'jit',
         entries: [baseEntry, fastEntry, slowEntry],
@@ -251,12 +261,12 @@ void main() {
         arch: 'x64',
       );
 
-      const baseEntry = BenchmarkEntry(
+      final baseEntry = createBenchmarkEntry(
         name: 'io_task',
         target: 'jit',
         mode: 'sync',
         samples: 3,
-        metrics: BenchmarkMetrics(
+        metrics: const BenchmarkMetrics(
           meanNs: 1000.0,
           medianNs: 1000.0,
           minNs: 950.0,
@@ -268,16 +278,16 @@ void main() {
           opsPerSec: 1000000.0,
           isStable: true,
         ),
-        rawTrialsNs: [950.0, 1000.0, 1050.0],
-        throughput: Throughput.bytes(1024),
+        rawTrialsNs: const [950.0, 1000.0, 1050.0],
+        throughput: const Throughput.bytes(1024),
       );
 
-      const curEntry = BenchmarkEntry(
+      final curEntry = createBenchmarkEntry(
         name: 'io_task',
         target: 'jit',
         mode: 'sync',
         samples: 3,
-        metrics: BenchmarkMetrics(
+        metrics: const BenchmarkMetrics(
           meanNs: 500.0,
           medianNs: 500.0,
           minNs: 480.0,
@@ -289,8 +299,8 @@ void main() {
           opsPerSec: 2000000.0,
           isStable: true,
         ),
-        rawTrialsNs: [480.0, 500.0, 520.0],
-        throughput: Throughput.bytes(1024),
+        rawTrialsNs: const [480.0, 500.0, 520.0],
+        throughput: const Throughput.bytes(1024),
       );
 
       final baseSuite = BenchmarkSuiteResult(
@@ -334,7 +344,7 @@ void main() {
         isBaseline: false,
       );
 
-      final table = MarkdownReporter.renderGroupComparisonTable(
+      final table = renderGroupComparisonTable(
         groupName: 'NoMarkedBaseline',
         target: 'jit',
         entries: [v1, v2],
@@ -447,7 +457,7 @@ void main() {
         benchmarks: [baseEntry, candEntry],
       );
 
-      final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
+      final summaryTable = renderSuiteSummaryTable(suite);
       check<String>(summaryTable).equals('');
 
       final report = MarkdownReporter.renderSuite(suite);
@@ -507,7 +517,7 @@ void main() {
           benchmarks: [g1Base, g1Cand, g2Base, g2Cand],
         );
 
-        final summaryTable = MarkdownReporter.renderSuiteSummaryTable(suite);
+        final summaryTable = renderSuiteSummaryTable(suite);
         check<String>(summaryTable).contains('### Suite Summary');
         check<String>(summaryTable).not(.it()..contains('mdformat'));
         check<String>(summaryTable).contains(
@@ -539,12 +549,12 @@ void main() {
       final validCur = _createEntry('valid_bench', 'jit', 50.0);
 
       // Invalid Fieller pair (fewer than 2 raw trials -> unbounded CI)
-      const invalidBase = BenchmarkEntry(
+      final invalidBase = createBenchmarkEntry(
         name: 'unbounded_bench',
         target: 'jit',
         mode: 'sync',
         samples: 1,
-        metrics: BenchmarkMetrics(
+        metrics: const BenchmarkMetrics(
           meanNs: 139.0,
           medianNs: 139.0,
           minNs: 139.0,
@@ -556,14 +566,14 @@ void main() {
           opsPerSec: 7194244.0,
           isStable: true,
         ),
-        rawTrialsNs: [139.0],
+        rawTrialsNs: const [139.0],
       );
-      const invalidCur = BenchmarkEntry(
+      final invalidCur = createBenchmarkEntry(
         name: 'unbounded_bench',
         target: 'jit',
         mode: 'sync',
         samples: 1,
-        metrics: BenchmarkMetrics(
+        metrics: const BenchmarkMetrics(
           meanNs: 100.0,
           medianNs: 100.0,
           minNs: 100.0,
@@ -575,7 +585,7 @@ void main() {
           opsPerSec: 10000000.0,
           isStable: true,
         ),
-        rawTrialsNs: [100.0],
+        rawTrialsNs: const [100.0],
       );
 
       final baseSuite = BenchmarkSuiteResult(
@@ -642,7 +652,7 @@ void main() {
 
         // Matrix/Group table check: baseline renders 1.00x (ref), candidate
         // renders unresolved with 'candidate warmup did not converge'
-        final groupTable = MarkdownReporter.renderGroupComparisonTable(
+        final groupTable = renderGroupComparisonTable(
           groupName: 'G1',
           target: 'jit',
           entries: [baseEntry, unstableCur],
@@ -673,12 +683,11 @@ void main() {
           isStable: true,
           group: 'G1',
         );
-        final baselineUnstableTable =
-            MarkdownReporter.renderGroupComparisonTable(
-              groupName: 'G1',
-              target: 'jit',
-              entries: [unstableBase, stableCur],
-            );
+        final baselineUnstableTable = renderGroupComparisonTable(
+          groupName: 'G1',
+          target: 'jit',
+          entries: [unstableBase, stableCur],
+        );
         check(baselineUnstableTable).contains(
           '> ❓ **Unresolved**: Speedup omitted due to '
           'baseline warmup did not converge.',
@@ -741,7 +750,7 @@ void main() {
           coordinates: const {'group': 'G1'},
         );
 
-        final unpairedGroup = MarkdownReporter.renderGroupComparisonTable(
+        final unpairedGroup = renderGroupComparisonTable(
           groupName: 'G1',
           target: 'jit',
           entries: [noisyBase, fastCand, noisyCand],
@@ -756,7 +765,7 @@ void main() {
 
         // Paired comparison with shared multiplicative drift (~6.4% solo CV,
         // ~0.1% paired ratio CV) resolves cleanly WITH NO high-variance note.
-        const sharedPairing = PairingInfo(
+        final sharedPairing = createPairingInfo(
           groupId: 'cfe_drift_run',
           schedule: 'abba_baab',
           interleaved: true,
@@ -780,7 +789,7 @@ void main() {
         check(driftedBase.metrics.isStable).isFalse;
         check(driftedCand.metrics.isStable).isFalse;
 
-        final pairedGroup = MarkdownReporter.renderGroupComparisonTable(
+        final pairedGroup = renderGroupComparisonTable(
           groupName: 'CFE',
           target: 'aot',
           entries: [driftedBase, driftedCand],
@@ -799,7 +808,7 @@ void main() {
           coordinates: const {'group': 'CFE'},
           pairing: sharedPairing,
         );
-        final jitteryPairedGroup = MarkdownReporter.renderGroupComparisonTable(
+        final jitteryPairedGroup = renderGroupComparisonTable(
           groupName: 'CFE',
           target: 'aot',
           entries: [driftedBase, jitteryCand],
@@ -825,7 +834,7 @@ void main() {
             warmup: {'is_stable': true, 'estimated_op_ns': ?estimate},
           );
 
-      final table = MarkdownReporter.renderGroupComparisonTable(
+      final table = renderGroupComparisonTable(
         groupName: 'DriftGroup',
         target: 'jit',
         entries: [
@@ -850,7 +859,7 @@ void main() {
         check(table).not(.it()..contains('> - `$quiet`'));
       }
 
-      final clean = MarkdownReporter.renderGroupComparisonTable(
+      final clean = renderGroupComparisonTable(
         groupName: 'DriftGroup',
         target: 'jit',
         entries: [cell('v_base', 100.0, 100.0), cell('v_edge', 125.0, 100.0)],
@@ -1042,7 +1051,7 @@ void main() {
         isBaseline: false,
         isRobustStable: false,
       );
-      final table = MarkdownReporter.renderGroupComparisonTable(
+      final table = renderGroupComparisonTable(
         groupName: 'G',
         target: 'jit',
         entries: [base, fast],
@@ -1066,7 +1075,7 @@ void main() {
             isBaseline: base,
           );
 
-      final table = MarkdownReporter.renderGroupComparisonTable(
+      final table = renderGroupComparisonTable(
         groupName: 'G',
         target: 'jit',
         entries: [cell('before', 100.0, base: true), cell('after', 95.0)],
@@ -1314,14 +1323,14 @@ void main() {
         final trials = [
           for (final m in processMeans) [m - 0.5, m + 0.5],
         ];
-        return BenchmarkEntry(
+        return createBenchmarkEntry(
           name: name,
           target: 'jit',
           mode: 'sync',
           samples: 10,
           metrics: BenchmarkMetrics.fromProcesses(trials),
           rawTrialsNs: [for (final p in trials) ...p],
-          coordinates: BenchmarkCoordinates(coords),
+          coordinates: coords,
           isBaseline: isBaseline,
           processes: processMeans.length,
           processMeansNs: processMeans,
@@ -1331,7 +1340,7 @@ void main() {
 
       // Same group + same non-group coordinates -> paired Fieller (tight CI:
       // [1.11x – 1.11x] -> 🚀 🥇 Peak).
-      final sharedGroupReport = MarkdownReporter.renderGroupComparisonTable(
+      final sharedGroupReport = renderGroupComparisonTable(
         groupName: 'SharedProcessGroup',
         target: 'jit',
         entries: [
@@ -1354,7 +1363,7 @@ void main() {
 
       // Different sdk coordinates -> separate OS process launches -> unpaired
       // Welch-Fieller (wider CI [1.01x – 1.11x]).
-      final separateCoordReport = MarkdownReporter.renderGroupComparisonTable(
+      final separateCoordReport = renderGroupComparisonTable(
         groupName: 'SeparateProcessMatrix',
         target: 'jit',
         entries: [
@@ -1416,7 +1425,7 @@ void main() {
       // ➖ ⚪ Inconclusive.
       final inconclusive = entry('inconclusive', 98.2, spread: 1.5);
 
-      final matrixReport = MarkdownReporter.renderGroupComparisonTable(
+      final matrixReport = renderGroupComparisonTable(
         groupName: 'ThreshGroup',
         target: 'jit',
         entries: [base, equiv, faster, slower, inconclusive],
@@ -1470,7 +1479,7 @@ void main() {
         [99.0, 100.0, 101.0, 100.0],
       ];
       final multiMetrics = BenchmarkMetrics.fromProcesses(procTrials);
-      final multiEntry = BenchmarkEntry(
+      final multiEntry = createBenchmarkEntry(
         name: 'multi_proc_bench',
         target: 'jit',
         mode: 'sync',
@@ -1481,7 +1490,7 @@ void main() {
         processMeansNs: const [99.0, 103.0, 100.0],
         processTrialsNs: procTrials,
       );
-      final singleEntry = BenchmarkEntry(
+      final singleEntry = createBenchmarkEntry(
         name: 'single_proc_bench',
         target: 'jit',
         mode: 'sync',
@@ -1540,7 +1549,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     isStable: true,
     isRobustStable: isRobustStable,
   );
-  return BenchmarkEntry(
+  return createBenchmarkEntry(
     name: name,
     target: target,
     mode: 'sync',
@@ -1549,7 +1558,7 @@ BenchmarkEntry _createGroupEntryWithSamples({
     rawTrialsNs: samples,
     warmup: warmup,
     calibratedBatchIterations: calibratedBatchIterations,
-    coordinates: BenchmarkCoordinates({'group': ?group}),
+    coordinates: {'group': ?group},
     isBaseline: isBaseline,
   );
 }
@@ -1576,7 +1585,7 @@ BenchmarkEntry _createEntry(
     isStable: isStable,
     isRobustStable: isStable,
   );
-  return BenchmarkEntry(
+  return createBenchmarkEntry(
     name: name,
     target: target,
     mode: 'sync',
@@ -1584,7 +1593,7 @@ BenchmarkEntry _createEntry(
     metrics: metrics,
     rawTrialsNs: [meanNs * 0.95, meanNs, meanNs * 1.05],
     warmup: warmup,
-    coordinates: BenchmarkCoordinates({'group': ?group}),
+    coordinates: {'group': ?group},
     isBaseline: isBaseline,
   );
 }
@@ -1607,7 +1616,7 @@ BenchmarkEntry _createEntryWithSamples(
     opsPerSec: 1e9 / meanNs,
     isStable: true,
   );
-  return BenchmarkEntry(
+  return createBenchmarkEntry(
     name: name,
     target: target,
     mode: 'sync',

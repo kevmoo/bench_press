@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 /// Unit-agnostic descriptive summary statistics for any numeric sample vector.
-final class const SampleSummary({
+final class const SampleSummary._({
   /// Number of samples in the series.
   required final int count,
 
@@ -42,7 +42,7 @@ final class const SampleSummary({
   /// Computes descriptive summary statistics from [samples].
   factory fromSamples(List<num> samples) {
     if (samples.isEmpty) {
-      return const SampleSummary(
+      return const SampleSummary._(
         count: 0,
         mean: 0.0,
         median: 0.0,
@@ -78,7 +78,7 @@ final class const SampleSummary({
     final p95 = _percentileOfSorted(sorted, 0.95);
     final p99 = _percentileOfSorted(sorted, 0.99);
 
-    return SampleSummary(
+    return SampleSummary._(
       count: n,
       mean: mean,
       median: median,
@@ -92,56 +92,6 @@ final class const SampleSummary({
       p95: p95,
       p99: p99,
     );
-  }
-
-  /// Converts this summary to a JSON-compatible map.
-  Map<String, Object?> toJson() => {
-    'count': count,
-    'mean': mean,
-    'median': median,
-    'min': min,
-    'max': max,
-    'stddev': stddev,
-    'cv': cv,
-    'mad': mad,
-    'robust_cv': robustCv,
-    'iqr': iqr,
-    'p95': p95,
-    'p99': p99,
-  };
-
-  /// Reconstructs a [SampleSummary] from a JSON map.
-  factory fromJson(Map<String, Object?> json) {
-    if (json case {
-      'count': final int count,
-      'mean': final num mean,
-      'median': final num median,
-      'min': final num min,
-      'max': final num max,
-      'stddev': final num stddev,
-      'cv': final num cv,
-      'mad': final num mad,
-      'robust_cv': final num robustCv,
-      'iqr': final num iqr,
-      'p95': final num p95,
-      'p99': final num p99,
-    }) {
-      return SampleSummary(
-        count: count,
-        mean: mean.toDouble(),
-        median: median.toDouble(),
-        min: min.toDouble(),
-        max: max.toDouble(),
-        stddev: stddev.toDouble(),
-        cv: cv.toDouble(),
-        mad: mad.toDouble(),
-        robustCv: robustCv.toDouble(),
-        iqr: iqr.toDouble(),
-        p95: p95.toDouble(),
-        p99: p99.toDouble(),
-      );
-    }
-    throw const FormatException('Invalid or incomplete SampleSummary JSON');
   }
 
   @override

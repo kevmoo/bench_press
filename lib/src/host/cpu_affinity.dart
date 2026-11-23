@@ -72,6 +72,10 @@ final class const CpuAffinity._(
   /// Sorted, deduplicated list of logical CPU indices expanded from [cpuList].
   List<int> get cpus => expandCpuList(cpuList);
 
+  /// Reason why `taskset` CPU pinning is unavailable on the current host, or
+  /// `null` when available.
+  static String? get unsupportedReason => checkHostCpuPinningSupport();
+
   /// Wraps [executable] and [args] so the process runs pinned to [cpuList].
   (String executable, List<String> args) wrap(
     String executable,
@@ -122,6 +126,20 @@ void _expandPartInto(String part, Set<int> out) {
   for (var cpu = low; cpu <= high; cpu += stride) {
     out.add(cpu);
   }
+}
+
+/// CLI-free check returning why `taskset` CPU pinning is unavailable, or `null`
+/// when available.
+String? checkHostCpuPinningSupport({String? os, bool Function()? hasTaskset}) {
+  final host = os ?? Platform.operatingSystem;
+  if (host != 'linux') {
+    return 'CPU pinning via taskset is only supported on Linux '
+        '(current OS: "$host").';
+  }
+  if (!(hasTaskset ?? _tasksetOnPath)()) {
+    return 'CPU pinning requires "taskset" (util-linux) on PATH.';
+  }
+  return null;
 }
 
 /// Explains why CPU pinning is unavailable on this host, or `null` when it is

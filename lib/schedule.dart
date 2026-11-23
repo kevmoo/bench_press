@@ -3,11 +3,9 @@
 /// with explicit pairing provenance.
 library;
 
-export 'src/schedule/pairing.dart' show PairingInfo, isReversedAbbaRound;
+export 'src/schedule/pairing.dart' show PairingInfo;
 export 'src/schedule/round_scheduler.dart'
     show
-        AbbaBaabSchedule,
-        RandomizedSchedule,
         RoundContext,
         RoundScheduler,
         ScheduleArm,
@@ -15,5 +13,4 @@ export 'src/schedule/round_scheduler.dart'
         ScheduledArmResult,
         ScheduledRun,
         ScheduledSample,
-        SequentialSchedule,
         SyncScheduleArm;

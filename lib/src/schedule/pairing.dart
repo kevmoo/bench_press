@@ -6,7 +6,7 @@
 /// [groupId], `interleaved == true`, and equal `rounds >= 2`. Sequential runs
 /// stamp `interleaved: false` so paired CIs cannot be accidentally applied to
 /// unaligned sequential series.
-final class const PairingInfo({
+final class const PairingInfo._({
   /// Unique identifier shared strictly by arms executed in the same scheduled
   /// run.
   required final String groupId,
@@ -25,26 +25,6 @@ final class const PairingInfo({
   /// Random seed used when [schedule] is `'randomized'`, or `null` otherwise.
   final int? seed,
 }) {
-  static int _nextGroupNonce = 0;
-
-  /// Generates a fresh monotonic pairing group identifier.
-  static String generateGroupId() {
-    final micros = DateTime.now().toUtc().microsecondsSinceEpoch;
-    final nonce = ++_nextGroupNonce;
-    return 'pair_${micros}_$nonce';
-  }
-
-  /// Whether [a] and [b] originate from the same interleaved multi-round
-  /// schedule and can be compared pairwise.
-  static bool canPairInfo(PairingInfo? a, PairingInfo? b) =>
-      a != null &&
-      b != null &&
-      a.interleaved &&
-      b.interleaved &&
-      a.groupId == b.groupId &&
-      a.rounds == b.rounds &&
-      a.rounds >= 2;
-
   /// Converts this pairing provenance record to a JSON-compatible map.
   Map<String, Object?> toJson() => {
     'group_id': groupId,
@@ -71,7 +51,7 @@ final class const PairingInfo({
         (rawSeed != null && rawSeed is! int)) {
       throw const FormatException('Invalid or incomplete PairingInfo JSON');
     }
-    return PairingInfo(
+    return PairingInfo._(
       groupId: groupId,
       schedule: schedule,
       interleaved: interleaved,
@@ -98,6 +78,50 @@ final class const PairingInfo({
       'PairingInfo($groupId, $schedule, interleaved: $interleaved, '
       'rounds: $rounds${seed != null ? ', seed: $seed' : ''})';
 }
+
+int _nextGroupNonce = 0;
+
+/// Generates a fresh monotonic pairing group identifier (internal to
+/// `lib/src/`).
+String generatePairingGroupId() {
+  final micros = DateTime.now().toUtc().microsecondsSinceEpoch;
+  final nonce = ++_nextGroupNonce;
+  return 'pair_${micros}_$nonce';
+}
+
+/// Constructs a validated [PairingInfo] instance (internal to `lib/src/`).
+PairingInfo createPairingInfo({
+  required String groupId,
+  required String schedule,
+  required bool interleaved,
+  required int rounds,
+  int? seed,
+}) {
+  if (groupId.isEmpty) {
+    throw ArgumentError.value(groupId, 'groupId', 'Cannot be empty.');
+  }
+  if (rounds < 1) {
+    throw ArgumentError.value(rounds, 'rounds', 'Must be >= 1.');
+  }
+  return PairingInfo._(
+    groupId: groupId,
+    schedule: schedule,
+    interleaved: interleaved,
+    rounds: rounds,
+    seed: seed,
+  );
+}
+
+/// Whether [a] and [b] originate from the same interleaved multi-round
+/// schedule and can be compared pairwise (internal to `lib/src/`).
+bool canPairInfo(PairingInfo? a, PairingInfo? b) =>
+    a != null &&
+    b != null &&
+    a.interleaved &&
+    b.interleaved &&
+    a.groupId == b.groupId &&
+    a.rounds == b.rounds &&
+    a.rounds >= 2;
 
 /// Returns `true` when [round] (`0`-based) traverses arms in reverse order
 /// under the counterbalanced `ABBA BAAB` schedule

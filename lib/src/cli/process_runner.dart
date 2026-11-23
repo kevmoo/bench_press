@@ -195,7 +195,7 @@ final class const BenchmarkProcessRunner({
     }
     totalStopwatch.stop();
 
-    final aggregated = BenchmarkSuiteResult.aggregateProcesses(processSuites);
+    final aggregated = aggregateProcessSuites(processSuites);
     return ProcessExecutionResult(
       success: true,
       runtime: runtime,

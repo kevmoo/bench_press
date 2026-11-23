@@ -426,7 +426,7 @@ final class ReportCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
-    final scale = ComparisonScale.tryParse(argResults!.option('scale')!)!;
+    final scale = tryParseComparisonScale(argResults!.option('scale')!)!;
 
     try {
       final suite = BenchmarkSuiteResult.loadFromFile(file);
@@ -580,7 +580,7 @@ final class DiffCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
-    final scale = ComparisonScale.tryParse(argResults!.option('scale')!)!;
+    final scale = tryParseComparisonScale(argResults!.option('scale')!)!;
     final thresholdRaw = argResults!.option('threshold')!;
     final threshold = DefaultsConfig.tryParseThreshold(thresholdRaw);
     if (threshold == null) {
@@ -600,7 +600,7 @@ final class DiffCommand() extends Command<int> {
     String report;
     final baselineFile = File(baseline);
     if (baselineFile.existsSync()) {
-      report = MarkdownReporter.renderDeltaFromFiles(
+      report = renderDeltaFromFiles(
         baselineFile: baselineFile,
         currentFile: currentFile,
         title: title,

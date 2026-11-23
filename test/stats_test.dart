@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:bench_press/src/stats/fieller.dart' show studentTQuantile;
 import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
@@ -267,36 +268,27 @@ void main() {
   });
 
   group('Toolkit stats.dart', () {
-    test(
-      'SampleSummary handles empty, single, signed, and JSON round-trip',
-      () {
-        final empty = SampleSummary.fromSamples(const []);
-        check(empty.count).equals(0);
-        check(empty.mean).equals(0.0);
-        check(empty.cv).equals(0.0);
+    test('SampleSummary handles empty, single, and signed sample series', () {
+      final empty = SampleSummary.fromSamples(const []);
+      check(empty.count).equals(0);
+      check(empty.mean).equals(0.0);
+      check(empty.cv).equals(0.0);
 
-        final single = SampleSummary.fromSamples(const [42]);
-        check(single.count).equals(1);
-        check(single.mean).equals(42.0);
-        check(single.stddev).equals(0.0);
+      final single = SampleSummary.fromSamples(const [42]);
+      check(single.count).equals(1);
+      check(single.mean).equals(42.0);
+      check(single.stddev).equals(0.0);
 
-        // Signed series verifies cv and robustCv normalize by |mean|/|median|.
-        final signed = SampleSummary.fromSamples(const [-110, -100, -90]);
-        check(signed.count).equals(3);
-        check(signed.mean).equals(-100.0);
-        check(signed.median).equals(-100.0);
-        check(signed.stddev).equals(10.0);
-        check(signed.cv).isCloseTo(0.10, 1e-12);
-        check(signed.mad).equals(10.0);
-        check(signed.robustCv).isCloseTo(0.14826, 1e-12);
-
-        final roundTrip = SampleSummary.fromJson(signed.toJson());
-        check(roundTrip.count).equals(signed.count);
-        check(roundTrip.mean).equals(signed.mean);
-        check(roundTrip.iqr).equals(signed.iqr);
-        check(() => SampleSummary.fromJson(const {})).throws<FormatException>();
-      },
-    );
+      // Signed series verifies cv and robustCv normalize by |mean|/|median|.
+      final signed = SampleSummary.fromSamples(const [-110, -100, -90]);
+      check(signed.count).equals(3);
+      check(signed.mean).equals(-100.0);
+      check(signed.median).equals(-100.0);
+      check(signed.stddev).equals(10.0);
+      check(signed.cv).isCloseTo(0.10, 1e-12);
+      check(signed.mad).equals(10.0);
+      check(signed.robustCv).isCloseTo(0.14826, 1e-12);
+    });
 
     test('DifferenceInterval cancels shared drift in paired mode', () {
       // Shared per-round drift [0, +50, +100, +150] plus +250 ms overhead with
@@ -327,12 +319,7 @@ void main() {
       check(paired.standardError).isCloseTo(2.0 / math.sqrt(3.0), 1e-9);
       check(paired.halfWidth).isLessThan(unpaired.halfWidth / 10.0);
       check(paired.isSignificant).isTrue;
-      check(paired.containsZero).isFalse;
       check(paired.percentDiff!).isCloseTo((250.0 / 275.0) * 100.0, 1e-9);
-
-      final rt = DifferenceInterval.fromJson(paired.toJson());
-      check(rt.meanDiff).isCloseTo(paired.meanDiff, 1e-12);
-      check(rt.paired).isTrue;
     });
 
     test('DifferenceInterval uses Welch-Satterthwaite for unequal n', () {
@@ -394,54 +381,26 @@ void main() {
       ).throws<ArgumentError>();
     });
 
-    test(
-      'LinearTrend, bonferroniConfidenceLevel, Fieller.fromJson, and p-values',
-      () {
-        // Exact linear series y = 100 + 5 * i (i = 0..4) -> slope = 5, hw = 0
-        final exact = LinearTrend.compute(const [100, 105, 110, 115, 120]);
-        check(exact.count).equals(5);
-        check(exact.mean).equals(110.0);
-        check(exact.slope).isCloseTo(5.0, 1e-12);
-        check(exact.slopeHalfWidth).equals(0.0);
-        check(exact.isSignificant).isTrue;
-        check(exact.percentChangeOverSeries!)
-            .isCloseTo((20.0 / 110.0) * 100.0, 1e-9);
+    test('LinearTrend and studentTQuantile precision', () {
+      // Exact linear series y = 100 + 5 * i (i = 0..4) -> slope = 5, hw = 0
+      final exact = LinearTrend.compute(const [100, 105, 110, 115, 120]);
+      check(exact.count).equals(5);
+      check(exact.mean).equals(110.0);
+      check(exact.slope).isCloseTo(5.0, 1e-12);
+      check(exact.slopeHalfWidth).equals(0.0);
+      check(exact.isSignificant).isTrue;
+      check(exact.percentChangeOverSeries!)
+          .isCloseTo((20.0 / 110.0) * 100.0, 1e-9);
 
-        // Flat noisy series [100, 102, 98, 102, 98] -> insignificant slope
-        final flat = LinearTrend.compute(const [100, 102, 98, 102, 98]);
-        check(flat.isSignificant).isFalse;
+      // Flat noisy series [100, 102, 98, 102, 98] -> insignificant slope
+      final flat = LinearTrend.compute(const [100, 102, 98, 102, 98]);
+      check(flat.isSignificant).isFalse;
+      check(() => LinearTrend.compute(const [1, 2])).throws<ArgumentError>();
 
-        final trendRt = LinearTrend.fromJson(exact.toJson());
-        check(trendRt.slope).isCloseTo(5.0, 1e-12);
-        check(() => LinearTrend.compute(const [1, 2])).throws<ArgumentError>();
-
-        check(bonferroniConfidenceLevel(1)).isCloseTo(0.95, 1e-12);
-        check(bonferroniConfidenceLevel(10)).isCloseTo(0.995, 1e-12);
-
-        // Newton-polished studentTQuantile matches exact R qt() to < 1e-12
-        check(studentTQuantile(0.975, 3.0)).isCloseTo(3.182446305283763, 1e-12);
-        check(studentTQuantile(0.975, 4.0))
-            .isCloseTo(2.7764451051977987, 1e-12);
-        check(studentTQuantile(0.975, double.infinity))
-            .isCloseTo(1.95996, 1e-4);
-
-        // studentTTwoSidedPValue is inverse to studentTQuantile
-        for (final df in [1.0, 2.0, 3.0, 4.0, 10.0, 50.0]) {
-          final tCrit = studentTQuantile(0.975, df);
-          final pVal = studentTTwoSidedPValue(tCrit, df);
-          check(pVal).isCloseTo(0.05, 1e-12);
-        }
-        check(studentTTwoSidedPValue(0.0, 5.0)).equals(1.0);
-
-        final fieller = FiellerInterval.compute(
-          sampleA: const [200.0, 202.0, 198.0],
-          sampleB: const [100.0, 101.0, 99.0],
-          paired: true,
-        );
-        final fiellerRt = FiellerInterval.fromJson(fieller.toJson());
-        check(fiellerRt.ratio).isCloseTo(fieller.ratio, 1e-12);
-        check(fiellerRt.paired).isTrue;
-      },
-    );
+      // Newton-polished studentTQuantile matches exact R qt() to < 1e-12
+      check(studentTQuantile(0.975, 3.0)).isCloseTo(3.182446305283763, 1e-12);
+      check(studentTQuantile(0.975, 4.0)).isCloseTo(2.7764451051977987, 1e-12);
+      check(studentTQuantile(0.975, double.infinity)).isCloseTo(1.95996, 1e-4);
+    });
   });
 }

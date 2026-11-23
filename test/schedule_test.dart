@@ -1,4 +1,5 @@
 import 'package:bench_press/schedule.dart';
+import 'package:bench_press/src/schedule/pairing.dart' show canPairInfo;
 import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
@@ -145,7 +146,7 @@ void main() {
         );
         check(seqOrder).deepEquals(['Aw', 'A0', 'A1', 'Bw', 'B0', 'B1']);
         check(seqRun.pairing.interleaved).isFalse;
-        check(PairingInfo.canPairInfo(seqRun.pairing, seqRun.pairing)).isFalse;
+        check(canPairInfo(seqRun.pairing, seqRun.pairing)).isFalse;
       },
     );
 

@@ -9,27 +9,24 @@ sealed class const ScheduleMode() {
   ///
   /// Even round counts cancel linear drift across any number of arms; multiples
   /// of 4 rounds cancel both linear and quadratic drift across 2 arms.
-  const factory abbaBaab() = AbbaBaabSchedule;
+  const factory abbaBaab() = _AbbaBaabSchedule;
 
   /// Randomized block design shuffling arm order independently in each round.
-  const factory randomized({int? seed}) = RandomizedSchedule;
+  const factory randomized({int? seed}) = _RandomizedSchedule;
 
   /// Non-interleaved sequential execution (all rounds of arm 0, then arm 1,
   /// ...), stamping `PairingInfo.interleaved == false`.
-  const factory sequential() = SequentialSchedule;
+  const factory sequential() = _SequentialSchedule;
 }
 
-/// Counterbalanced `ABBA BAAB` schedule mode.
-final class const AbbaBaabSchedule() extends ScheduleMode;
+final class const _AbbaBaabSchedule() extends ScheduleMode;
 
-/// Seeded randomized-round schedule mode.
-final class const RandomizedSchedule({final int? seed}) extends ScheduleMode;
+final class const _RandomizedSchedule({final int? seed}) extends ScheduleMode;
 
-/// Non-interleaved sequential schedule mode.
-final class const SequentialSchedule() extends ScheduleMode;
+final class const _SequentialSchedule() extends ScheduleMode;
 
 /// Per-invocation execution metadata passed to each scheduled arm callback.
-final class const RoundContext({
+final class const RoundContext._({
   /// Name of the arm being measured.
   required final String armName,
 
@@ -87,7 +84,7 @@ final class SyncScheduleArm<T>(
 });
 
 /// A single measured sample recorded for an arm in a specific [round].
-final class const ScheduledSample<T>({
+final class const ScheduledSample<T>._({
   /// Zero-based measured round index (`0 .. rounds - 1`).
   required final int round,
 
@@ -102,7 +99,7 @@ final class const ScheduledSample<T>({
 });
 
 /// All measured and warmup observations collected for a single scheduled arm.
-final class const ScheduledArmResult<T>({
+final class const ScheduledArmResult<T>._({
   /// Unique arm name.
   required final String name,
 
@@ -127,7 +124,7 @@ final class const ScheduledArmResult<T>({
 }
 
 /// Complete multi-arm execution result produced by [RoundScheduler].
-final class const ScheduledRun<T>({
+final class const ScheduledRun<T>._({
   /// Per-arm results in declaration order.
   required final List<ScheduledArmResult<T>> arms,
 
@@ -225,7 +222,7 @@ abstract final class RoundScheduler() {
       if (discardsOnSwitch > 0 && lastArm != null && lastArm != step.armIndex) {
         for (var d = 0; d < discardsOnSwitch; d++) {
           await arm.measure(
-            RoundContext(
+            RoundContext._(
               armName: arm.name,
               armIndex: step.armIndex,
               round: step.round,
@@ -238,7 +235,7 @@ abstract final class RoundScheduler() {
         }
       }
       final val = await arm.measure(
-        RoundContext(
+        RoundContext._(
           armName: arm.name,
           armIndex: step.armIndex,
           round: step.round,
@@ -251,7 +248,7 @@ abstract final class RoundScheduler() {
         warmupPerArm[step.armIndex].add(val);
       } else {
         recordsPerArm[step.armIndex].add(
-          ScheduledSample<T>(
+          ScheduledSample<T>._(
             round: step.round,
             positionInRound: step.positionInRound,
             globalSequence: seq,
@@ -304,7 +301,7 @@ abstract final class RoundScheduler() {
       if (discardsOnSwitch > 0 && lastArm != null && lastArm != step.armIndex) {
         for (var d = 0; d < discardsOnSwitch; d++) {
           arm.measure(
-            RoundContext(
+            RoundContext._(
               armName: arm.name,
               armIndex: step.armIndex,
               round: step.round,
@@ -317,7 +314,7 @@ abstract final class RoundScheduler() {
         }
       }
       final val = arm.measure(
-        RoundContext(
+        RoundContext._(
           armName: arm.name,
           armIndex: step.armIndex,
           round: step.round,
@@ -330,7 +327,7 @@ abstract final class RoundScheduler() {
         warmupPerArm[step.armIndex].add(val);
       } else {
         recordsPerArm[step.armIndex].add(
-          ScheduledSample<T>(
+          ScheduledSample<T>._(
             round: step.round,
             positionInRound: step.positionInRound,
             globalSequence: seq,
@@ -370,7 +367,7 @@ abstract final class RoundScheduler() {
 
     final warnings = <String>[];
     final armCount = armNames.length;
-    if (mode is AbbaBaabSchedule && armCount > 1 && rounds.isOdd) {
+    if (mode is _AbbaBaabSchedule && armCount > 1 && rounds.isOdd) {
       warnings.add(
         'Odd round count ($rounds) under ScheduleMode.abbaBaab does not cancel '
         'linear drift; use an even round count (ideally a multiple of 4).',
@@ -378,28 +375,28 @@ abstract final class RoundScheduler() {
     }
 
     final effectiveSeed = switch (mode) {
-      RandomizedSchedule(:final seed) =>
+      _RandomizedSchedule(:final seed) =>
         seed ?? math.Random().nextInt(0x100000000),
       _ => null,
     };
     final random = effectiveSeed != null ? math.Random(effectiveSeed) : null;
     final scheduleName = switch (mode) {
-      AbbaBaabSchedule() => 'abba_baab',
-      RandomizedSchedule() => 'randomized',
-      SequentialSchedule() => 'sequential',
+      _AbbaBaabSchedule() => 'abba_baab',
+      _RandomizedSchedule() => 'randomized',
+      _SequentialSchedule() => 'sequential',
     };
-    final interleaved = mode is! SequentialSchedule && armCount > 1;
-    final pairing = PairingInfo(
+    final interleaved = mode is! _SequentialSchedule && armCount > 1;
+    final pairing = createPairingInfo(
       groupId: (groupId != null && groupId.isNotEmpty)
           ? groupId
-          : PairingInfo.generateGroupId(),
+          : generatePairingGroupId(),
       schedule: scheduleName,
       interleaved: interleaved,
       rounds: rounds,
       seed: effectiveSeed,
     );
 
-    final steps = mode is SequentialSchedule
+    final steps = mode is _SequentialSchedule
         ? _buildSequentialSteps(armCount, warmupRounds, rounds)
         : _buildInterleavedSteps(armCount, warmupRounds, rounds, mode, random);
 
@@ -517,7 +514,7 @@ abstract final class RoundScheduler() {
     ScheduleMode mode,
     math.Random? random,
   ) {
-    if (mode is RandomizedSchedule) {
+    if (mode is _RandomizedSchedule) {
       return [for (var i = 0; i < armCount; i++) i]..shuffle(random);
     }
     final reverse = isReversedAbbaRound(round);
@@ -535,7 +532,7 @@ abstract final class RoundScheduler() {
   }) {
     final armResults = <ScheduledArmResult<T>>[
       for (var i = 0; i < armSpecs.length; i++)
-        ScheduledArmResult<T>(
+        ScheduledArmResult<T>._(
           name: armSpecs[i].name,
           isBaseline: armSpecs[i].isBaseline,
           coordinates: Map<String, String>.unmodifiable(
@@ -546,7 +543,7 @@ abstract final class RoundScheduler() {
           pairing: plan.pairing,
         ),
     ];
-    return ScheduledRun<T>(
+    return ScheduledRun<T>._(
       arms: List<ScheduledArmResult<T>>.unmodifiable(armResults),
       pairing: plan.pairing,
       warnings: plan.warnings,

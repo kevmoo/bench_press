@@ -12,25 +12,26 @@ import '../throughput.dart';
 /// Restricted strictly to physical latency (stored in nanoseconds) and memory /
 /// artifact size (stored in bytes) so all entries share lower-is-better
 /// directionality without profiler counter creep.
-enum MetricUnit(
-  /// Canonical JSON wire token (`'ns'` or `'bytes'`).
-  final String jsonValue,
-) {
+enum MetricUnit() {
   /// Elapsed time or per-operation latency normalized to nanoseconds (`'ns'`).
-  nanoseconds('ns'),
+  nanoseconds,
 
   /// Memory footprint or artifact size in bytes (`'bytes'`).
-  bytes('bytes');
-
-  /// Parses a [MetricUnit] from JSON (`null` defaults to [nanoseconds]).
-  static MetricUnit fromJsonValue(Object? value) => switch (value) {
-    null || 'ns' => MetricUnit.nanoseconds,
-    'bytes' => MetricUnit.bytes,
-    final other => throw FormatException(
-      'Invalid "unit": "$other" (expected "ns" or "bytes")',
-    ),
-  };
+  bytes,
 }
+
+String _metricUnitJsonValue(MetricUnit unit) => switch (unit) {
+  MetricUnit.nanoseconds => 'ns',
+  MetricUnit.bytes => 'bytes',
+};
+
+MetricUnit _parseMetricUnit(Object? value) => switch (value) {
+  null || 'ns' => MetricUnit.nanoseconds,
+  'bytes' => MetricUnit.bytes,
+  final other => throw FormatException(
+    'Invalid "unit": "$other" (expected "ns" or "bytes")',
+  ),
+};
 
 /// The current telemetry schema version.
 const int currentTelemetrySchemaVersion = 1;
@@ -116,13 +117,9 @@ final class const EnvironmentInfo({
       'EnvironmentInfo(dart: $dartVersion, os: $os, arch: $arch)';
 }
 
-/// N-dimensional Cartesian benchmark coordinate mapping with typed getters for
-/// well-known dimensions.
-extension type const BenchmarkCoordinates._(Map<String, String> _map)
-    implements Map<String, String> {
-  /// Constructs a [BenchmarkCoordinates] instance.
-  const new([Map<String, String> map = const {}]) : _map = map;
-
+/// Internal typed getters over `Map<String, String>` coordinates for well-known
+/// CLI dimensions.
+extension BenchmarkCoordinates on Map<String, String> {
   /// Intra-file benchmark variant comparison group (set by `BenchmarkGroup`).
   static const String groupKey = 'group';
 
@@ -158,7 +155,7 @@ extension type const BenchmarkCoordinates._(Map<String, String> _map)
 }
 
 /// Telemetry record for a single benchmark workload executed against a target.
-final class const BenchmarkEntry({
+final class const BenchmarkEntry._({
   /// The unique benchmark workload name (e.g. 'json_decode/small').
   required final String name,
 
@@ -184,7 +181,7 @@ final class const BenchmarkEntry({
   final int? calibratedBatchIterations,
 
   /// N-dimensional matrix coordinates.
-  final BenchmarkCoordinates coordinates = const BenchmarkCoordinates(),
+  final Map<String, String> coordinates = const {},
 
   /// Whether this entry was designated as the baseline for its group.
   final bool isBaseline = false,
@@ -217,73 +214,10 @@ final class const BenchmarkEntry({
   /// intervals.
   static bool canPair(BenchmarkEntry a, BenchmarkEntry b) {
     if (a.unit != b.unit) return false;
-    if (!PairingInfo.canPairInfo(a.pairing, b.pairing)) return false;
+    if (!canPairInfo(a.pairing, b.pairing)) return false;
     final lenA = a.effectiveSamplesNs.length;
     final lenB = b.effectiveSamplesNs.length;
     return lenA >= 2 && lenA == lenB && lenA <= a.pairing!.rounds;
-  }
-
-  /// Returns the statistically independent top-level samples for confidence
-  /// interval estimation: [processMeansNs] when [processes] > 1 (hierarchical
-  /// process means), or [rawTrialsNs] when [processes] == 1.
-  List<double> get effectiveSamplesNs {
-    if (processes > 1) {
-      if (processMeansNs.isNotEmpty) return processMeansNs;
-      if (processTrialsNs.isNotEmpty) {
-        return [
-          for (final proc in processTrialsNs)
-            if (proc.isNotEmpty) _meanOf(proc),
-        ];
-      }
-    }
-    return rawTrialsNs;
-  }
-
-  static double _meanOf(List<double> values) {
-    var sum = 0.0;
-    for (final v in values) {
-      sum += v;
-    }
-    return sum / values.length;
-  }
-
-  /// Unique composite key identifying this workload and its matrix coordinate.
-  String get key {
-    if (coordinates.isEmpty) {
-      return '$name:$target';
-    }
-    final sortedCoords = coordinates.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-    final coordStr = sortedCoords.map((e) => '${e.key}=${e.value}').join(',');
-    return '$name:$target:$coordStr';
-  }
-
-  BenchmarkEntry copyWith({
-    Map<String, String>? coordinates,
-    bool? isBaseline,
-    MetricUnit? unit,
-    PairingInfo? pairing,
-  }) {
-    return BenchmarkEntry(
-      name: name,
-      target: target,
-      mode: mode,
-      samples: samples,
-      metrics: metrics,
-      rawTrialsNs: rawTrialsNs,
-      warmup: warmup,
-      calibratedBatchIterations: calibratedBatchIterations,
-      coordinates: coordinates != null
-          ? BenchmarkCoordinates(coordinates)
-          : this.coordinates,
-      isBaseline: isBaseline ?? this.isBaseline,
-      throughput: throughput,
-      processes: processes,
-      processMeansNs: processMeansNs,
-      processTrialsNs: processTrialsNs,
-      unit: unit ?? this.unit,
-      pairing: pairing ?? this.pairing,
-    );
   }
 
   /// Constructs a [BenchmarkEntry] directly from raw numeric [samples] without
@@ -303,7 +237,6 @@ final class const BenchmarkEntry({
     bool isBaseline = false,
     Throughput? throughput,
     PairingInfo? pairing,
-    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
   }) {
     if (name.isEmpty) {
       throw ArgumentError.value(name, 'name', 'Cannot be empty.');
@@ -319,25 +252,19 @@ final class const BenchmarkEntry({
     final scaled = List<double>.unmodifiable([
       for (final s in samples) s.toDouble() * factor,
     ]);
-    final rawMetrics = BenchmarkMetrics.fromSamples(
-      scaled,
-      isStable: true,
-      maxCvThreshold: maxCvThreshold,
-    );
+    final rawMetrics = BenchmarkMetrics.fromSamples(scaled, isStable: true);
     final effectiveMetrics = unit == MetricUnit.bytes
         ? _zeroOpsMetrics(rawMetrics)
         : rawMetrics;
 
-    return BenchmarkEntry(
+    return BenchmarkEntry._(
       name: name,
       target: target,
       mode: mode,
       samples: scaled.length,
       metrics: effectiveMetrics,
       rawTrialsNs: scaled,
-      coordinates: BenchmarkCoordinates(
-        Map<String, String>.unmodifiable(coordinates),
-      ),
+      coordinates: Map<String, String>.unmodifiable(coordinates),
       isBaseline: isBaseline,
       throughput: throughput,
       unit: unit,
@@ -356,7 +283,6 @@ final class const BenchmarkEntry({
     bool isBaseline = false,
     Throughput? throughput,
     PairingInfo? pairing,
-    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
   }) => BenchmarkEntry.fromSamples(
     name: name,
     samples: [for (final d in durations) d.inMicroseconds * 1000.0],
@@ -367,7 +293,6 @@ final class const BenchmarkEntry({
     isBaseline: isBaseline,
     throughput: throughput,
     pairing: pairing,
-    maxCvThreshold: maxCvThreshold,
   );
 
   /// Constructs a [BenchmarkEntry] from memory or artifact size observations in
@@ -380,7 +305,6 @@ final class const BenchmarkEntry({
     Map<String, String> coordinates = const {},
     bool isBaseline = false,
     PairingInfo? pairing,
-    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
   }) => BenchmarkEntry.fromSamples(
     name: name,
     samples: bytes,
@@ -390,162 +314,14 @@ final class const BenchmarkEntry({
     coordinates: coordinates,
     isBaseline: isBaseline,
     pairing: pairing,
-    maxCvThreshold: maxCvThreshold,
   );
-
-  static BenchmarkMetrics _zeroOpsMetrics(BenchmarkMetrics m) =>
-      BenchmarkMetrics(
-        meanNs: m.meanNs,
-        medianNs: m.medianNs,
-        minNs: m.minNs,
-        maxNs: m.maxNs,
-        stddevNs: m.stddevNs,
-        cv: m.cv,
-        madNs: m.madNs,
-        robustCv: m.robustCv,
-        iqrNs: m.iqrNs,
-        isRobustStable: m.isRobustStable,
-        p95Ns: m.p95Ns,
-        p99Ns: m.p99Ns,
-        opsPerSec: 0.0,
-        isStable: m.isStable,
-        varianceComponents: m.varianceComponents,
-      );
-
-  /// Constructs a [BenchmarkEntry] from a [BenchmarkResult].
-  factory fromResult(
-    BenchmarkResult result, {
-    String target = 'jit',
-    String? mode,
-  }) {
-    final coordinates = <String, String>{};
-    if (result.group != null && result.group!.isNotEmpty) {
-      coordinates[BenchmarkCoordinates.groupKey] = result.group!;
-    }
-    return BenchmarkEntry(
-      name: result.name,
-      target: target,
-      mode: mode ?? result.mode,
-      samples: result.rawTrialLatenciesNs.length,
-      metrics: result.metrics,
-      rawTrialsNs: List<double>.unmodifiable(result.rawTrialLatenciesNs),
-      warmup: {
-        'is_stable': result.warmupResult.isStable,
-        'total_iterations': result.warmupResult.totalWarmupIterations,
-        'converged_at': result.warmupResult.convergedAtIteration,
-        'best_mmd': result.warmupResult.bestMmd,
-        'elapsed_seconds': result.warmupResult.elapsedSeconds,
-        if (result.warmupResult.estimatedOpNanoseconds.isFinite)
-          'estimated_op_ns': result.warmupResult.estimatedOpNanoseconds,
-      },
-      calibratedBatchIterations: result.calibratedBatch.iterations,
-      coordinates: BenchmarkCoordinates(coordinates),
-      isBaseline: result.isBaseline,
-      throughput: result.throughput,
-    );
-  }
-
-  /// Aggregates [processEntries] from `P` independent OS processes into a
-  /// single hierarchical [BenchmarkEntry].
-  factory fromProcesses(List<BenchmarkEntry> processEntries) {
-    if (processEntries.isEmpty) {
-      throw ArgumentError.value(
-        processEntries,
-        'processEntries',
-        'Cannot aggregate an empty list of process entries.',
-      );
-    }
-    if (processEntries.length == 1) return processEntries.single;
-
-    final first = processEntries.first;
-    final processMeans = List<double>.unmodifiable([
-      for (final e in processEntries)
-        e.rawTrialsNs.isNotEmpty ? _meanOf(e.rawTrialsNs) : e.metrics.meanNs,
-    ]);
-    final processTrials = List<List<double>>.unmodifiable([
-      for (final e in processEntries)
-        e.rawTrialsNs.isNotEmpty
-            ? List<double>.unmodifiable(e.rawTrialsNs)
-            : List<double>.unmodifiable([e.metrics.meanNs]),
-    ]);
-    final pooledRawTrials = List<double>.unmodifiable([
-      for (final e in processEntries) ...e.rawTrialsNs,
-    ]);
-    final totalSamples = processEntries.fold<int>(
-      0,
-      (sum, e) => sum + e.samples,
-    );
-    final allStable = processEntries.every(
-      (e) => (e.warmup?['is_stable'] as bool?) ?? e.metrics.isStable,
-    );
-    final rawMetrics = BenchmarkMetrics.fromProcesses(
-      processTrials,
-      isStable: allStable,
-    );
-    final metrics = first.unit == MetricUnit.bytes
-        ? _zeroOpsMetrics(rawMetrics)
-        : rawMetrics;
-
-    return BenchmarkEntry(
-      name: first.name,
-      target: first.target,
-      mode: first.mode,
-      samples: totalSamples,
-      metrics: metrics,
-      rawTrialsNs: pooledRawTrials,
-      warmup: _aggregateWarmupMaps(processEntries, allStable: allStable),
-      calibratedBatchIterations: first.calibratedBatchIterations,
-      coordinates: first.coordinates,
-      isBaseline: first.isBaseline,
-      throughput: first.throughput,
-      processes: processEntries.length,
-      processMeansNs: processMeans,
-      processTrialsNs: processTrials,
-      unit: first.unit,
-      pairing: first.pairing,
-    );
-  }
-
-  static Map<String, Object?>? _aggregateWarmupMaps(
-    List<BenchmarkEntry> forkEntries, {
-    required bool allStable,
-  }) {
-    if (forkEntries.every((e) => e.warmup == null)) return null;
-    var totalIterations = 0;
-    var maxConvergedAt = 0;
-    var maxBestMmd = 0.0;
-    var totalElapsedSec = 0.0;
-    final estimates = <double>[];
-    for (final e in forkEntries) {
-      final w = e.warmup;
-      if (w == null) continue;
-      totalIterations += (w['total_iterations'] as num?)?.toInt() ?? 0;
-      final conv = (w['converged_at'] as num?)?.toInt() ?? 0;
-      if (conv > maxConvergedAt) maxConvergedAt = conv;
-      final mmd = (w['best_mmd'] as num?)?.toDouble() ?? 0.0;
-      if (mmd.isFinite && mmd > maxBestMmd) maxBestMmd = mmd;
-      totalElapsedSec += (w['elapsed_seconds'] as num?)?.toDouble() ?? 0.0;
-      final est = (w['estimated_op_ns'] as num?)?.toDouble();
-      if (est != null && est.isFinite && est > 0) {
-        estimates.add(est);
-      }
-    }
-    return {
-      'is_stable': allStable,
-      'total_iterations': totalIterations,
-      'converged_at': maxConvergedAt,
-      'best_mmd': maxBestMmd,
-      'elapsed_seconds': totalElapsedSec,
-      if (estimates.isNotEmpty) 'estimated_op_ns': _meanOf(estimates),
-    };
-  }
 
   /// Converts the entry to a canonical JSON map.
   Map<String, Object?> toJson() => {
     'name': name,
     'target': target,
     'mode': mode,
-    if (unit != MetricUnit.nanoseconds) 'unit': unit.jsonValue,
+    if (unit != MetricUnit.nanoseconds) 'unit': _metricUnitJsonValue(unit),
     'samples': samples,
     'metrics': metrics.toJson(),
     if (coordinates.isNotEmpty) 'coordinates': coordinates,
@@ -584,7 +360,7 @@ final class const BenchmarkEntry({
     final metrics = BenchmarkMetrics.fromJson(rawMetrics);
 
     final mode = _parseMode(json['mode'], rawName);
-    final unit = MetricUnit.fromJsonValue(json['unit']);
+    final unit = _parseMetricUnit(json['unit']);
     final rawTrials = _parseRawTrials(json['raw_trials_ns'], rawName);
     final samples = _parseSamples(json['samples'], rawTrials.length, rawName);
     final coordinates = _parseCoordinates(json['coordinates'], rawName);
@@ -611,7 +387,7 @@ final class const BenchmarkEntry({
       rawName,
     );
 
-    return BenchmarkEntry(
+    return BenchmarkEntry._(
       name: rawName,
       target: rawTarget,
       mode: mode,
@@ -669,8 +445,8 @@ final class const BenchmarkEntry({
         ),
       };
 
-  static BenchmarkCoordinates _parseCoordinates(Object? value, String name) {
-    if (value == null) return const BenchmarkCoordinates();
+  static Map<String, String> _parseCoordinates(Object? value, String name) {
+    if (value == null) return const {};
     if (value is! Map) {
       throw FormatException(
         'Invalid "coordinates" in benchmark "$name": expected Map, '
@@ -688,7 +464,7 @@ final class const BenchmarkEntry({
         );
       }
     }
-    return BenchmarkCoordinates(Map.unmodifiable(result));
+    return Map<String, String>.unmodifiable(result);
   }
 
   static bool _parseIsBaseline(Object? value, String name) => switch (value) {
@@ -761,7 +537,7 @@ final class const BenchmarkEntry({
       if (processTrials.length > 1) {
         return [
           for (final proc in processTrials)
-            if (proc.isNotEmpty) _meanOf(proc),
+            if (proc.isNotEmpty) _entryMeanOf(proc),
         ];
       }
       return const <double>[];
@@ -801,9 +577,253 @@ final class const BenchmarkEntry({
       '${metrics.opsPerSec.toStringAsFixed(0)} ops/s)';
 }
 
+BenchmarkMetrics _zeroOpsMetrics(BenchmarkMetrics m) => BenchmarkMetrics(
+  meanNs: m.meanNs,
+  medianNs: m.medianNs,
+  minNs: m.minNs,
+  maxNs: m.maxNs,
+  stddevNs: m.stddevNs,
+  cv: m.cv,
+  madNs: m.madNs,
+  robustCv: m.robustCv,
+  iqrNs: m.iqrNs,
+  isRobustStable: m.isRobustStable,
+  p95Ns: m.p95Ns,
+  p99Ns: m.p99Ns,
+  opsPerSec: 0.0,
+  isStable: m.isStable,
+  varianceComponents: m.varianceComponents,
+);
+
+double _entryMeanOf(List<double> values) {
+  var sum = 0.0;
+  for (final v in values) {
+    sum += v;
+  }
+  return sum / values.length;
+}
+
+/// Internal constructor helper for tests and CLI runners in `lib/src/`.
+BenchmarkEntry createBenchmarkEntry({
+  required String name,
+  required String target,
+  required String mode,
+  required int samples,
+  required BenchmarkMetrics metrics,
+  List<double> rawTrialsNs = const [],
+  Map<String, Object?>? warmup,
+  int? calibratedBatchIterations,
+  Map<String, String> coordinates = const {},
+  bool isBaseline = false,
+  Throughput? throughput,
+  int processes = 1,
+  List<double> processMeansNs = const [],
+  List<List<double>> processTrialsNs = const [],
+  MetricUnit unit = MetricUnit.nanoseconds,
+  PairingInfo? pairing,
+}) => BenchmarkEntry._(
+  name: name,
+  target: target,
+  mode: mode,
+  samples: samples,
+  metrics: metrics,
+  rawTrialsNs: rawTrialsNs,
+  warmup: warmup,
+  calibratedBatchIterations: calibratedBatchIterations,
+  coordinates: coordinates,
+  isBaseline: isBaseline,
+  throughput: throughput,
+  processes: processes,
+  processMeansNs: processMeansNs,
+  processTrialsNs: processTrialsNs,
+  unit: unit,
+  pairing: pairing,
+);
+
+/// Internal [BenchmarkEntry] helpers kept out of the public `api.txt` surface.
+extension InternalBenchmarkEntry on BenchmarkEntry {
+  /// Returns the statistically independent top-level samples for confidence
+  /// interval estimation.
+  List<double> get effectiveSamplesNs {
+    if (processes > 1) {
+      if (processMeansNs.isNotEmpty) return processMeansNs;
+      if (processTrialsNs.isNotEmpty) {
+        return [
+          for (final proc in processTrialsNs)
+            if (proc.isNotEmpty) _entryMeanOf(proc),
+        ];
+      }
+    }
+    return rawTrialsNs;
+  }
+
+  /// Unique composite key identifying this workload and its matrix coordinate.
+  String get key {
+    if (coordinates.isEmpty) {
+      return '$name:$target';
+    }
+    final sortedCoords = coordinates.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final coordStr = sortedCoords.map((e) => '${e.key}=${e.value}').join(',');
+    return '$name:$target:$coordStr';
+  }
+
+  /// Creates a shallow copy with updated coordinates, baseline, unit, or
+  /// pairing provenance.
+  BenchmarkEntry copyWith({
+    Map<String, String>? coordinates,
+    bool? isBaseline,
+    MetricUnit? unit,
+    PairingInfo? pairing,
+  }) => BenchmarkEntry._(
+    name: name,
+    target: target,
+    mode: mode,
+    samples: samples,
+    metrics: metrics,
+    rawTrialsNs: rawTrialsNs,
+    warmup: warmup,
+    calibratedBatchIterations: calibratedBatchIterations,
+    coordinates: coordinates ?? this.coordinates,
+    isBaseline: isBaseline ?? this.isBaseline,
+    throughput: throughput,
+    processes: processes,
+    processMeansNs: processMeansNs,
+    processTrialsNs: processTrialsNs,
+    unit: unit ?? this.unit,
+    pairing: pairing ?? this.pairing,
+  );
+}
+
+/// Converts a single [BenchmarkResult] to a [BenchmarkEntry] (internal to
+/// `lib/src/`).
+BenchmarkEntry benchmarkEntryFromResult(
+  BenchmarkResult result, {
+  String target = 'jit',
+  String? mode,
+}) {
+  final coordinates = <String, String>{};
+  if (result.group != null && result.group!.isNotEmpty) {
+    coordinates[BenchmarkCoordinates.groupKey] = result.group!;
+  }
+  return BenchmarkEntry._(
+    name: result.name,
+    target: target,
+    mode: mode ?? result.mode,
+    samples: result.rawTrialLatenciesNs.length,
+    metrics: result.metrics,
+    rawTrialsNs: List<double>.unmodifiable(result.rawTrialLatenciesNs),
+    warmup: {
+      'is_stable': result.warmupResult.isStable,
+      'total_iterations': result.warmupResult.totalWarmupIterations,
+      'converged_at': result.warmupResult.convergedAtIteration,
+      'best_mmd': result.warmupResult.bestMmd,
+      'elapsed_seconds': result.warmupResult.elapsedSeconds,
+      if (result.warmupResult.estimatedOpNanoseconds.isFinite)
+        'estimated_op_ns': result.warmupResult.estimatedOpNanoseconds,
+    },
+    calibratedBatchIterations: result.calibratedBatch.iterations,
+    coordinates: Map<String, String>.unmodifiable(coordinates),
+    isBaseline: result.isBaseline,
+    throughput: result.throughput,
+  );
+}
+
+/// Aggregates [processEntries] from `P` independent OS processes into a single
+/// hierarchical [BenchmarkEntry] (internal to `lib/src/`).
+BenchmarkEntry aggregateProcessEntries(List<BenchmarkEntry> processEntries) {
+  if (processEntries.isEmpty) {
+    throw ArgumentError.value(
+      processEntries,
+      'processEntries',
+      'Cannot aggregate an empty list of process entries.',
+    );
+  }
+  if (processEntries.length == 1) return processEntries.single;
+
+  final first = processEntries.first;
+  final processMeans = List<double>.unmodifiable([
+    for (final e in processEntries)
+      e.rawTrialsNs.isNotEmpty ? _entryMeanOf(e.rawTrialsNs) : e.metrics.meanNs,
+  ]);
+  final processTrials = List<List<double>>.unmodifiable([
+    for (final e in processEntries)
+      e.rawTrialsNs.isNotEmpty
+          ? List<double>.unmodifiable(e.rawTrialsNs)
+          : List<double>.unmodifiable([e.metrics.meanNs]),
+  ]);
+  final pooledRawTrials = List<double>.unmodifiable([
+    for (final e in processEntries) ...e.rawTrialsNs,
+  ]);
+  final totalSamples = processEntries.fold<int>(0, (sum, e) => sum + e.samples);
+  final allStable = processEntries.every(
+    (e) => (e.warmup?['is_stable'] as bool?) ?? e.metrics.isStable,
+  );
+  final rawMetrics = BenchmarkMetrics.fromProcesses(
+    processTrials,
+    isStable: allStable,
+  );
+  final metrics = first.unit == MetricUnit.bytes
+      ? _zeroOpsMetrics(rawMetrics)
+      : rawMetrics;
+
+  return BenchmarkEntry._(
+    name: first.name,
+    target: first.target,
+    mode: first.mode,
+    samples: totalSamples,
+    metrics: metrics,
+    rawTrialsNs: pooledRawTrials,
+    warmup: _aggregateWarmupMaps(processEntries, allStable: allStable),
+    calibratedBatchIterations: first.calibratedBatchIterations,
+    coordinates: first.coordinates,
+    isBaseline: first.isBaseline,
+    throughput: first.throughput,
+    processes: processEntries.length,
+    processMeansNs: processMeans,
+    processTrialsNs: processTrials,
+    unit: first.unit,
+    pairing: first.pairing,
+  );
+}
+
+Map<String, Object?>? _aggregateWarmupMaps(
+  List<BenchmarkEntry> forkEntries, {
+  required bool allStable,
+}) {
+  if (forkEntries.every((e) => e.warmup == null)) return null;
+  var totalIterations = 0;
+  var maxConvergedAt = 0;
+  var maxBestMmd = 0.0;
+  var totalElapsedSec = 0.0;
+  final estimates = <double>[];
+  for (final e in forkEntries) {
+    final w = e.warmup;
+    if (w == null) continue;
+    totalIterations += (w['total_iterations'] as num?)?.toInt() ?? 0;
+    final conv = (w['converged_at'] as num?)?.toInt() ?? 0;
+    if (conv > maxConvergedAt) maxConvergedAt = conv;
+    final mmd = (w['best_mmd'] as num?)?.toDouble() ?? 0.0;
+    if (mmd.isFinite && mmd > maxBestMmd) maxBestMmd = mmd;
+    totalElapsedSec += (w['elapsed_seconds'] as num?)?.toDouble() ?? 0.0;
+    final est = (w['estimated_op_ns'] as num?)?.toDouble();
+    if (est != null && est.isFinite && est > 0) {
+      estimates.add(est);
+    }
+  }
+  return {
+    'is_stable': allStable,
+    'total_iterations': totalIterations,
+    'converged_at': maxConvergedAt,
+    'best_mmd': maxBestMmd,
+    'elapsed_seconds': totalElapsedSec,
+    if (estimates.isNotEmpty) 'estimated_op_ns': _entryMeanOf(estimates),
+  };
+}
+
 /// A complete, standalone collection of benchmark telemetry results.
 final class const BenchmarkSuiteResult({
-  /// The schema version (must equal [currentTelemetrySchemaVersion]).
+  /// The schema version (default: `1`).
   final int version = currentTelemetrySchemaVersion,
 
   /// The timestamp when the benchmark suite execution completed.
@@ -824,7 +844,7 @@ final class const BenchmarkSuiteResult({
     String? mode,
   }) {
     final entries = results
-        .map((r) => BenchmarkEntry.fromResult(r, target: target, mode: mode))
+        .map((r) => benchmarkEntryFromResult(r, target: target, mode: mode))
         .toList();
     return BenchmarkSuiteResult(
       timestamp: timestamp ?? DateTime.now().toUtc(),
@@ -844,7 +864,6 @@ final class const BenchmarkSuiteResult({
     Throughput? throughput,
     EnvironmentInfo? environment,
     DateTime? timestamp,
-    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
   }) => fromScheduledSamples<Duration>(
     run,
     valueOf: (d) => d.inMicroseconds * 1000.0,
@@ -855,7 +874,6 @@ final class const BenchmarkSuiteResult({
     throughput: throughput,
     environment: environment,
     timestamp: timestamp,
-    maxCvThreshold: maxCvThreshold,
   );
 
   /// Constructs a [BenchmarkSuiteResult] from a generic [ScheduledRun], mapping
@@ -864,14 +882,12 @@ final class const BenchmarkSuiteResult({
     ScheduledRun<T> run, {
     required double Function(T sample) valueOf,
     MetricUnit unit = MetricUnit.nanoseconds,
-    double scaleToCanonical = 1.0,
     String target = 'aot',
     String mode = 'sync',
     String? group,
     Throughput? throughput,
     EnvironmentInfo? environment,
     DateTime? timestamp,
-    double maxCvThreshold = BenchmarkMetrics.maxCvThreshold,
   }) {
     final entries = <BenchmarkEntry>[
       for (final arm in run.arms)
@@ -879,7 +895,6 @@ final class const BenchmarkSuiteResult({
           name: arm.name,
           samples: [for (final s in arm.samples) valueOf(s)],
           unit: unit,
-          scaleToCanonical: scaleToCanonical,
           target: target,
           mode: mode,
           coordinates: {
@@ -890,7 +905,6 @@ final class const BenchmarkSuiteResult({
           isBaseline: arm.isBaseline,
           throughput: throughput,
           pairing: run.pairing,
-          maxCvThreshold: maxCvThreshold,
         ),
     ];
     return BenchmarkSuiteResult(
@@ -900,99 +914,12 @@ final class const BenchmarkSuiteResult({
     );
   }
 
-  /// Aggregates [processSuites] from `P` independent OS process invocations
-  /// into a single hierarchical [BenchmarkSuiteResult].
-  factory aggregateProcesses(List<BenchmarkSuiteResult> processSuites) {
-    if (processSuites.isEmpty) {
-      throw ArgumentError.value(
-        processSuites,
-        'processSuites',
-        'Cannot aggregate an empty list of process suites.',
-      );
-    }
-    if (processSuites.length == 1) return processSuites.single;
-
-    final grouped = <String, List<BenchmarkEntry>>{};
-    for (final suite in processSuites) {
-      for (final entry in suite.benchmarks) {
-        grouped.putIfAbsent(entry.key, () => <BenchmarkEntry>[]).add(entry);
-      }
-    }
-
-    final aggregatedEntries = <BenchmarkEntry>[
-      for (final entries in grouped.values)
-        BenchmarkEntry.fromProcesses(entries),
-    ];
-    final last = processSuites.last;
-    return BenchmarkSuiteResult(
-      version: currentTelemetrySchemaVersion,
-      timestamp: last.timestamp,
-      environment: last.environment,
-      benchmarks: aggregatedEntries,
-    );
-  }
-
-  /// Finds an entry matching [name] and [target], or returns `null`.
-  BenchmarkEntry? findEntry(String name, String target) {
-    for (final entry in benchmarks) {
-      if (entry.name == name && entry.target == target) {
-        return entry;
-      }
-    }
-    return null;
-  }
-
-  /// Returns all entries for a specific workload [name] across all targets.
-  List<BenchmarkEntry> getEntriesForBenchmark(String name) =>
-      benchmarks.where((e) => e.name == name).toList();
-
-  /// Returns all entries for a specific [target] across all workloads.
-  List<BenchmarkEntry> getEntriesForTarget(String target) =>
-      benchmarks.where((e) => e.target == target).toList();
-
-  /// Returns distinct benchmark workload names sorted alphabetically.
-  List<String> get benchmarkNames {
-    final set = <String>{};
-    for (final entry in benchmarks) {
-      set.add(entry.name);
-    }
-    return set.toList()..sort();
-  }
-
-  /// Returns distinct target names sorted alphabetically.
-  List<String> get targets {
-    final set = <String>{};
-    for (final entry in benchmarks) {
-      set.add(entry.target);
-    }
-    return set.toList()..sort();
-  }
-
-  /// Returns distinct benchmark group names in order of appearance.
-  List<String> get groups {
-    final set = <String>{};
-    for (final entry in benchmarks) {
-      final g = entry.coordinates.group ?? entry.coordinates.sdk;
-      if (g != null && g.isNotEmpty) {
-        set.add(g);
-      }
-    }
-    return set.toList();
-  }
-
-  /// Returns all entries belonging to [groupName].
-  List<BenchmarkEntry> getEntriesForGroup(String groupName) =>
-      benchmarks.where((e) {
-        final g = e.coordinates.group ?? e.coordinates.sdk;
-        return g == groupName;
-      }).toList();
-
   /// Performs a deterministic deep-merge of [other] into this suite result.
   ///
-  /// Matching entries (keyed by [BenchmarkEntry.key]: `name:target` or
-  /// `name:target:coordStr`) from [other] replace existing entries. New entries
-  /// are appended. The resulting entries are sorted deterministically by
-  /// benchmark name and then target name.
+  /// Matching entries (keyed by `name:target` or `name:target:coordStr`)
+  /// from [other] replace existing entries. New entries are appended. The
+  /// resulting entries are sorted deterministically by benchmark name and
+  /// then target name.
   BenchmarkSuiteResult deepMerge(BenchmarkSuiteResult other) {
     final map = <String, BenchmarkEntry>{};
     for (final entry in benchmarks) {
@@ -1089,27 +1016,12 @@ final class const BenchmarkSuiteResult({
     file.writeAsStringSync('${toFormattedJson()}\n');
   }
 
-  /// Asynchronously saves the suite result to [file] as formatted JSON.
-  Future<void> saveToFileAsync(File file) async {
-    await file.parent.create(recursive: true);
-    await file.writeAsString('${toFormattedJson()}\n');
-  }
-
   /// Loads a [BenchmarkSuiteResult] from [file].
   static BenchmarkSuiteResult loadFromFile(File file) {
     if (!file.existsSync()) {
       throw FileSystemException('Telemetry file does not exist', file.path);
     }
     final content = file.readAsStringSync();
-    return BenchmarkSuiteResult.fromJsonString(content);
-  }
-
-  /// Asynchronously loads a [BenchmarkSuiteResult] from [file].
-  static Future<BenchmarkSuiteResult> loadFromFileAsync(File file) async {
-    if (!await file.exists()) {
-      throw FileSystemException('Telemetry file does not exist', file.path);
-    }
-    final content = await file.readAsString();
     return BenchmarkSuiteResult.fromJsonString(content);
   }
 
@@ -1133,27 +1045,102 @@ final class const BenchmarkSuiteResult({
     }
   }
 
-  /// Asynchronously merges this result into [file] if it exists, or saves it
-  /// fresh.
-  Future<BenchmarkSuiteResult> mergeAndSaveAsync(File file) async {
-    if (await file.exists()) {
-      try {
-        final existing = await loadFromFileAsync(file);
-        final merged = existing.deepMerge(this);
-        await merged.saveToFileAsync(file);
-        return merged;
-      } on FormatException {
-        await saveToFileAsync(file);
-        return this;
-      }
-    } else {
-      await saveToFileAsync(file);
-      return this;
+  @override
+  String toString() {
+    final targetSet = <String>{for (final b in benchmarks) b.target}.toList()
+      ..sort();
+    return 'BenchmarkSuiteResult(v$version, ${benchmarks.length} benchmarks, '
+        'targets: ${targetSet.join(",")})';
+  }
+}
+
+/// Aggregates [processSuites] from `P` independent OS process invocations into
+/// a single hierarchical [BenchmarkSuiteResult] (internal to `lib/src/`).
+BenchmarkSuiteResult aggregateProcessSuites(
+  List<BenchmarkSuiteResult> processSuites,
+) {
+  if (processSuites.isEmpty) {
+    throw ArgumentError.value(
+      processSuites,
+      'processSuites',
+      'Cannot aggregate an empty list of process suites.',
+    );
+  }
+  if (processSuites.length == 1) return processSuites.single;
+
+  final grouped = <String, List<BenchmarkEntry>>{};
+  for (final suite in processSuites) {
+    for (final entry in suite.benchmarks) {
+      grouped.putIfAbsent(entry.key, () => <BenchmarkEntry>[]).add(entry);
     }
   }
 
-  @override
-  String toString() =>
-      'BenchmarkSuiteResult(v$version, ${benchmarks.length} benchmarks, '
-      'targets: ${targets.join(",")})';
+  final aggregatedEntries = <BenchmarkEntry>[
+    for (final entries in grouped.values) aggregateProcessEntries(entries),
+  ];
+  final last = processSuites.last;
+  return BenchmarkSuiteResult(
+    version: currentTelemetrySchemaVersion,
+    timestamp: last.timestamp,
+    environment: last.environment,
+    benchmarks: aggregatedEntries,
+  );
+}
+
+/// Internal suite lookup helpers kept out of the public `api.txt` surface.
+extension InternalBenchmarkSuiteResult on BenchmarkSuiteResult {
+  /// Finds an entry matching [name] and [target], or returns `null`.
+  BenchmarkEntry? findEntry(String name, String target) {
+    for (final entry in benchmarks) {
+      if (entry.name == name && entry.target == target) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  /// Returns all entries for a specific workload [name] across all targets.
+  List<BenchmarkEntry> getEntriesForBenchmark(String name) =>
+      benchmarks.where((e) => e.name == name).toList();
+
+  /// Returns all entries for a specific [target] across all workloads.
+  List<BenchmarkEntry> getEntriesForTarget(String target) =>
+      benchmarks.where((e) => e.target == target).toList();
+
+  /// Returns distinct benchmark workload names sorted alphabetically.
+  List<String> get benchmarkNames {
+    final set = <String>{};
+    for (final entry in benchmarks) {
+      set.add(entry.name);
+    }
+    return set.toList()..sort();
+  }
+
+  /// Returns distinct target names sorted alphabetically.
+  List<String> get targets {
+    final set = <String>{};
+    for (final entry in benchmarks) {
+      set.add(entry.target);
+    }
+    return set.toList()..sort();
+  }
+
+  /// Returns distinct benchmark group names in order of appearance.
+  List<String> get groups {
+    final set = <String>{};
+    for (final entry in benchmarks) {
+      final g = entry.coordinates.group ?? entry.coordinates.sdk;
+      if (g != null && g.isNotEmpty) {
+        set.add(g);
+      }
+    }
+    return set.toList();
+  }
+
+  /// Returns all entries belonging to [groupName].
+  List<BenchmarkEntry> getEntriesForGroup(String groupName) =>
+      benchmarks.where((e) {
+        final g = e.coordinates.group ?? e.coordinates.sdk;
+        return g == groupName;
+      }).toList();
 }
