@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:bench_press/host.dart';
 import 'package:bench_press/src/host/cpu_affinity.dart'
-    show checkHostCpuPinningSupport, cpuPinningUnsupportedReason;
+    show checkHostCpuPinningSupport, cpuPinningUnsupportedReason, expandCpuList;
 import 'package:checks/checks.dart';
 import 'package:test/test.dart';
 
@@ -215,6 +215,20 @@ void main() {
       check(checkHostCpuPinningSupport(os: 'macos', hasTaskset: () => true))
           .isNotNull()
           .not(.it()..contains('--trials'));
+      check(checkHostCpuPinningSupport(os: 'linux', hasTaskset: () => true))
+          .isNull;
+      check(checkHostCpuPinningSupport(os: 'linux', hasTaskset: () => false))
+          .isNotNull()
+          .contains('taskset');
+    });
+  });
+
+  group('CpuAffinity formatting and expandCpuList', () {
+    test('formats toString and ignores malformed sysfs fragments', () {
+      check(CpuAffinity.parse('0-3,8').toString()).equals('CpuAffinity(0-3,8)');
+      check(CpuAffinity.singleCore(4).toString()).equals('CpuAffinity(4)');
+      check(expandCpuList('0,,2,abc,4-1,0-4:0,-2,1-5:bad'))
+          .deepEquals([0, 1, 2, 3, 4, 5]);
     });
   });
 }

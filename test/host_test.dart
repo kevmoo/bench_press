@@ -188,5 +188,126 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
         }
       },
     );
+
+    test('handles unreadable Linux /proc and /sys, unpinned SMT sibling noise, '
+        'and HostWarning / HostCheckResult value semantics', () async {
+      // Negative core index and missing /sys/devices/system/cpu/present.
+      check(validateCoreWith(-1, os: 'linux'))
+          .isNotNull()
+          .contains('must be >= 0');
+      check(validateCoreWith(99, os: 'linux', readFile: (_) => null))
+          .equals('CPU 99 is not a valid logical CPU on this host.');
+
+      // Completely unreadable /proc and /sys on Linux -> isSupported: false.
+      final unreadable = await runHostCheck(os: 'linux', readFile: (_) => null);
+      check(unreadable.isSupported).isFalse;
+      check(unreadable.isClean).isTrue;
+      check(unreadable.toString())
+          .equals('HostCheckResult(os: linux, supported: false, warnings: 0)');
+
+      // Governors-only and siblings-only sysfs still report supported.
+      final govOnly = await runHostCheck(
+        os: 'linux',
+        readFile: (p) =>
+            p == '/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'
+            ? 'performance\n'
+            : null,
+      );
+      check(govOnly.isSupported).isTrue;
+
+      final sibOnly = await runHostCheck(
+        affinity: CpuAffinity.singleCore(2),
+        os: 'linux',
+        // Malformed sysfs omitting CPU 2 itself is normalized to [2, 6].
+        readFile: (p) =>
+            p == '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list'
+            ? '6\n'
+            : null,
+      );
+      check(sibOnly.isSupported).isTrue;
+      check(sibOnly.smtSiblings[2]!).deepEquals([2, 6]);
+
+      // Pinning single core 2 while its unpinned SMT sibling 6 is busy/stolen,
+      // plus /sys/hypervisor/type VM detection, generic cpufreq/boost, and
+      // 4-field /proc/stat fallback.
+      var statCall = 0;
+      const statBefore = '''
+cpu  100 0 0 900
+cpu2 100 0 0 900 0 0 0 0
+cpu6 100 0 0 900 0 0 0 0
+bad_line
+cpuX 1 2 3 4
+cpu9 1 2
+''';
+      const statAfter = '''
+cpu  125 0 0 975
+cpu2 100 0 0 1000 0 0 0 0
+cpu6 125 0 0 970 0 0 0 5
+''';
+      final siblingNoise = await runHostCheck(
+        affinity: CpuAffinity.singleCore(2),
+        sampleDuration: const Duration(milliseconds: 10),
+        os: 'linux',
+        readFile: (p) {
+          if (p == '/proc/stat') {
+            return (statCall++ == 0) ? statBefore : statAfter;
+          }
+          return switch (p) {
+            '/sys/hypervisor/type' => 'xen\n',
+            '/sys/devices/system/cpu/cpufreq/boost' => '1\n',
+            '/sys/kernel/mm/transparent_hugepage/enabled' => '[]\n',
+            '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list' =>
+              '2,6\n',
+            _ => null,
+          };
+        },
+        delay: (_) async {},
+      );
+      check(siblingNoise.isVirtualMachine).equals(true);
+      check(siblingNoise.turboBoostEnabled).equals(true);
+      check(siblingNoise.transparentHugePages).isNull;
+      check(siblingNoise.toString()).contains('supported: true');
+
+      final busyWarn = siblingNoise.warnings.singleWhere(
+        (w) => w.kind == HostWarningKind.busyCpu,
+      );
+      final stealWarn = siblingNoise.warnings.singleWhere(
+        (w) => w.kind == HostWarningKind.hypervisorSteal,
+      );
+      check(busyWarn.cpu).equals(6);
+      check(busyWarn.message).contains('CPU 6 (SMT sibling of CPU 2)');
+      check(stealWarn.message).contains('CPU 6 (SMT sibling of CPU 2)');
+      check(busyWarn.toString()).equals(busyWarn.message);
+
+      // Re-run an identical check to verify HostWarning == and hashCode
+      // symmetry across distinct instances.
+      statCall = 0;
+      final siblingNoiseCopy = await runHostCheck(
+        affinity: CpuAffinity.singleCore(2),
+        sampleDuration: const Duration(milliseconds: 10),
+        os: 'linux',
+        readFile: (p) {
+          if (p == '/proc/stat') {
+            return (statCall++ == 0) ? statBefore : statAfter;
+          }
+          return switch (p) {
+            '/sys/hypervisor/type' => 'xen\n',
+            '/sys/devices/system/cpu/cpufreq/boost' => '0\n',
+            '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list' =>
+              '2,6\n',
+            _ => null,
+          };
+        },
+        delay: (_) async {},
+      );
+      check(siblingNoiseCopy.turboBoostEnabled).equals(false);
+      final busyWarnCopy = siblingNoiseCopy.warnings.singleWhere(
+        (w) => w.kind == HostWarningKind.busyCpu,
+      );
+      check(busyWarn == busyWarnCopy).isTrue;
+      check(busyWarnCopy == busyWarn).isTrue;
+      check(busyWarn.hashCode).equals(busyWarnCopy.hashCode);
+      check(busyWarn == stealWarn).isFalse;
+    });
   });
 }

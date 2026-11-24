@@ -1,6 +1,9 @@
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:bench_press/src/cli/command_runner.dart';
+import 'package:bench_press/src/cli/compiler.dart';
+import 'package:bench_press/src/cli/process_runner.dart';
 import 'package:bench_press/src/cli/run_command.dart';
 import 'package:bench_press/src/cli/sdk.dart';
 import 'package:bench_press/src/config/bench_press_config.dart';
@@ -11,6 +14,20 @@ import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
 
 import 'test_helpers.dart';
+
+CommandRunner<int> _fastRunRunner({DartSdk sdk = const DartSdk()}) {
+  final runner = CommandRunner<int>('bench_press', 'test');
+  runner.argParser.addFlag('verbose', abbr: 'v', negatable: false);
+  runner.addCommand(
+    RunCommand(
+      sdk: sdk,
+      compiler: TargetCompiler(sdk: sdk),
+      processRunner: BenchmarkProcessRunner(sdk: sdk),
+      hostCheckSampleDuration: Duration.zero,
+    ),
+  );
+  return runner;
+}
 
 void main() {
   group('RunCommand', () {
@@ -826,5 +843,220 @@ matrix:
         check(suite.benchmarks.single.samples).equals(8);
       },
     );
+
+    test('RunCommand(hostCheckSampleDuration: Duration.zero) exercises odd '
+        '--processes 3 interleaving, multi-process round failures, and '
+        '--pin-cpu / --d8-path / --node-path handling in-process', () async {
+      final fakeD8 = File(d.path('fake_d8'))..writeAsStringSync('');
+      final fakeNode = File(d.path('fake_node'))..writeAsStringSync('');
+      final groupBench = File(d.path('matrix_group_bench.dart'))
+        ..writeAsStringSync('''
+import 'package:bench_press/bench_press.dart';
+
+const _fastCfg = BenchmarkConfig(
+  minWarmupIterations: 1,
+  maxWarmupIterations: 2,
+  targetBatchDuration: Duration(milliseconds: 1),
+  forceRun: true,
+);
+
+final BenchmarkGroup grp = BenchmarkGroup(
+  'G',
+  [
+    BenchmarkVariant('v_base', () => Blackhole.consume(1), isBaseline: true),
+    BenchmarkVariant('v_cand', () => Blackhole.consume(2)),
+  ],
+  config: _fastCfg,
+);
+
+void main(List<String> args) => mainBenchmarkSuite([grp], args);
+''');
+      final runner = _fastRunRunner();
+
+      // Valid --d8-path and --node-path normalize cleanly under --dry-run.
+      final dryCode = await runner.run([
+        'run',
+        '--dry-run',
+        '--d8-path',
+        fakeD8.path,
+        '--node-path',
+        fakeNode.path,
+        groupBench.path,
+      ]);
+      check(dryCode).equals(ExitCode.success.code);
+
+      // Malformed --pin-cpu syntax fails upfront with usage error.
+      final badPinSyntax = await runner.run([
+        'run',
+        '--pin-cpu',
+        'not-a-cpu-list',
+        groupBench.path,
+      ]);
+      check(badPinSyntax).equals(ExitCode.usage.code);
+
+      if (Platform.isLinux) {
+        // Out-of-range core fails via HostEnvironment.validateAffinity.
+        final badPinCore = await runner.run([
+          'run',
+          '--pin-cpu',
+          '99999',
+          groupBench.path,
+        ]);
+        check(badPinCore).equals(ExitCode.usage.code);
+      }
+
+      // --pin-cpu 0 with --isolate-mode on JIT-only warns and runs unpinned.
+      final isoPinJitOut = File(d.path('iso_pin_jit.json'));
+      final isoPinCode = await runner.run([
+        'run',
+        '-t',
+        'jit',
+        '--isolate-mode',
+        '--pin-cpu',
+        '0',
+        '--trials',
+        '1',
+        '--force-run',
+        '-o',
+        isoPinJitOut.path,
+        groupBench.path,
+      ]);
+      check(isoPinCode).equals(ExitCode.success.code);
+      final isoSuite = loadSuiteFromFile(isoPinJitOut);
+      if (Platform.isLinux) {
+        final hc =
+            isoSuite.environment.extra['host_check'] as Map<String, Object?>?;
+        check(hc).isNotNull();
+        check(hc!['os']).equals('linux');
+        check(hc['is_supported']).equals(true);
+      }
+
+      // --pin-cpu 0 with --isolate-mode across a [jit, wasm] matrix where
+      // wasm is unavailable warns that non-JIT targets remain pinned.
+      final multiTargetConfig = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+  axes:
+    runtime: [jit, wasm]
+''');
+      final noWasmFastRunner = _fastRunRunner(
+        sdk: DartSdk(
+          customSdkPath: File(Platform.resolvedExecutable).parent.parent.path,
+          environment: const {'PATH': ''},
+        ),
+      );
+      final isoMultiCode = await noWasmFastRunner.run([
+        'run',
+        '-c',
+        multiTargetConfig.path,
+        '--isolate-mode',
+        '--pin-cpu',
+        '0',
+        '--trials',
+        '1',
+        '--force-run',
+        '--no-save',
+        groupBench.path,
+      ]);
+      check(isoMultiCode).equals(ExitCode.success.code);
+
+      // Odd --processes 3 across 2 matrix cells runs ABBA BAAB via
+      // RoundScheduler.run, emits the odd-round warning, intersects group +
+      // matrix isBaseline, and pairs matching variants across cells.
+      final matrixConfig = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+    flags: --define=CELL=0
+  axes:
+    runtime: [jit]
+    flags: [--define=CELL=0, --define=CELL=1]
+''');
+      final oddProcOut = File(d.path('odd_proc.json'));
+      final oddProcCode = await runner.run([
+        'run',
+        '-c',
+        matrixConfig.path,
+        '--isolate-mode',
+        '--trials',
+        '1',
+        '--processes',
+        '3',
+        '--force-run',
+        '-o',
+        oddProcOut.path,
+        groupBench.path,
+      ]);
+      check(oddProcCode).equals(ExitCode.success.code);
+      final oddSuite = loadSuiteFromFile(oddProcOut);
+      check(oddSuite.benchmarks.length).equals(4);
+      final baselines = oddSuite.benchmarks.where((b) => b.isBaseline);
+      check(baselines.length).equals(1);
+      check(baselines.single.name).equals('v_base');
+      check(baselines.single.coordinates['flags']).equals('--define=CELL=0');
+      final vBaseCells = oddSuite.getEntriesForBenchmark('v_base');
+      check(vBaseCells.length).equals(2);
+      check(canPairEntries(vBaseCells[0], vBaseCells[1])).isTrue;
+      check(vBaseCells[0].pairing!.rounds).equals(3);
+      check(vBaseCells[0].pairing!.schedule).equals('abba_baab');
+
+      // Subprocess/round failure on round 2 of a --processes 2 run exits with
+      // ExitCode.software, retains round 1's sample, and withholds pairing.
+      final markerPath = d.path('round_fail_marker').replaceAll(r'\', '/');
+      final flakyBench = File(d.path('flaky_proc_bench.dart'))
+        ..writeAsStringSync('''
+import 'dart:io';
+import 'package:bench_press/bench_press.dart';
+
+final class FlakyProcBench extends Benchmark {
+  FlakyProcBench()
+    : super(
+        'flaky_proc',
+        config: const BenchmarkConfig(
+          minWarmupIterations: 1,
+          maxWarmupIterations: 2,
+          targetBatchDuration: Duration(milliseconds: 1),
+          forceRun: true,
+        ),
+      );
+  @override
+  void run() {
+    Blackhole.consume(1);
+  }
+}
+
+void main(List<String> args) {
+  final marker = File('$markerPath');
+  if (marker.existsSync()) {
+    throw StateError('Simulated failure on second process round');
+  }
+  marker.writeAsStringSync('ran_once');
+  mainBenchmark(FlakyProcBench(), args);
+}
+''');
+      final partialOut = File(d.path('partial_proc.json'));
+      final partialCode = await runner.run([
+        'run',
+        '-t',
+        'jit',
+        '--isolate-mode',
+        '--trials',
+        '2',
+        '--processes',
+        '2',
+        '--force-run',
+        '-o',
+        partialOut.path,
+        flakyBench.path,
+      ]);
+      check(partialCode).equals(ExitCode.software.code);
+      check(partialOut.existsSync()).isTrue;
+      final partialSuite = loadSuiteFromFile(partialOut);
+      final partialEntry = partialSuite.benchmarks.single;
+      check(partialEntry.name).equals('flaky_proc');
+      check(partialEntry.processes).equals(1);
+      check(partialEntry.pairing).isNull;
+    });
   });
 }

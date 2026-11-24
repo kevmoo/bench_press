@@ -1,5 +1,6 @@
 import 'package:bench_press/schedule.dart';
-import 'package:bench_press/src/schedule/pairing.dart' show canPairInfo;
+import 'package:bench_press/src/schedule/pairing.dart'
+    show canPairInfo, createPairingInfo;
 import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
@@ -195,6 +196,130 @@ void main() {
       await check(
         RoundScheduler.run<int>(arms: [ScheduleArm('A', (_) => 1)], rounds: 0),
       ).throws<ArgumentError>();
+      await check(
+        RoundScheduler.run<int>(
+          arms: [ScheduleArm('A', (_) => 1)],
+          warmupRounds: -1,
+        ),
+      ).throws<ArgumentError>();
+      await check(
+        RoundScheduler.run<int>(
+          arms: [ScheduleArm('A', (_) => 1)],
+          discardsOnSwitch: -1,
+        ),
+      ).throws<ArgumentError>();
+      await check(RoundScheduler.run<int>(arms: [ScheduleArm('', (_) => 1)]))
+          .throws<ArgumentError>();
     });
+
+    test(
+      'preserves explicit groupId, handles missing arms and non-finite aligned '
+      'values, and validates PairingInfo equality/JSON',
+      () async {
+        final run = await RoundScheduler.run<double>(
+          arms: [
+            ScheduleArm(
+              'A',
+              coordinates: const {'k': 'v'},
+              (ctx) => ctx.round == 1 ? double.nan : 10.0 + ctx.round,
+            ),
+            ScheduleArm(
+              'B',
+              (ctx) => ctx.round == 2 ? double.infinity : 20.0 + ctx.round,
+            ),
+          ],
+          rounds: 4,
+          groupId: 'custom_grp_42',
+          mode: const ScheduleMode.randomized(),
+        );
+
+        check(run.pairing.groupId).equals('custom_grp_42');
+        check(run.pairing.schedule).equals('randomized');
+        check(run.pairing.seed).isNotNull();
+        check(run['missing']).isNull;
+        check(run['A']!.coordinates).deepEquals(const {'k': 'v'});
+        check(run['A']!.records.first.round).equals(0);
+
+        // Rounds 1 (NaN) and 2 (Infinity) are dropped across both arms.
+        final aligned = run.extractAlignedSeries((v) => v);
+        check(aligned['A']!).deepEquals([10.0, 13.0]);
+        check(aligned['B']!).deepEquals([20.0, 23.0]);
+
+        final p1 = createPairingInfo(
+          groupId: 'g1',
+          schedule: 'randomized',
+          interleaved: true,
+          rounds: 4,
+          seed: 7,
+        );
+        final p1Copy = PairingInfo.fromJson(p1.toJson());
+        final pNoSeed = createPairingInfo(
+          groupId: 'g1',
+          schedule: 'abba_baab',
+          interleaved: true,
+          rounds: 4,
+        );
+        check(p1 == p1Copy).isTrue;
+        check(p1Copy == p1).isTrue;
+        check(p1.hashCode).equals(p1Copy.hashCode);
+        check(p1 == pNoSeed).isFalse;
+        check(p1.toString()).contains('seed: 7');
+        check(pNoSeed.toString()).not(.it()..contains('seed:'));
+
+        check(
+          () => createPairingInfo(
+            groupId: '',
+            schedule: 'abba_baab',
+            interleaved: true,
+            rounds: 2,
+          ),
+        ).throws<ArgumentError>();
+        check(
+          () => createPairingInfo(
+            groupId: 'g',
+            schedule: 'abba_baab',
+            interleaved: true,
+            rounds: 0,
+          ),
+        ).throws<ArgumentError>();
+
+        for (final badJson in <Map<String, Object?>>[
+          const {},
+          const {
+            'group_id': '',
+            'schedule': 's',
+            'interleaved': true,
+            'rounds': 2,
+          },
+          const {
+            'group_id': 'g',
+            'schedule': '',
+            'interleaved': true,
+            'rounds': 2,
+          },
+          const {
+            'group_id': 'g',
+            'schedule': 's',
+            'interleaved': 'yes',
+            'rounds': 2,
+          },
+          const {
+            'group_id': 'g',
+            'schedule': 's',
+            'interleaved': true,
+            'rounds': 0,
+          },
+          const {
+            'group_id': 'g',
+            'schedule': 's',
+            'interleaved': true,
+            'rounds': 2,
+            'seed': 'not_an_int',
+          },
+        ]) {
+          check(() => PairingInfo.fromJson(badJson)).throws<FormatException>();
+        }
+      },
+    );
   });
 }

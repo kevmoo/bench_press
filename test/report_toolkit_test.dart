@@ -5,7 +5,7 @@ import 'package:bench_press/schedule.dart';
 import 'package:bench_press/src/cli/command_runner.dart';
 import 'package:bench_press/src/schedule/pairing.dart' show createPairingInfo;
 import 'package:bench_press/src/telemetry/markdown_reporter.dart'
-    show renderDeltaTable;
+    show renderDeltaFromFiles, renderDeltaTable, tryParseComparisonScale;
 import 'package:bench_press/src/telemetry/schema.dart'
     show
         InternalBenchmarkEntry,
@@ -611,5 +611,193 @@ void main() {
         check(summaryMd).contains('| UniqueBench |');
       },
     );
+
+    test('supports threshold TOST classification under '
+        'ComparisonScale.difference, unresolved ComparisonScale.both, '
+        'multi-target headers, and GiB banners', () {
+      check(tryParseComparisonScale('ratio')).equals(ComparisonScale.ratio);
+      check(tryParseComparisonScale('difference'))
+          .equals(ComparisonScale.difference);
+      check(tryParseComparisonScale(' BOTH ')).equals(ComparisonScale.both);
+      check(tryParseComparisonScale('unknown')).isNull;
+
+      const env = EnvironmentInfo(
+        dartVersion: '3.13.0',
+        os: 'linux',
+        arch: 'x64',
+      );
+      const grp = {'group': 'ThreshGrp'};
+      final base = BenchmarkEntry.fromSamples(
+        name: 'base',
+        samples: const [100.0, 100.2, 99.8, 100.0],
+        coordinates: grp,
+        isBaseline: true,
+      );
+      final faster = BenchmarkEntry.fromSamples(
+        name: 'faster',
+        samples: const [80.0, 80.2, 79.8, 80.0],
+        coordinates: grp,
+      );
+      final slower = BenchmarkEntry.fromSamples(
+        name: 'slower',
+        samples: const [120.0, 120.2, 119.8, 120.0],
+        coordinates: grp,
+      );
+      final equiv = BenchmarkEntry.fromSamples(
+        name: 'equiv',
+        samples: const [100.5, 100.7, 100.3, 100.5],
+        coordinates: grp,
+      );
+      final inconc = BenchmarkEntry.fromSamples(
+        name: 'inconc',
+        samples: const [104.0, 106.0, 102.0, 108.0],
+        coordinates: grp,
+      );
+      final singleSample = BenchmarkEntry.fromSamples(
+        name: 'single',
+        samples: const [90.0],
+        coordinates: grp,
+      );
+
+      final threshSuite = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: env,
+        benchmarks: [base, faster, slower, equiv, inconc, singleSample],
+      );
+      final suiteDiffMd = MarkdownReporter.renderSuite(
+        threshSuite,
+        scale: ComparisonScale.difference,
+        threshold: 0.05,
+        gate: false,
+      );
+      check(suiteDiffMd)
+        ..contains('🚀 🥇 Peak')
+        ..contains('⚠️ 🔴 Slow')
+        ..contains('✅ Equivalent')
+        ..contains('➖ ⚪ Inconclusive');
+
+      // Unresolved row under ComparisonScale.both emits unresolved cells.
+      final gatedBothMd = MarkdownReporter.renderSuite(
+        BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 11, 22),
+          environment: env,
+          benchmarks: [base, singleSample],
+        ),
+        scale: ComparisonScale.both,
+      );
+      check(gatedBothMd).contains('| `single` |');
+      check(gatedBothMd).contains('❓ Unresolved');
+
+      // renderDeltaFromFiles with threshold on ComparisonScale.difference.
+      final fBase = File(d.path('thresh_base.json'));
+      final fCur = File(d.path('thresh_cur.json'));
+      BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry.fromSamples(
+            name: 'w1',
+            samples: const [100.0, 100.1, 99.9, 100.0],
+          ),
+        ],
+      ).saveToFile(fBase);
+      BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22, 1),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry.fromSamples(
+            name: 'w1',
+            samples: const [100.2, 100.3, 100.1, 100.2],
+          ),
+        ],
+      ).saveToFile(fCur);
+      final fileDeltaMd = renderDeltaFromFiles(
+        baselineFile: fBase,
+        currentFile: fCur,
+        scale: ComparisonScale.difference,
+        threshold: 0.05,
+      );
+      check(fileDeltaMd).contains('✅ Equivalent');
+
+      // Multi-target matrix headings, implicit group baseline, 1.0 GiB
+      // implausible throughput, and <100x volume invariance formatting.
+      final matrixMultiTarget = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry.fromSamples(
+            name: 'parse_op',
+            target: 'jit',
+            samples: const [10.0, 10.0],
+            coordinates: const {'sdk': 'stock'},
+            throughput: const Throughput.bytes(1024 * 1024 * 1024),
+          ),
+          BenchmarkEntry.fromSamples(
+            name: 'parse_op',
+            target: 'aot',
+            samples: const [8.0, 8.0],
+            coordinates: const {'sdk': 'stock'},
+          ),
+          BenchmarkEntry.fromSamples(
+            name: 'inv_small',
+            target: 'aot',
+            samples: const [1000.0, 1000.0],
+            coordinates: const {'sdk': 'stock'},
+            throughput: const Throughput.bytes(1024),
+          ),
+          BenchmarkEntry.fromSamples(
+            name: 'inv_large',
+            target: 'aot',
+            samples: const [1000.0, 1000.0],
+            coordinates: const {'sdk': 'stock'},
+            throughput: const Throughput.bytes(16 * 1024),
+          ),
+        ],
+      );
+      // Note: invariance matches benchmarks sharing prefix/family or same
+      // group/suite—let's check multi-target headings and 1.0 GiB first:
+      final multiTargetMd = MarkdownReporter.renderSuite(matrixMultiTarget);
+      check(multiTargetMd)
+        ..contains('### Benchmark: `parse_op` (`jit`)')
+        ..contains('### Benchmark: `parse_op` (`aot`)')
+        ..contains('1.0 GiB');
+
+      // Legacy multi-group suite where neither entry sets isBaseline: true
+      // falls back to entries.first in Suite Summary, and same-family sizes
+      // with <100x ratio format volumeRatio with 1 decimal place.
+      final implicitBaseGroups = BenchmarkSuiteResult(
+        timestamp: DateTime.utc(2026, 11, 22),
+        environment: env,
+        benchmarks: [
+          BenchmarkEntry.fromSamples(
+            name: 'impl_a',
+            samples: const [100.0, 100.0],
+            coordinates: const {'group': 'g1'},
+            throughput: const Throughput.bytes(1024),
+          ),
+          BenchmarkEntry.fromSamples(
+            name: 'impl_b',
+            samples: const [50.0, 50.0],
+            coordinates: const {'group': 'g1'},
+          ),
+          BenchmarkEntry.fromSamples(
+            name: 'impl_a',
+            samples: const [100.0, 100.0],
+            coordinates: const {'group': 'g2'},
+            throughput: const Throughput.bytes(16 * 1024),
+          ),
+          BenchmarkEntry.fromSamples(
+            name: 'impl_b',
+            samples: const [50.0, 50.0],
+            coordinates: const {'group': 'g2'},
+          ),
+        ],
+      );
+      final implicitMd = MarkdownReporter.renderSuite(implicitBaseGroups);
+      check(implicitMd)
+        ..contains('### Suite Summary')
+        ..contains('**2.00x**')
+        ..contains('**16.0x** the data');
+    });
   });
 }

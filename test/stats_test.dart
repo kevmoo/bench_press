@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:bench_press/src/stats/difference.dart'
     show InternalDifferenceInterval;
 import 'package:bench_press/src/stats/fieller.dart' show studentTQuantile;
+import 'package:bench_press/src/stats/sample_summary.dart'
+    show meanOfDoubles, medianOfSorted, sampleVarianceOfDoubles;
 import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
@@ -265,6 +267,15 @@ void main() {
             [50.0, 50.0],
           ]).varianceComponents,
         ).isNull;
+
+        check(
+          () => BenchmarkMetrics.fromJson({
+            ...metrics.toJson(),
+            'variance_components': 'bad',
+          }),
+        ).throws<FormatException>();
+        check(() => ProcessVarianceComponents.fromJson(const {'processes': 2}))
+            .throws<FormatException>();
       },
     );
   });
@@ -275,11 +286,19 @@ void main() {
       check(empty.count).equals(0);
       check(empty.mean).equals(0.0);
       check(empty.cv).equals(0.0);
+      check(meanOfDoubles(const [])).equals(0.0);
+      check(sampleVarianceOfDoubles(const [5.0], 5.0)).equals(0.0);
+      check(medianOfSorted(const [])).equals(0.0);
 
       final single = SampleSummary.fromSamples(const [42]);
       check(single.count).equals(1);
       check(single.mean).equals(42.0);
       check(single.stddev).equals(0.0);
+
+      final zeroCentered = SampleSummary.fromSamples(const [-5, 0, 5]);
+      check(zeroCentered.mean).equals(0.0);
+      check(zeroCentered.cv).equals(0.0);
+      check(zeroCentered.robustCv).equals(0.0);
 
       // Signed series verifies cv and robustCv normalize by |mean|/|median|.
       final signed = SampleSummary.fromSamples(const [-110, -100, -90]);
@@ -290,6 +309,10 @@ void main() {
       check(signed.cv).isCloseTo(0.10, 1e-12);
       check(signed.mad).equals(10.0);
       check(signed.robustCv).isCloseTo(0.14826, 1e-12);
+      check(signed.toString()).equals(
+        'SampleSummary(n: 3, mean: -100.000, median: -100.000, '
+        'stddev: 10.000)',
+      );
     });
 
     test('DifferenceInterval cancels shared drift in paired mode', () {
@@ -373,6 +396,54 @@ void main() {
       // Constant +0.5 shift -> zero diff variance -> exact +0.5
       check(nearZero.isEquivalentWithin(1.0)).isTrue;
       check(nearZero.isEquivalentWithin(0.25)).isFalse;
+
+      // Non-zero standardError TOST equivalence (df = 3, t_0.95 = 2.3534):
+      // pairwise diffs [0.5, -0.5, 1.5, 0.5] -> meanDiff = 0.5, se = 0.4082,
+      // 90% CI = [-0.461, +1.461] -> inside [-2, +2], outside [-1, +1].
+      final noisyNearZero = DifferenceInterval.compute(
+        baseline: const [100.0, 102.0, 98.0, 100.0],
+        candidate: const [100.5, 101.5, 99.5, 100.5],
+        paired: true,
+      );
+      check(noisyNearZero.standardError).isGreaterThan(0.0);
+      check(noisyNearZero.isEquivalentWithin(2.0)).isTrue;
+      check(noisyNearZero.isEquivalentWithin(1.0)).isFalse;
+      check(noisyNearZero.percentHalfWidth).isNotNull();
+      check(noisyNearZero.toString())
+        ..contains('DifferenceInterval(diff: 0.500')
+        ..contains('paired: true, valid: true)');
+
+      // Negative baseline normalizes percentHalfWidth by |baselineMean|;
+      // zero baseline and invalid intervals return null for percent getters.
+      final negBase = DifferenceInterval.compute(
+        baseline: const [-102.0, -100.0, -98.0],
+        candidate: const [-92.0, -90.0, -88.0],
+      );
+      check(negBase.percentHalfWidth!).isGreaterThan(0.0);
+      final zeroBase = DifferenceInterval.compute(
+        baseline: const [-10.0, 10.0],
+        candidate: const [5.0, 15.0],
+      );
+      check(zeroBase.percentDiff).isNull;
+      check(zeroBase.percentHalfWidth).isNull;
+      check(tooFew.percentHalfWidth).isNull;
+
+      // Non-finite samples yield an invalid interval with NaN summary fields.
+      final nonFinite = DifferenceInterval.compute(
+        baseline: const [double.nan, 10.0],
+        candidate: const [10.0, 12.0],
+      );
+      check(nonFinite.isValid).isFalse;
+      check(nonFinite.baselineMean.isNaN).isTrue;
+
+      check(() => noisyNearZero.isEquivalentWithin(-0.1))
+          .throws<ArgumentError>();
+      check(() => noisyNearZero.isEquivalentWithin(double.infinity))
+          .throws<ArgumentError>();
+      check(() => noisyNearZero.isEquivalentWithin(1.0, alpha: 0.0))
+          .throws<ArgumentError>();
+      check(() => noisyNearZero.isEquivalentWithin(1.0, alpha: 0.5))
+          .throws<ArgumentError>();
 
       check(
         () => DifferenceInterval.compute(
