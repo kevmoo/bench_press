@@ -4,4 +4,4 @@ library;
 
 export 'src/host/cpu_affinity.dart' show CpuAffinity;
 export 'src/host/machine_check.dart'
-    show HostCheckResult, HostEnvironment, HostWarning, HostWarningKind;
+    show HostCheckResult, HostEnvironment, HostWarning;

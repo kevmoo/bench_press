@@ -703,10 +703,13 @@ final class RunCommand({
     final mode = processes > 1 && cells.length > 1
         ? const ScheduleMode.abbaBaab()
         : const ScheduleMode.sequential();
+    final armNames = [
+      for (var i = 0; i < cells.length; i++) '$i:${cells[i].runtime.name}',
+    ];
     final scheduledRun = await RoundScheduler.run<BenchmarkSuiteResult?>(
       arms: [
         for (var i = 0; i < cells.length; i++)
-          ScheduleArm('$i:${cells[i].runtime.name}', (_) async {
+          ScheduleArm(armNames[i], (_) async {
             final single = await _executeCompiledCell(
               discovered: discovered,
               cell: cells[i],
@@ -734,7 +737,7 @@ final class RunCommand({
       hasFailures,
     );
     return (
-      suite: _aggregateScheduledArms(scheduledRun, pairing),
+      suite: _aggregateScheduledArms(scheduledRun, armNames, pairing),
       hasFailures: hasFailures,
     );
   }
@@ -745,12 +748,10 @@ final class RunCommand({
     bool hasFailures,
   ) {
     if (processes <= 1 || hasFailures || scheduledRun.arms.isEmpty) return null;
-    final allComplete = scheduledRun.arms.every(
-      (arm) =>
-          arm.samples.length == processes &&
-          arm.samples.every((s) => s != null),
+    final aligned = scheduledRun.extractAlignedSeries(
+      (suite) => suite == null ? null : 1.0,
     );
-    if (!allComplete) return null;
+    if (aligned.values.any((series) => series.length != processes)) return null;
     final pairing = scheduledRun.pairing;
     if (pairing.interleaved) return pairing;
     return createPairingInfo(
@@ -763,11 +764,12 @@ final class RunCommand({
 
   BenchmarkSuiteResult? _aggregateScheduledArms(
     ScheduledRun<BenchmarkSuiteResult?> scheduledRun,
+    List<String> armNames,
     PairingInfo? pairing,
   ) {
     BenchmarkSuiteResult? fileAccumulated;
-    for (final arm in scheduledRun.arms) {
-      final suites = arm.samples.nonNulls.toList();
+    for (final armName in armNames) {
+      final suites = scheduledRun[armName]!.samples.nonNulls.toList();
       if (suites.isEmpty) continue;
       final aggregated = aggregateProcessSuites(suites);
       final stamped = pairing == null

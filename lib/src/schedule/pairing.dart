@@ -25,41 +25,6 @@ final class const PairingInfo._({
   /// Random seed used when [schedule] is `'randomized'`, or `null` otherwise.
   final int? seed,
 }) {
-  /// Converts this pairing provenance record to a JSON-compatible map.
-  Map<String, Object?> toJson() => {
-    'group_id': groupId,
-    'schedule': schedule,
-    'interleaved': interleaved,
-    'rounds': rounds,
-    if (seed != null) 'seed': seed,
-  };
-
-  /// Reconstructs a [PairingInfo] from a JSON map.
-  factory fromJson(Map<String, Object?> json) {
-    final groupId = json['group_id'];
-    final schedule = json['schedule'];
-    final interleaved = json['interleaved'];
-    final rounds = json['rounds'];
-    final rawSeed = json['seed'];
-    if (groupId is! String ||
-        groupId.isEmpty ||
-        schedule is! String ||
-        schedule.isEmpty ||
-        interleaved is! bool ||
-        rounds is! int ||
-        rounds < 1 ||
-        (rawSeed != null && rawSeed is! int)) {
-      throw const FormatException('Invalid or incomplete PairingInfo JSON');
-    }
-    return PairingInfo._(
-      groupId: groupId,
-      schedule: schedule,
-      interleaved: interleaved,
-      rounds: rounds,
-      seed: rawSeed as int?,
-    );
-  }
-
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -77,6 +42,44 @@ final class const PairingInfo._({
   String toString() =>
       'PairingInfo($groupId, $schedule, interleaved: $interleaved, '
       'rounds: $rounds${seed != null ? ', seed: $seed' : ''})';
+}
+
+/// Internal [PairingInfo] serialization helpers kept out of `api.txt`.
+extension InternalPairingInfo on PairingInfo {
+  /// Converts this pairing provenance record to a JSON-compatible map.
+  Map<String, Object?> toJson() => {
+    'group_id': groupId,
+    'schedule': schedule,
+    'interleaved': interleaved,
+    'rounds': rounds,
+    if (seed != null) 'seed': seed,
+  };
+}
+
+/// Reconstructs a [PairingInfo] from a JSON map (internal to `lib/src/`).
+PairingInfo pairingInfoFromJson(Map<String, Object?> json) {
+  final groupId = json['group_id'];
+  final schedule = json['schedule'];
+  final interleaved = json['interleaved'];
+  final rounds = json['rounds'];
+  final rawSeed = json['seed'];
+  if (groupId is! String ||
+      groupId.isEmpty ||
+      schedule is! String ||
+      schedule.isEmpty ||
+      interleaved is! bool ||
+      rounds is! int ||
+      rounds < 1 ||
+      (rawSeed != null && rawSeed is! int)) {
+    throw const FormatException('Invalid or incomplete PairingInfo JSON');
+  }
+  return PairingInfo._(
+    groupId: groupId,
+    schedule: schedule,
+    interleaved: interleaved,
+    rounds: rounds,
+    seed: rawSeed as int?,
+  );
 }
 
 int _nextGroupNonce = 0;

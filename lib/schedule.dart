@@ -11,5 +11,4 @@ export 'src/schedule/round_scheduler.dart'
         ScheduleArm,
         ScheduleMode,
         ScheduledArmResult,
-        ScheduledRun,
-        ScheduledSample;
+        ScheduledRun;

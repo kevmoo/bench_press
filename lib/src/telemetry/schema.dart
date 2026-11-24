@@ -412,7 +412,7 @@ final class const BenchmarkEntry._({
   static PairingInfo? _parsePairing(Object? value, String name) =>
       switch (value) {
         null => null,
-        final Map<String, Object?> m => PairingInfo.fromJson(m),
+        final Map<String, Object?> m => pairingInfoFromJson(m),
         final other => throw FormatException(
           'Invalid "pairing" in benchmark "$name": expected Map, '
           'got ${other.runtimeType}',

@@ -49,8 +49,7 @@ String _warningKindJsonName(HostWarningKind kind) => switch (kind) {
 
 /// A structured preflight host noise warning with a human-readable diagnostic.
 final class const HostWarning._({
-  /// Structured category of the warning.
-  required final HostWarningKind kind,
+  required final HostWarningKind _kind,
 
   /// Actionable human-readable diagnostic message.
   required final String message,
@@ -59,7 +58,7 @@ final class const HostWarning._({
   final int? cpu,
 }) {
   Map<String, Object?> _toJson() => {
-    'kind': _warningKindJsonName(kind),
+    'kind': _warningKindJsonName(_kind),
     'message': message,
     if (cpu != null) 'cpu': cpu,
   };
@@ -68,15 +67,21 @@ final class const HostWarning._({
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is HostWarning &&
-          other.kind == kind &&
+          other._kind == _kind &&
           other.message == message &&
           other.cpu == cpu);
 
   @override
-  int get hashCode => Object.hash(kind, message, cpu);
+  int get hashCode => Object.hash(_kind, message, cpu);
 
   @override
   String toString() => message;
+}
+
+/// Internal [HostWarning] helpers kept out of the public `api.txt` surface.
+extension InternalHostWarning on HostWarning {
+  /// Structured category of this warning.
+  HostWarningKind get kind => _kind;
 }
 
 /// Structured result of a host machine preflight noise and topology check.

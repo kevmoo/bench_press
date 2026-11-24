@@ -97,8 +97,7 @@ final class const ScheduledArmResult<T>._({
   /// Coordinates associated with this arm.
   required final Map<String, String> coordinates,
 
-  /// Measured records ordered strictly by `round` (`0 .. rounds - 1`).
-  required final List<ScheduledSample<T>> records,
+  required final List<ScheduledSample<T>> _records,
 
   /// Samples collected during `warmupRounds` (excluding switch discards).
   required final List<T> warmupSamples,
@@ -108,7 +107,14 @@ final class const ScheduledArmResult<T>._({
 }) {
   /// Unmodifiable list of measured values ordered by round (`0 .. rounds - 1`).
   List<T> get samples =>
-      List<T>.unmodifiable([for (final r in records) r.value]);
+      List<T>.unmodifiable([for (final r in _records) r.value]);
+}
+
+/// Internal [ScheduledArmResult] helpers kept out of the public `api.txt`
+/// surface.
+extension InternalScheduledArmResult<T> on ScheduledArmResult<T> {
+  /// Measured records ordered strictly by `round` (`0 .. rounds - 1`).
+  List<ScheduledSample<T>> get records => _records;
 }
 
 /// Complete multi-arm execution result produced by [RoundScheduler].

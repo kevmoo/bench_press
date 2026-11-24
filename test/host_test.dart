@@ -4,7 +4,12 @@ import 'package:bench_press/host.dart';
 import 'package:bench_press/src/host/cpu_affinity.dart'
     show InternalCpuAffinity;
 import 'package:bench_press/src/host/machine_check.dart'
-    show runHostCheck, validateAffinityWith, validateCoreWith;
+    show
+        HostWarningKind,
+        InternalHostWarning,
+        runHostCheck,
+        validateAffinityWith,
+        validateCoreWith;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 

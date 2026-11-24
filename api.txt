@@ -223,20 +223,9 @@ package:bench_press/host.dart:
   HostWarning (class extends Object, final):
     cpu (getter: int?)
     hashCode (getter: int)
-    kind (getter: HostWarningKind)
     message (getter: String)
     == (method: bool Function(Object))
     toString (method: String Function())
-  HostWarningKind (enum):
-    busyCpu (enum constant: HostWarningKind)
-    highLoadAverage (enum constant: HostWarningKind)
-    hypervisorSteal (enum constant: HostWarningKind)
-    nonPerformanceGovernor (enum constant: HostWarningKind)
-    pinnedSmtSiblings (enum constant: HostWarningKind)
-    transparentHugePagesAlways (enum constant: HostWarningKind)
-    turboBoostEnabled (enum constant: HostWarningKind)
-    values (static const getter: List<HostWarningKind>)
-    virtualMachine (enum constant: HostWarningKind)
 package:bench_press/report.dart:
   BenchmarkEntry (class extends Object, final):
     fromJson (constructor: BenchmarkEntry Function(Map<String, Object?>))
@@ -285,7 +274,6 @@ package:bench_press/report.dart:
     renderSuite (static method: String Function(BenchmarkSuiteResult, {bool gate, ComparisonScale scale, double threshold, String? title}))
     renderSummaryTable (static method: String Function(BenchmarkSuiteResult, {String? title}))
   PairingInfo (class extends Object, final):
-    fromJson (constructor: PairingInfo Function(Map<String, Object?>))
     groupId (getter: String)
     hashCode (getter: int)
     interleaved (getter: bool)
@@ -293,7 +281,6 @@ package:bench_press/report.dart:
     schedule (getter: String)
     seed (getter: int?)
     == (method: bool Function(Object))
-    toJson (method: Map<String, Object?> Function())
     toString (method: String Function())
   ProcessVarianceComponents (see above)
   Throughput (see above)
@@ -325,7 +312,6 @@ package:bench_press/schedule.dart:
     isBaseline (getter: bool)
     name (getter: String)
     pairing (getter: PairingInfo)
-    records (getter: List<ScheduledSample<T>>)
     samples (getter: List<T>)
     warmupSamples (getter: List<T>)
   ScheduledRun (class<T> extends Object, final):
@@ -334,11 +320,6 @@ package:bench_press/schedule.dart:
     warnings (getter: List<String>)
     [] (method: ScheduledArmResult<T>? Function(String))
     extractAlignedSeries (method: Map<String, List<double>> Function(double? Function(T)))
-  ScheduledSample (class<T> extends Object, final):
-    globalSequence (getter: int)
-    positionInRound (getter: int)
-    round (getter: int)
-    value (getter: T)
 package:bench_press/stats.dart:
   BenchmarkMetrics (see above)
   DifferenceInterval (class extends Object, final):

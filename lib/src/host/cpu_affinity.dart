@@ -66,6 +66,10 @@ final class const CpuAffinity._(
         );
       }
     }
+    final single = int.tryParse(trimmed);
+    if (single != null && '$single' == trimmed) {
+      return CpuAffinity.singleCore(single);
+    }
     return CpuAffinity._(trimmed);
   }
 
@@ -148,6 +152,11 @@ String? checkHostCpuPinningSupport({String? os, bool Function()? hasTaskset}) {
 /// Explains why CPU pinning is unavailable on this host, or `null` when it is
 /// available.
 String? cpuPinningUnsupportedReason({String? os, bool Function()? hasTaskset}) {
+  if (os == null &&
+      hasTaskset == null &&
+      CpuAffinity.unsupportedReason == null) {
+    return null;
+  }
   final host = os ?? Platform.operatingSystem;
   if (host != 'linux') {
     if (host == 'windows') {

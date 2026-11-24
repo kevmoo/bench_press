@@ -1,6 +1,12 @@
 import 'package:bench_press/schedule.dart';
 import 'package:bench_press/src/schedule/pairing.dart'
-    show canPairInfo, createPairingInfo;
+    show
+        InternalPairingInfo,
+        canPairInfo,
+        createPairingInfo,
+        pairingInfoFromJson;
+import 'package:bench_press/src/schedule/round_scheduler.dart'
+    show InternalScheduledArmResult;
 import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
@@ -180,7 +186,7 @@ void main() {
         check(aligned['A']!).deepEquals([10.0, 12.0]);
         check(aligned['B']!).deepEquals([20.0, 22.0]);
 
-        final pairingRt = PairingInfo.fromJson(run.pairing.toJson());
+        final pairingRt = pairingInfoFromJson(run.pairing.toJson());
         check(pairingRt).equals(run.pairing);
       },
     );
@@ -252,7 +258,7 @@ void main() {
           rounds: 4,
           seed: 7,
         );
-        final p1Copy = PairingInfo.fromJson(p1.toJson());
+        final p1Copy = pairingInfoFromJson(p1.toJson());
         final pNoSeed = createPairingInfo(
           groupId: 'g1',
           schedule: 'abba_baab',
@@ -317,7 +323,7 @@ void main() {
             'seed': 'not_an_int',
           },
         ]) {
-          check(() => PairingInfo.fromJson(badJson)).throws<FormatException>();
+          check(() => pairingInfoFromJson(badJson)).throws<FormatException>();
         }
       },
     );

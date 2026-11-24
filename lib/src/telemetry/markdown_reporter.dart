@@ -23,12 +23,7 @@ enum ComparisonScale() {
 /// Parses [raw] (`'ratio'`, `'difference'`, or `'both'`), returning `null` if
 /// unrecognized (internal to `lib/src/`).
 ComparisonScale? tryParseComparisonScale(String raw) =>
-    switch (raw.trim().toLowerCase()) {
-      'ratio' => ComparisonScale.ratio,
-      'difference' => ComparisonScale.difference,
-      'both' => ComparisonScale.both,
-      _ => null,
-    };
+    ComparisonScale.values.asNameMap()[raw.trim().toLowerCase()];
 
 /// Generates formatted Markdown tables and performance telemetry reports.
 abstract final class MarkdownReporter() {
