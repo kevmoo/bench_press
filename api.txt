@@ -198,7 +198,6 @@ package:bench_press/host.dart:
     parse (constructor: CpuAffinity Function(String))
     singleCore (constructor: CpuAffinity Function(int))
     cpuList (getter: String)
-    cpus (getter: List<int>)
     hashCode (getter: int)
     == (method: bool Function(Object))
     toString (method: String Function())
@@ -220,7 +219,6 @@ package:bench_press/host.dart:
     toString (method: String Function())
   HostEnvironment (class extends Object, abstract, final):
     check (static method: Future<HostCheckResult> Function({CpuAffinity? affinity, Duration sampleDuration}))
-    checkSync (static method: HostCheckResult Function({CpuAffinity? affinity, Duration sampleDuration}))
     validateAffinity (static method: String? Function(CpuAffinity))
   HostWarning (class extends Object, final):
     cpu (getter: int?)
@@ -241,11 +239,8 @@ package:bench_press/host.dart:
     virtualMachine (enum constant: HostWarningKind)
 package:bench_press/report.dart:
   BenchmarkEntry (class extends Object, final):
-    canPair (static method: bool Function(BenchmarkEntry, BenchmarkEntry))
-    fromBytes (constructor: BenchmarkEntry Function({required List<num> bytes, Map<String, String> coordinates, bool isBaseline, String mode, required String name, PairingInfo? pairing, String target}))
-    fromDurations (constructor: BenchmarkEntry Function({Map<String, String> coordinates, required List<Duration> durations, bool isBaseline, String mode, required String name, PairingInfo? pairing, String target, Throughput? throughput}))
     fromJson (constructor: BenchmarkEntry Function(Map<String, Object?>))
-    fromSamples (constructor: BenchmarkEntry Function({Map<String, String> coordinates, bool isBaseline, String mode, required String name, PairingInfo? pairing, required List<num> samples, double scaleToCanonical, String target, Throughput? throughput, MetricUnit unit}))
+    fromSamples (constructor: BenchmarkEntry Function({Map<String, String> coordinates, bool isBaseline, String mode, required String name, PairingInfo? pairing, required List<num> samples, double scaleToCanonical, String target, Throughput? throughput}))
     calibratedBatchIterations (getter: int?)
     coordinates (getter: Map<String, String>)
     isBaseline (getter: bool)
@@ -260,16 +255,12 @@ package:bench_press/report.dart:
     samples (getter: int)
     target (getter: String)
     throughput (getter: Throughput?)
-    unit (getter: MetricUnit)
     warmup (getter: Map<String, Object?>?)
     toJson (method: Map<String, Object?> Function())
     toString (method: String Function())
   BenchmarkMetrics (see above)
   BenchmarkResult (see above)
   BenchmarkSuiteResult (class extends Object, final):
-    fromScheduledDurations (static method: BenchmarkSuiteResult Function(ScheduledRun<Duration>, {EnvironmentInfo? environment, String? group, String mode, String target, Throughput? throughput, DateTime? timestamp}))
-    fromScheduledSamples (static method: BenchmarkSuiteResult Function<T>(ScheduledRun<T>, {EnvironmentInfo? environment, String? group, String mode, String target, Throughput? throughput, DateTime? timestamp, MetricUnit unit, required double Function(T) valueOf}))
-    loadFromFile (static method: BenchmarkSuiteResult Function(File))
     new (const constructor: BenchmarkSuiteResult Function({required List<BenchmarkEntry> benchmarks, required EnvironmentInfo environment, required DateTime timestamp, int version}))
     fromJson (constructor: BenchmarkSuiteResult Function(Map<String, Object?>))
     fromJsonString (constructor: BenchmarkSuiteResult Function(String))
@@ -278,8 +269,6 @@ package:bench_press/report.dart:
     environment (getter: EnvironmentInfo)
     timestamp (getter: DateTime)
     version (getter: int)
-    deepMerge (method: BenchmarkSuiteResult Function(BenchmarkSuiteResult))
-    mergeAndSave (method: BenchmarkSuiteResult Function(File))
     saveToFile (method: void Function(File))
     toFormattedJson (method: String Function())
     toJson (method: Map<String, Object?> Function())
@@ -293,13 +282,8 @@ package:bench_press/report.dart:
   ElementThroughput (see above)
   EnvironmentInfo (see above)
   MarkdownReporter (class extends Object, abstract, final):
-    renderDeltaTable (static method: String Function({required BenchmarkSuiteResult baseline, String baselineLabel, required BenchmarkSuiteResult current, String currentLabel, bool gate, ComparisonScale scale, double threshold, String? title}))
     renderSuite (static method: String Function(BenchmarkSuiteResult, {bool gate, ComparisonScale scale, double threshold, String? title}))
     renderSummaryTable (static method: String Function(BenchmarkSuiteResult, {String? title}))
-  MetricUnit (enum):
-    bytes (enum constant: MetricUnit)
-    nanoseconds (enum constant: MetricUnit)
-    values (static const getter: List<MetricUnit>)
   PairingInfo (class extends Object, final):
     fromJson (constructor: PairingInfo Function(Map<String, Object?>))
     groupId (getter: String)
@@ -326,14 +310,13 @@ package:bench_press/schedule.dart:
   RoundScheduler (class extends Object, abstract, final):
     defaultRounds (static const getter: int)
     run (static method: Future<ScheduledRun<T>> Function<T>({required List<ScheduleArm<T>> arms, int discardsOnSwitch, String? groupId, ScheduleMode mode, int rounds, int warmupRounds}))
-    runSync (static method: ScheduledRun<T> Function<T>({required List<SyncScheduleArm<T>> arms, int discardsOnSwitch, String? groupId, ScheduleMode mode, int rounds, int warmupRounds}))
   ScheduleArm (class<T> extends Object, final):
     new (constructor: ScheduleArm<T> Function(String, FutureOr<T> Function(RoundContext), {Map<String, String> coordinates, bool isBaseline}))
     coordinates (getter: Map<String, String>)
     isBaseline (getter: bool)
     measure (getter: FutureOr<T> Function(RoundContext))
     name (getter: String)
-  ScheduleMode (class extends Object, sealed (immediate subtypes: _AbbaBaabSchedule, _RandomizedSchedule, _SequentialSchedule)):
+  ScheduleMode (class extends Object, final):
     abbaBaab (const constructor: ScheduleMode Function())
     randomized (const constructor: ScheduleMode Function({int? seed}))
     sequential (const constructor: ScheduleMode Function())
@@ -356,12 +339,6 @@ package:bench_press/schedule.dart:
     positionInRound (getter: int)
     round (getter: int)
     value (getter: T)
-  SyncScheduleArm (class<T> extends Object, final):
-    new (constructor: SyncScheduleArm<T> Function(String, T Function(RoundContext), {Map<String, String> coordinates, bool isBaseline}))
-    coordinates (getter: Map<String, String>)
-    isBaseline (getter: bool)
-    measure (getter: T Function(RoundContext))
-    name (getter: String)
 package:bench_press/stats.dart:
   BenchmarkMetrics (see above)
   DifferenceInterval (class extends Object, final):
@@ -383,21 +360,8 @@ package:bench_press/stats.dart:
     percentHalfWidth (getter: double?)
     standardError (getter: double)
     upperBound (getter: double)
-    isEquivalentWithin (method: bool Function(double, {double alpha}))
     toString (method: String Function())
   FiellerInterval (see above)
-  LinearTrend (class extends Object, final):
-    compute (constructor: LinearTrend Function(List<num>, {double confidenceLevel}))
-    confidenceLevel (getter: double)
-    count (getter: int)
-    degreesOfFreedom (getter: double)
-    isSignificant (getter: bool)
-    mean (getter: double)
-    percentChangeOverSeries (getter: double?)
-    percentHalfWidthOverSeries (getter: double?)
-    slope (getter: double)
-    slopeHalfWidth (getter: double)
-    toString (method: String Function())
   ProcessVarianceComponents (see above)
   SampleSummary (class extends Object, final):
     fromSamples (constructor: SampleSummary Function(List<num>))

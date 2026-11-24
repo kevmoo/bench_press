@@ -265,7 +265,6 @@ abstract final class MarkdownReporter() {
 
     final axesList = _extractSortedAxes(entries);
     final hasThroughput = entries.any((e) => e.throughput != null);
-    final allBytes = entries.every((e) => e.unit == MetricUnit.bytes);
     final baseEntry = entries.firstWhere(
       (e) => e.isBaseline,
       orElse: () => entries.first,
@@ -289,7 +288,7 @@ abstract final class MarkdownReporter() {
         axis.isEmpty ? 'Variant' : axis[0].toUpperCase() + axis.substring(1),
       'Ops/sec',
       if (hasThroughput) 'Throughput',
-      allBytes ? 'Mean Size' : 'Mean Latency',
+      'Mean Latency',
       ..._matrixScaleHeaders(baselineLabel, scale),
     ];
     buffer.writeln('| ${headerRow.join(' | ')} |');
@@ -381,7 +380,6 @@ abstract final class MarkdownReporter() {
     String label,
     BenchmarkEntry entry,
   ) {
-    if (entry.unit != MetricUnit.nanoseconds) return;
     final estimate = entry.warmup?['estimated_op_ns'];
     if (estimate is! num || estimate <= 0) return;
     final median = entry.metrics.medianNs;
@@ -426,21 +424,13 @@ abstract final class MarkdownReporter() {
         axes,
         includeNameCol: includeNameCol,
       ),
-      entry.unit == MetricUnit.bytes
-          ? '-'
-          : _formatOps(entry.metrics.opsPerSec),
-      if (hasThroughput)
-        entry.unit == MetricUnit.bytes
-            ? '-'
-            : (entry.throughput?.formatRate(curMeanNs) ?? '-'),
-      _formatMetricValue(curMeanNs, entry.unit),
+      _formatOps(entry.metrics.opsPerSec),
+      if (hasThroughput) entry.throughput?.formatRate(curMeanNs) ?? '-',
+      _formatLatency(curMeanNs),
     ];
 
     if (identical(entry, baselineEntry)) {
-      final baseCols = [
-        ...prefixCols,
-        ..._matrixBaselineSuffix(entry.unit, scale),
-      ];
+      final baseCols = [...prefixCols, ..._matrixBaselineSuffix(scale)];
       return '| ${baseCols.join(' | ')} |';
     }
 
@@ -495,33 +485,28 @@ abstract final class MarkdownReporter() {
     return '| ${[...prefixCols, ...suffix].join(' | ')} |';
   }
 
-  static List<String> _matrixBaselineSuffix(
-    MetricUnit unit,
-    ComparisonScale scale,
-  ) {
-    final zero = _formatZeroValue(unit);
-    return switch (scale) {
-      ComparisonScale.ratio => [
-        '1.00x (ref)',
-        '1.00x',
-        '[1.00x – 1.00x]',
-        'Ref',
-      ],
-      ComparisonScale.difference => [
-        '$zero (ref)',
-        '0.0%',
-        '[$zero – $zero]',
-        'Ref',
-      ],
-      ComparisonScale.both => [
-        '$zero (ref)',
-        '[$zero – $zero]',
-        '1.00x',
-        '[1.00x – 1.00x]',
-        'Ref',
-      ],
-    };
-  }
+  static List<String> _matrixBaselineSuffix(ComparisonScale scale) =>
+      switch (scale) {
+        ComparisonScale.ratio => const [
+          '1.00x (ref)',
+          '1.00x',
+          '[1.00x – 1.00x]',
+          'Ref',
+        ],
+        ComparisonScale.difference => const [
+          '0.0 ns (ref)',
+          '0.0%',
+          '[0.0 ns – 0.0 ns]',
+          'Ref',
+        ],
+        ComparisonScale.both => const [
+          '0.0 ns (ref)',
+          '[0.0 ns – 0.0 ns]',
+          '1.00x',
+          '[1.00x – 1.00x]',
+          'Ref',
+        ],
+      };
 
   static List<String> _formatMatrixRatioSuffix(
     BenchmarkEntry entry,
@@ -605,7 +590,7 @@ abstract final class MarkdownReporter() {
       ];
     }
 
-    final diffText = _formatSignedDelta(rawDiff, entry.unit);
+    final diffText = _formatSignedDelta(rawDiff);
     final diffStr = movement.$2 != 0 ? '**$diffText**' : diffText;
     final deltaPct = baseMeanNs > 0.0 ? (rawDiff / baseMeanNs) * 100.0 : 0.0;
     final pctStr = _formatPercent(deltaPct);
@@ -652,7 +637,7 @@ abstract final class MarkdownReporter() {
     final rawDiff = curMeanNs - baseMeanNs;
     final deltaPct = baseMeanNs > 0.0 ? (rawDiff / baseMeanNs) * 100.0 : 0.0;
     final diffText =
-        '${_formatSignedDelta(rawDiff, entry.unit)} '
+        '${_formatSignedDelta(rawDiff)} '
         '(${_formatPercent(deltaPct)})';
     final diffStr = movement.$2 != 0 ? '**$diffText**' : diffText;
     final diffCi = movement.$2 != 0
@@ -731,16 +716,13 @@ abstract final class MarkdownReporter() {
 
     final hasThroughput = suite.benchmarks.any((b) => b.throughput != null);
     final hasMultiProcess = suite.benchmarks.any((b) => b.processes > 1);
-    final allBytes =
-        suite.benchmarks.isNotEmpty &&
-        suite.benchmarks.every((b) => b.unit == MetricUnit.bytes);
     final collidingKeys = _duplicateSummaryKeys(suite.benchmarks);
     final headers = <String>[
       'Benchmark',
       'Target',
       'Ops/sec',
       if (hasThroughput) 'Throughput',
-      allBytes ? 'Mean Size' : 'Mean Latency',
+      'Mean Latency',
       'Median',
       'Min',
       'StdDev',
@@ -795,58 +777,16 @@ abstract final class MarkdownReporter() {
     final cols = <String>[
       disambiguateName ? _deltaRowLabel(b) : b.name,
       '`${b.target}`',
-      b.unit == MetricUnit.bytes ? '-' : _formatOps(m.opsPerSec),
-      if (hasThroughput)
-        b.unit == MetricUnit.bytes
-            ? '-'
-            : (b.throughput?.formatRate(m.meanNs) ?? '-'),
-      _formatMetricValue(m.meanNs, b.unit),
-      _formatMetricValue(m.medianNs, b.unit),
-      _formatMetricValue(m.minNs, b.unit),
-      '±${_formatMetricValue(m.stddevNs, b.unit)} ($cvPct%)',
+      _formatOps(m.opsPerSec),
+      if (hasThroughput) b.throughput?.formatRate(m.meanNs) ?? '-',
+      _formatLatency(m.meanNs),
+      _formatLatency(m.medianNs),
+      _formatLatency(m.minNs),
+      '±${_formatLatency(m.stddevNs)} ($cvPct%)',
       if (hasMultiProcess) ...['${b.processes}', shareStr],
       m.isStable ? '✅ Stable' : '⚠️ Unstable',
     ];
     return '| ${cols.join(' | ')} |';
-  }
-
-  /// Renders an isolated Before-vs-After delta comparison table comparing
-  /// [baseline] to [current].
-  static String renderDeltaTable({
-    required BenchmarkSuiteResult baseline,
-    required BenchmarkSuiteResult current,
-    String? title,
-    String baselineLabel = 'Baseline',
-    String currentLabel = 'Current',
-    bool gate = true,
-    double threshold = 0.0,
-    ComparisonScale scale = ComparisonScale.ratio,
-  }) {
-    final buffer = StringBuffer();
-    final heading = title ?? 'Before vs. After Delta Comparison';
-    buffer.writeln('### $heading');
-    buffer.writeln();
-
-    final pairing = _pairByKey(baseline, current);
-    if (pairing.matched.isEmpty) {
-      buffer.writeln(
-        '_No matching benchmarks found between baseline and current results._',
-      );
-    } else {
-      buffer.write(
-        _renderDeltaRows(
-          pairing.matched,
-          baselineLabel: baselineLabel,
-          currentLabel: currentLabel,
-          gate: gate,
-          threshold: threshold,
-          scale: scale,
-        ),
-      );
-    }
-    _writeUnmatchedNotes(buffer, pairing, baselineLabel, currentLabel);
-
-    return buffer.toString();
   }
 
   /// Pairs cells by composite key (name, target, and every coordinate,
@@ -1258,7 +1198,6 @@ abstract final class MarkdownReporter() {
     final diffCells = _formatDeltaDiffCells(
       diffVal: diffVal,
       deltaPct: deltaPct,
-      unit: cur.unit,
       scale: scale,
       unresolved: eval.unresolved,
     );
@@ -1267,8 +1206,8 @@ abstract final class MarkdownReporter() {
       _deltaRowLabel(cur),
       '`${cur.target}`',
       if (hasThroughput) _formatDeltaThroughputCell(base, cur),
-      _formatMetricValue(baseMean, base.unit),
-      _formatMetricValue(curMean, cur.unit),
+      _formatLatency(baseMean),
+      _formatLatency(curMean),
       ...diffCells,
       if (eval.diffCi != null) eval.diffCi!,
       if (eval.ratioCi != null) ...[
@@ -1290,21 +1229,19 @@ abstract final class MarkdownReporter() {
   static List<String> _formatDeltaDiffCells({
     required double diffVal,
     required double deltaPct,
-    required MetricUnit unit,
     required ComparisonScale scale,
     required bool unresolved,
   }) {
     if (scale == ComparisonScale.difference && unresolved) {
       return const ['unresolved', 'unresolved'];
     }
-    return [_formatSignedDelta(diffVal, unit), _formatPercent(deltaPct)];
+    return [_formatSignedDelta(diffVal), _formatPercent(deltaPct)];
   }
 
   static String _formatDeltaThroughputCell(
     BenchmarkEntry base,
     BenchmarkEntry cur,
   ) {
-    if (cur.unit == MetricUnit.bytes) return '-';
     final tp = cur.throughput ?? base.throughput;
     return tp?.formatRate(cur.metrics.meanNs) ?? '-';
   }
@@ -1426,34 +1363,9 @@ abstract final class MarkdownReporter() {
     return ('➖ ⚪ Inconclusive', 0);
   }
 
-  static String _formatMetricValue(double value, MetricUnit unit) =>
-      unit == MetricUnit.bytes
-      ? _formatBytesDouble(value)
-      : _formatLatency(value);
-
-  static String _formatZeroValue(MetricUnit unit) =>
-      unit == MetricUnit.bytes ? '0 B' : '0.0 ns';
-
-  static String _formatSignedDelta(double diff, MetricUnit unit) {
-    if (unit == MetricUnit.bytes) {
-      if (diff.abs() < 0.5) return '0 B';
-      return '${diff > 0 ? '+' : '-'}${_formatBytesDouble(diff.abs())}';
-    }
+  static String _formatSignedDelta(double diff) {
     if (diff.abs() < 1e-9) return '0.0 ns';
     return '${diff > 0 ? '+' : '-'}${_formatLatency(diff.abs())}';
-  }
-
-  static String _formatBytesDouble(double bytes) {
-    if (bytes >= 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GiB';
-    }
-    if (bytes >= 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';
-    }
-    if (bytes >= 1024) {
-      return '${(bytes / 1024).toStringAsFixed(1)} KiB';
-    }
-    return '${bytes.round()} B';
   }
 
   static String _formatLatency(double ns) => switch (ns) {
@@ -1528,7 +1440,7 @@ abstract final class MarkdownReporter() {
     required bool isDelta,
   }) {
     if (base.pairing != null || cur.pairing != null) {
-      return BenchmarkEntry.canPair(base, cur);
+      return canPairEntries(base, cur);
     }
     if (isDelta) return false;
     return base.processes > 1 &&
@@ -1540,7 +1452,6 @@ abstract final class MarkdownReporter() {
     BenchmarkEntry base,
     BenchmarkEntry cur,
   ) {
-    if (base.unit != cur.unit) return const ['incompatible metric units'];
     final baseUnconverged = base.warmup?['is_stable'] == false;
     final curUnconverged = cur.warmup?['is_stable'] == false;
     if (baseUnconverged || curUnconverged) {
@@ -1608,15 +1519,6 @@ abstract final class MarkdownReporter() {
     bool isDelta = false,
     bool gate = true,
   }) {
-    if (base.unit != cur.unit) {
-      return (
-        resolved: false,
-        interval: null,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: const ['incompatible metric units'],
-      );
-    }
     final reasons = _checkCompatibilityAndStability(base, cur);
     final interval = _tryComputeDiffInterval(base, cur, isDelta: isDelta);
     if (interval == null) {
@@ -1630,8 +1532,8 @@ abstract final class MarkdownReporter() {
     }
     final resolved = reasons == null;
     final showCi = resolved || !gate;
-    final low = _formatSignedDelta(interval.lowerBound, cur.unit);
-    final high = _formatSignedDelta(interval.upperBound, cur.unit);
+    final low = _formatSignedDelta(interval.lowerBound);
+    final high = _formatSignedDelta(interval.upperBound);
     return (
       resolved: resolved,
       interval: interval,
@@ -1668,9 +1570,6 @@ abstract final class MarkdownReporter() {
     bool isDelta = false,
     bool gate = true,
   }) {
-    if (base.unit != cur.unit) {
-      return _emptyFiellerVerdict(const ['incompatible metric units']);
-    }
     final reasons = _checkCompatibilityAndStability(base, cur);
     final intervals = _tryComputeFiellerIntervals(base, cur, isDelta: isDelta);
     if (intervals == null) {
@@ -1863,6 +1762,50 @@ String renderGroupComparisonTable({
   );
 }
 
+/// Renders an isolated Before-vs-After delta comparison table comparing
+/// [baseline] to [current] (internal to `lib/src/`).
+String renderDeltaTable({
+  required BenchmarkSuiteResult baseline,
+  required BenchmarkSuiteResult current,
+  String? title,
+  String baselineLabel = 'Baseline',
+  String currentLabel = 'Current',
+  bool gate = true,
+  double threshold = 0.0,
+  ComparisonScale scale = ComparisonScale.ratio,
+}) {
+  final buffer = StringBuffer();
+  final heading = title ?? 'Before vs. After Delta Comparison';
+  buffer.writeln('### $heading');
+  buffer.writeln();
+
+  final pairing = MarkdownReporter._pairByKey(baseline, current);
+  if (pairing.matched.isEmpty) {
+    buffer.writeln(
+      '_No matching benchmarks found between baseline and current results._',
+    );
+  } else {
+    buffer.write(
+      MarkdownReporter._renderDeltaRows(
+        pairing.matched,
+        baselineLabel: baselineLabel,
+        currentLabel: currentLabel,
+        gate: gate,
+        threshold: threshold,
+        scale: scale,
+      ),
+    );
+  }
+  MarkdownReporter._writeUnmatchedNotes(
+    buffer,
+    pairing,
+    baselineLabel,
+    currentLabel,
+  );
+
+  return buffer.toString();
+}
+
 /// Renders an isolated delta comparison table comparing two stored JSON files
 /// (internal to `lib/src/`).
 String renderDeltaFromFiles({
@@ -1875,9 +1818,9 @@ String renderDeltaFromFiles({
   double threshold = 0.0,
   ComparisonScale scale = ComparisonScale.ratio,
 }) {
-  final baseline = BenchmarkSuiteResult.loadFromFile(baselineFile);
-  final current = BenchmarkSuiteResult.loadFromFile(currentFile);
-  return MarkdownReporter.renderDeltaTable(
+  final baseline = loadSuiteFromFile(baselineFile);
+  final current = loadSuiteFromFile(currentFile);
+  return renderDeltaTable(
     baseline: baseline,
     current: current,
     title: title,

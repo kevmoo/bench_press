@@ -165,7 +165,7 @@ abstract final class GitDiffReporter() {
     );
 
     if (diff.hasBaseline) {
-      return MarkdownReporter.renderDeltaTable(
+      return renderDeltaTable(
         baseline: diff.baseline!,
         current: current,
         title: title ?? 'Git Baseline Delta: `$gitRef` ($filePath)',

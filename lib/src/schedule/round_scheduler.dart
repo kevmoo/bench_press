@@ -3,27 +3,31 @@ import 'dart:math' as math;
 
 import 'pairing.dart';
 
+enum _ScheduleKind() {
+  abbaBaab,
+  randomized,
+  sequential,
+}
+
 /// Ordering policy for executing multiple benchmark arms across rounds.
-sealed class const ScheduleMode() {
+final class const ScheduleMode._(
+  final _ScheduleKind _kind, {
+  final int? _seed,
+}) {
   /// Counterbalanced `ABBA BAAB` mirror rounds (`AB`, `BA`, `BA`, `AB`, ...).
   ///
   /// Even round counts cancel linear drift across any number of arms; multiples
   /// of 4 rounds cancel both linear and quadratic drift across 2 arms.
-  const factory abbaBaab() = _AbbaBaabSchedule;
+  const new abbaBaab() : this._(_ScheduleKind.abbaBaab);
 
   /// Randomized block design shuffling arm order independently in each round.
-  const factory randomized({int? seed}) = _RandomizedSchedule;
+  const new randomized({int? seed})
+    : this._(_ScheduleKind.randomized, seed: seed);
 
   /// Non-interleaved sequential execution (all rounds of arm 0, then arm 1,
   /// ...), stamping `PairingInfo.interleaved == false`.
-  const factory sequential() = _SequentialSchedule;
+  const new sequential() : this._(_ScheduleKind.sequential);
 }
-
-final class const _AbbaBaabSchedule() extends ScheduleMode;
-
-final class const _RandomizedSchedule({final int? seed}) extends ScheduleMode;
-
-final class const _SequentialSchedule() extends ScheduleMode;
 
 /// Per-invocation execution metadata passed to each scheduled arm callback.
 final class const RoundContext._({
@@ -58,22 +62,6 @@ final class ScheduleArm<T>(
 
   /// Measurement callback invoked once per round.
   final FutureOr<T> Function(RoundContext context) measure, {
-
-  /// Whether this arm is the control/baseline reference for its comparison
-  /// group.
-  final bool isBaseline = false,
-
-  /// Optional matrix/group coordinates attached to this arm.
-  final Map<String, String> coordinates = const {},
-});
-
-/// A synchronous benchmark arm driven by [RoundScheduler.runSync].
-final class SyncScheduleArm<T>(
-  /// Unique arm name within the schedule.
-  final String name,
-
-  /// Synchronous measurement callback invoked once per round.
-  final T Function(RoundContext context) measure, {
 
   /// Whether this arm is the control/baseline reference for its comparison
   /// group.
@@ -271,85 +259,6 @@ abstract final class RoundScheduler() {
     );
   }
 
-  /// Synchronously executes [arms] across [warmupRounds] + [rounds] without
-  /// Future allocation overhead.
-  static ScheduledRun<T> runSync<T>({
-    required List<SyncScheduleArm<T>> arms,
-    int rounds = defaultRounds,
-    int warmupRounds = 0,
-    int discardsOnSwitch = 0,
-    ScheduleMode mode = const ScheduleMode.abbaBaab(),
-    String? groupId,
-  }) {
-    final plan = _buildPlan(
-      armNames: [for (final a in arms) a.name],
-      rounds: rounds,
-      warmupRounds: warmupRounds,
-      discardsOnSwitch: discardsOnSwitch,
-      mode: mode,
-      groupId: groupId,
-    );
-    final warmupPerArm = [for (var i = 0; i < arms.length; i++) <T>[]];
-    final recordsPerArm = [
-      for (var i = 0; i < arms.length; i++) <ScheduledSample<T>>[],
-    ];
-
-    var seq = 0;
-    int? lastArm;
-    for (final step in plan.steps) {
-      final arm = arms[step.armIndex];
-      if (discardsOnSwitch > 0 && lastArm != null && lastArm != step.armIndex) {
-        for (var d = 0; d < discardsOnSwitch; d++) {
-          arm.measure(
-            RoundContext._(
-              armName: arm.name,
-              armIndex: step.armIndex,
-              round: step.round,
-              positionInRound: step.positionInRound,
-              globalSequence: seq++,
-              isWarmup: true,
-              isSwitchDiscard: true,
-            ),
-          );
-        }
-      }
-      final val = arm.measure(
-        RoundContext._(
-          armName: arm.name,
-          armIndex: step.armIndex,
-          round: step.round,
-          positionInRound: step.positionInRound,
-          globalSequence: seq,
-          isWarmup: step.isWarmup,
-        ),
-      );
-      if (step.isWarmup) {
-        warmupPerArm[step.armIndex].add(val);
-      } else {
-        recordsPerArm[step.armIndex].add(
-          ScheduledSample<T>._(
-            round: step.round,
-            positionInRound: step.positionInRound,
-            globalSequence: seq,
-            value: val,
-          ),
-        );
-      }
-      seq++;
-      lastArm = step.armIndex;
-    }
-
-    return _finalizeRun(
-      armSpecs: [
-        for (final a in arms)
-          (name: a.name, isBaseline: a.isBaseline, coordinates: a.coordinates),
-      ],
-      recordsPerArm: recordsPerArm,
-      warmupPerArm: warmupPerArm,
-      plan: plan,
-    );
-  }
-
   static _SchedulePlan _buildPlan({
     required List<String> armNames,
     required int rounds,
@@ -367,25 +276,25 @@ abstract final class RoundScheduler() {
 
     final warnings = <String>[];
     final armCount = armNames.length;
-    if (mode is _AbbaBaabSchedule && armCount > 1 && rounds.isOdd) {
+    if (mode._kind == _ScheduleKind.abbaBaab && armCount > 1 && rounds.isOdd) {
       warnings.add(
         'Odd round count ($rounds) under ScheduleMode.abbaBaab does not cancel '
         'linear drift; use an even round count (ideally a multiple of 4).',
       );
     }
 
-    final effectiveSeed = switch (mode) {
-      _RandomizedSchedule(:final seed) =>
-        seed ?? math.Random().nextInt(0x100000000),
-      _ => null,
+    final effectiveSeed = switch (mode._kind) {
+      _ScheduleKind.randomized =>
+        mode._seed ?? math.Random().nextInt(0x100000000),
+      _ScheduleKind.abbaBaab || _ScheduleKind.sequential => null,
     };
     final random = effectiveSeed != null ? math.Random(effectiveSeed) : null;
-    final scheduleName = switch (mode) {
-      _AbbaBaabSchedule() => 'abba_baab',
-      _RandomizedSchedule() => 'randomized',
-      _SequentialSchedule() => 'sequential',
+    final scheduleName = switch (mode._kind) {
+      _ScheduleKind.abbaBaab => 'abba_baab',
+      _ScheduleKind.randomized => 'randomized',
+      _ScheduleKind.sequential => 'sequential',
     };
-    final interleaved = mode is! _SequentialSchedule && armCount > 1;
+    final interleaved = mode._kind != _ScheduleKind.sequential && armCount > 1;
     final pairing = createPairingInfo(
       groupId: (groupId != null && groupId.isNotEmpty)
           ? groupId
@@ -396,7 +305,7 @@ abstract final class RoundScheduler() {
       seed: effectiveSeed,
     );
 
-    final steps = mode is _SequentialSchedule
+    final steps = mode._kind == _ScheduleKind.sequential
         ? _buildSequentialSteps(armCount, warmupRounds, rounds)
         : _buildInterleavedSteps(armCount, warmupRounds, rounds, mode, random);
 
@@ -514,7 +423,7 @@ abstract final class RoundScheduler() {
     ScheduleMode mode,
     math.Random? random,
   ) {
-    if (mode is _RandomizedSchedule) {
+    if (mode._kind == _ScheduleKind.randomized) {
       return [for (var i = 0; i < armCount; i++) i]..shuffle(random);
     }
     final reverse = isReversedAbbaRound(round);

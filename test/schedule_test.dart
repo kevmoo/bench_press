@@ -6,15 +6,15 @@ import 'package:test/scaffolding.dart';
 
 void main() {
   group('RoundScheduler', () {
-    test('executes exact ABBA BAAB order across 2 and 3 arms', () {
+    test('executes exact ABBA BAAB order across 2 and 3 arms', () async {
       final trace2 = <String>[];
-      final run2 = RoundScheduler.runSync<int>(
+      final run2 = await RoundScheduler.run<int>(
         arms: [
-          SyncScheduleArm('A', isBaseline: true, (ctx) {
+          ScheduleArm('A', isBaseline: true, (ctx) {
             trace2.add('A:${ctx.round}:${ctx.positionInRound}');
             return ctx.globalSequence;
           }),
-          SyncScheduleArm('B', (ctx) {
+          ScheduleArm('B', (ctx) {
             trace2.add('B:${ctx.round}:${ctx.positionInRound}');
             return ctx.globalSequence;
           }),
@@ -41,17 +41,17 @@ void main() {
 
       // K = 3 arms over 4 rounds: ABC, CBA, CBA, ABC
       final order3 = <String>[];
-      final run3 = RoundScheduler.runSync<int>(
+      final run3 = await RoundScheduler.run<int>(
         arms: [
-          SyncScheduleArm('A', (ctx) {
+          ScheduleArm('A', (ctx) {
             order3.add('A');
             return ctx.globalSequence;
           }),
-          SyncScheduleArm('B', (ctx) {
+          ScheduleArm('B', (ctx) {
             order3.add('B');
             return ctx.globalSequence;
           }),
-          SyncScheduleArm('C', (ctx) {
+          ScheduleArm('C', (ctx) {
             order3.add('C');
             return ctx.globalSequence;
           }),
@@ -67,7 +67,7 @@ void main() {
 
     test(
       'ABBA BAAB cancels both linear and quadratic host drift on K=2, R=4',
-      () {
+      () async {
         // Null experiment (true delta = 0) under quadratic thermal drift:
         // latency(t) = 1000 + 20*t - 1.5*t^2.
         double driftedLatency(RoundContext ctx) {
@@ -75,10 +75,10 @@ void main() {
           return 1000.0 + 20.0 * t - 1.5 * t * t;
         }
 
-        final run = RoundScheduler.runSync<double>(
+        final run = await RoundScheduler.run<double>(
           arms: [
-            SyncScheduleArm('control', isBaseline: true, driftedLatency),
-            SyncScheduleArm('candidate', driftedLatency),
+            ScheduleArm('control', isBaseline: true, driftedLatency),
+            ScheduleArm('candidate', driftedLatency),
           ],
           rounds: 4,
         );
@@ -93,11 +93,11 @@ void main() {
 
     test(
       'emits advisory warning on odd round count under AbbaBaabSchedule',
-      () {
-        final run = RoundScheduler.runSync<int>(
+      () async {
+        final run = await RoundScheduler.run<int>(
           arms: [
-            SyncScheduleArm('A', (ctx) => ctx.round),
-            SyncScheduleArm('B', (ctx) => ctx.round),
+            ScheduleArm('A', (ctx) => ctx.round),
+            ScheduleArm('B', (ctx) => ctx.round),
           ],
           rounds: 3,
         );
@@ -150,53 +150,50 @@ void main() {
       },
     );
 
-    test('supports warmupRounds, discardsOnSwitch, and aligned series', () {
-      var discards = 0;
-      final run = RoundScheduler.runSync<Map<String, double?>>(
-        arms: [
-          SyncScheduleArm('A', (ctx) {
-            if (ctx.isSwitchDiscard) discards++;
-            return {'ms': ctx.round == 1 ? null : 10.0 + ctx.round};
-          }),
-          SyncScheduleArm('B', (ctx) {
-            if (ctx.isSwitchDiscard) discards++;
-            return {'ms': 20.0 + ctx.round};
-          }),
-        ],
-        warmupRounds: 1,
-        rounds: 3,
-        discardsOnSwitch: 2,
-      );
-
-      check(discards).isGreaterThan(0);
-      check(run['A']!.warmupSamples.length).equals(1);
-      check(run['A']!.samples.length).equals(3);
-
-      // Round 1 had null for arm A, so round 1 is dropped across both arms.
-      final aligned = run.extractAlignedSeries((m) => m['ms']);
-      check(aligned['A']!).deepEquals([10.0, 12.0]);
-      check(aligned['B']!).deepEquals([20.0, 22.0]);
-
-      final pairingRt = PairingInfo.fromJson(run.pairing.toJson());
-      check(pairingRt).equals(run.pairing);
-    });
-
-    test('validates invalid schedule configurations', () {
-      check(() => RoundScheduler.runSync<int>(arms: const []))
-          .throws<ArgumentError>();
-      check(
-        () => RoundScheduler.runSync<int>(
+    test(
+      'supports warmupRounds, discardsOnSwitch, and aligned series',
+      () async {
+        var discards = 0;
+        final run = await RoundScheduler.run<Map<String, double?>>(
           arms: [
-            SyncScheduleArm('dup', (_) => 1),
-            SyncScheduleArm('dup', (_) => 2),
+            ScheduleArm('A', (ctx) {
+              if (ctx.isSwitchDiscard) discards++;
+              return {'ms': ctx.round == 1 ? null : 10.0 + ctx.round};
+            }),
+            ScheduleArm('B', (ctx) {
+              if (ctx.isSwitchDiscard) discards++;
+              return {'ms': 20.0 + ctx.round};
+            }),
           ],
+          warmupRounds: 1,
+          rounds: 3,
+          discardsOnSwitch: 2,
+        );
+
+        check(discards).isGreaterThan(0);
+        check(run['A']!.warmupSamples.length).equals(1);
+        check(run['A']!.samples.length).equals(3);
+
+        // Round 1 had null for arm A, so round 1 is dropped across both arms.
+        final aligned = run.extractAlignedSeries((m) => m['ms']);
+        check(aligned['A']!).deepEquals([10.0, 12.0]);
+        check(aligned['B']!).deepEquals([20.0, 22.0]);
+
+        final pairingRt = PairingInfo.fromJson(run.pairing.toJson());
+        check(pairingRt).equals(run.pairing);
+      },
+    );
+
+    test('validates invalid schedule configurations', () async {
+      await check(RoundScheduler.run<int>(arms: const []))
+          .throws<ArgumentError>();
+      await check(
+        RoundScheduler.run<int>(
+          arms: [ScheduleArm('dup', (_) => 1), ScheduleArm('dup', (_) => 2)],
         ),
       ).throws<ArgumentError>();
-      check(
-        () => RoundScheduler.runSync<int>(
-          arms: [SyncScheduleArm('A', (_) => 1)],
-          rounds: 0,
-        ),
+      await check(
+        RoundScheduler.run<int>(arms: [ScheduleArm('A', (_) => 1)], rounds: 0),
       ).throws<ArgumentError>();
     });
   });

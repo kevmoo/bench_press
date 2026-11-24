@@ -248,7 +248,7 @@ void main() {
       initialSuite.saveToFile(telemetryFile);
       check(telemetryFile.existsSync()).isTrue;
 
-      final loaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
+      final loaded = loadSuiteFromFile(telemetryFile);
       check(loaded.benchmarks.length).equals(1);
       check(loaded.benchmarks.first.key).equals('workload_a:jit');
 
@@ -263,7 +263,7 @@ void main() {
       final mergedResult = secondSuite.mergeAndSave(telemetryFile);
       check(mergedResult.benchmarks.length).equals(2);
 
-      final reloaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
+      final reloaded = loadSuiteFromFile(telemetryFile);
       check(reloaded.benchmarks.length).equals(2);
       check(reloaded.findEntry('workload_a', 'jit')).isNotNull();
       check(reloaded.findEntry('workload_a', 'aot')).isNotNull();

@@ -449,7 +449,7 @@ final class const BenchmarkProcessRunner({
   static BenchmarkSuiteResult? _loadSuiteResultSafe(File tempJsonFile) {
     if (!tempJsonFile.existsSync()) return null;
     try {
-      return BenchmarkSuiteResult.loadFromFile(tempJsonFile);
+      return loadSuiteFromFile(tempJsonFile);
     } on Object {
       return null;
     }
@@ -486,7 +486,7 @@ final class const BenchmarkProcessRunner({
   ) {
     if (tempJsonFile.existsSync() && tempJsonFile.lengthSync() > 0) {
       try {
-        return BenchmarkSuiteResult.loadFromFile(tempJsonFile);
+        return loadSuiteFromFile(tempJsonFile);
       } on Object {
         // Fall back to stdout parsing
       }

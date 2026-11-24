@@ -69,9 +69,6 @@ final class const CpuAffinity._(
     return CpuAffinity._(trimmed);
   }
 
-  /// Sorted, deduplicated list of logical CPU indices expanded from [cpuList].
-  List<int> get cpus => expandCpuList(cpuList);
-
   /// Reason why `taskset` CPU pinning is unavailable on the current host, or
   /// `null` when available.
   static String? get unsupportedReason => checkHostCpuPinningSupport();
@@ -92,6 +89,12 @@ final class const CpuAffinity._(
 
   @override
   String toString() => 'CpuAffinity($cpuList)';
+}
+
+/// Internal [CpuAffinity] helpers kept out of the public `api.txt` surface.
+extension InternalCpuAffinity on CpuAffinity {
+  /// Sorted, deduplicated list of logical CPU indices expanded from [cpuList].
+  List<int> get cpus => expandCpuList(cpuList);
 }
 
 /// Expands a Linux CPU list string (such as `"0-3,8"` or `"0-7:2"`) into a

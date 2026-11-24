@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:bench_press/host.dart';
+import 'package:bench_press/src/host/cpu_affinity.dart'
+    show InternalCpuAffinity;
 import 'package:bench_press/src/host/machine_check.dart'
-    show runHostCheck, runHostCheckSync, validateAffinityWith, validateCoreWith;
+    show runHostCheck, validateAffinityWith, validateCoreWith;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
@@ -119,8 +121,8 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
 
     test(
       'returns clean HostCheckResult on quiet bare-metal Linux configuration',
-      () {
-        final stat =
+      () async {
+        const stat =
             'cpu2 100 0 0 900 0 0 0 0 0 0\ncpu6 100 0 0 900 0 0 0 0 0 0\n';
         final files = <String, String>{
           '/proc/cpuinfo': 'flags\t\t: fpu sse2 avx2\n',
@@ -134,11 +136,11 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
           '/proc/stat': stat,
         };
 
-        final res = runHostCheckSync(
+        final res = await runHostCheck(
           affinity: CpuAffinity.singleCore(2),
           os: 'linux',
           readFile: (p) => files[p],
-          sleepFor: (_) {},
+          delay: (_) async {},
         );
         check(res.isSupported).isTrue;
         check(res.isClean).isTrue;
@@ -148,35 +150,33 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
     test(
       'degrades gracefully on macOS and Windows and works live on host',
       () async {
-        final mac = runHostCheckSync(os: 'macos');
+        final mac = await runHostCheck(os: 'macos');
         check(mac.os).equals('macos');
         check(mac.isSupported).isFalse;
         check(mac.isClean).isTrue;
 
         // Mocking only no_turbo or only THP (without /proc/*) still reports
         // isSupported: true.
-        final turboOnly = runHostCheckSync(
+        final turboOnly = await runHostCheck(
           os: 'linux',
           readFile: (p) => p == '/sys/devices/system/cpu/intel_pstate/no_turbo'
               ? '0\n'
               : null,
-          sleepFor: (_) {},
+          delay: (_) async {},
         );
         check(turboOnly.isSupported).isTrue;
         check(turboOnly.turboBoostEnabled).equals(true);
 
-        final thpOnly = runHostCheckSync(
+        final thpOnly = await runHostCheck(
           os: 'linux',
           readFile: (p) => p == '/sys/kernel/mm/transparent_hugepage/enabled'
               ? '[always] madvise never\n'
               : null,
-          sleepFor: (_) {},
+          delay: (_) async {},
         );
         check(thpOnly.isSupported).isTrue;
         check(thpOnly.transparentHugePages).equals('always');
 
-        final live = HostEnvironment.checkSync(sampleDuration: Duration.zero);
-        check(live.os).equals(Platform.operatingSystem);
         final asyncLive = await HostEnvironment.check(
           sampleDuration: Duration.zero,
         );
@@ -184,7 +184,7 @@ cpu6 100 0 0 1000 0 0 0 0 0 0
         check(HostEnvironment.validateAffinity(CpuAffinity.singleCore(0)))
             .isNull;
         if (Platform.isLinux) {
-          check(live.isSupported).isTrue;
+          check(asyncLive.isSupported).isTrue;
         }
       },
     );

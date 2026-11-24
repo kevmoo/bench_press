@@ -8,5 +8,5 @@ export 'src/stats/metrics.dart'
 export 'src/telemetry/markdown_reporter.dart'
     show ComparisonScale, MarkdownReporter;
 export 'src/telemetry/schema.dart'
-    show BenchmarkEntry, BenchmarkSuiteResult, EnvironmentInfo, MetricUnit;
+    show BenchmarkEntry, BenchmarkSuiteResult, EnvironmentInfo;
 export 'src/throughput.dart' show ByteThroughput, ElementThroughput, Throughput;

@@ -10,12 +10,10 @@ import '../config.dart' show BenchmarkConfig;
 import '../config/bench_press_config.dart';
 import '../config/validator.dart';
 import '../host/cpu_affinity.dart';
-import '../schedule/pairing.dart'
-    show
-        PairingInfo,
-        createPairingInfo,
-        generatePairingGroupId,
-        isReversedAbbaRound;
+import '../host/machine_check.dart' show HostCheckResult, HostEnvironment;
+import '../schedule/pairing.dart' show PairingInfo, createPairingInfo;
+import '../schedule/round_scheduler.dart'
+    show RoundScheduler, ScheduleArm, ScheduleMode, ScheduledRun;
 import '../telemetry/git_diff.dart';
 import '../telemetry/markdown_reporter.dart';
 import '../telemetry/schema.dart';
@@ -30,6 +28,7 @@ final class RunCommand({
   required final DartSdk sdk,
   required final TargetCompiler compiler,
   required final BenchmarkProcessRunner processRunner,
+  final Duration hostCheckSampleDuration = const Duration(milliseconds: 25),
 }) extends Command<int> {
   @override
   String get name => 'run';
@@ -192,19 +191,8 @@ final class RunCommand({
       return ExitCode.usage.code;
     }
 
-    // A malformed CPU list is a usage error, not a host limitation: fail here
-    // rather than warning and measuring unpinned, which would hand back numbers
-    // that look pinned. Matches --d8-path and --node-path above.
-    final pinCpuSpec = argResults!.option('pin-cpu');
-    CpuAffinity? pinCpu;
-    if (pinCpuSpec != null) {
-      try {
-        pinCpu = CpuAffinity.parse(pinCpuSpec);
-      } on FormatException catch (e) {
-        stderr.writeln('Invalid --pin-cpu value "$pinCpuSpec": ${e.message}');
-        return ExitCode.usage.code;
-      }
-    }
+    final (:affinity, :failed) = _resolvePinCpu();
+    if (failed) return ExitCode.usage.code;
 
     final effectiveSdk = DartSdk(
       customSdkPath: sdk.customSdkPath,
@@ -239,8 +227,31 @@ final class RunCommand({
       targets: targets,
       explicitTargets: explicitTargets,
       effectiveSdk: effectiveSdk,
-      pinCpu: pinCpu,
+      pinCpu: affinity,
     );
+  }
+
+  /// Parses and validates `--pin-cpu` upfront before compilation or execution.
+  ///
+  /// A malformed CPU list or a non-existent/offline Linux core is a usage
+  /// error rather than a host limitation: fail here rather than warning and
+  /// measuring unpinned.
+  ({CpuAffinity? affinity, bool failed}) _resolvePinCpu() {
+    final spec = argResults!.option('pin-cpu');
+    if (spec == null) return (affinity: null, failed: false);
+    final CpuAffinity parsed;
+    try {
+      parsed = CpuAffinity.parse(spec);
+    } on FormatException catch (e) {
+      stderr.writeln('Invalid --pin-cpu value "$spec": ${e.message}');
+      return (affinity: null, failed: true);
+    }
+    final error = HostEnvironment.validateAffinity(parsed);
+    if (error != null) {
+      stderr.writeln('Invalid --pin-cpu value "$spec": $error');
+      return (affinity: null, failed: true);
+    }
+    return (affinity: parsed, failed: false);
   }
 
   /// The matrix coordinates this run executes: every coordinate the config
@@ -426,6 +437,7 @@ final class RunCommand({
       isolateMode: isolateMode,
       targets: _effectiveMatrixTargets(coords, targets),
     );
+    final hostCheck = await _runPreflightHostCheck(cpuAffinity);
 
     BenchmarkSuiteResult? suite;
     var hasFailures = false;
@@ -460,10 +472,46 @@ final class RunCommand({
     }
 
     return _finishSuiteExecution(
-      suite,
+      _attachHostCheck(suite, hostCheck),
       hasFailures: hasFailures,
       configuredOutput: config.defaults.output,
       threshold: threshold,
+    );
+  }
+
+  Future<HostCheckResult> _runPreflightHostCheck(CpuAffinity? affinity) async {
+    final hostCheck = await HostEnvironment.check(
+      affinity: affinity,
+      sampleDuration: hostCheckSampleDuration,
+    );
+    if (hostCheck.isSupported) {
+      for (final warning in hostCheck.warnings) {
+        stderr.writeln('Host warning: ${warning.message}');
+      }
+    }
+    return hostCheck;
+  }
+
+  static BenchmarkSuiteResult _attachHostCheck(
+    BenchmarkSuiteResult suite,
+    HostCheckResult hostCheck,
+  ) {
+    if (!hostCheck.isSupported) return suite;
+    return BenchmarkSuiteResult(
+      version: suite.version,
+      timestamp: suite.timestamp,
+      environment: EnvironmentInfo(
+        dartVersion: suite.environment.dartVersion,
+        os: suite.environment.os,
+        arch: suite.environment.arch,
+        cpu: suite.environment.cpu,
+        hostname: suite.environment.hostname,
+        extra: Map<String, Object?>.unmodifiable({
+          ...suite.environment.extra,
+          'host_check': hostCheck.toJson(),
+        }),
+      ),
+      benchmarks: suite.benchmarks,
     );
   }
 
@@ -549,8 +597,8 @@ final class RunCommand({
       );
     } else if (File(diffRef).existsSync()) {
       try {
-        final baselineSuite = BenchmarkSuiteResult.loadFromFile(File(diffRef));
-        report = MarkdownReporter.renderDeltaTable(
+        final baselineSuite = loadSuiteFromFile(File(diffRef));
+        report = renderDeltaTable(
           baseline: baselineSuite,
           current: finalSuite,
           title: title ?? 'Baseline Delta: `$diffRef`',
@@ -652,54 +700,74 @@ final class RunCommand({
       return (suite: null, hasFailures: hasFailures);
     }
 
-    final cellSuites = [
-      for (var i = 0; i < cells.length; i++) <BenchmarkSuiteResult>[],
-    ];
-    for (var pIdx = 0; pIdx < processes; pIdx++) {
-      final roundFailed = await _executeProcessRound(
-        discovered: discovered,
-        cells: cells,
-        cellSuites: cellSuites,
-        processIndex: pIdx,
-        processes: processes,
-        trials: trials,
-        maxTrials: maxTrials,
-        stopAtCi: stopAtCi,
-        forceRun: forceRun,
-        isolateMode: isolateMode,
-        vmFlags: vmFlags,
-      );
-      if (roundFailed) hasFailures = true;
+    final mode = processes > 1 && cells.length > 1
+        ? const ScheduleMode.abbaBaab()
+        : const ScheduleMode.sequential();
+    final scheduledRun = await RoundScheduler.run<BenchmarkSuiteResult?>(
+      arms: [
+        for (var i = 0; i < cells.length; i++)
+          ScheduleArm('$i:${cells[i].runtime.name}', (_) async {
+            final single = await _executeCompiledCell(
+              discovered: discovered,
+              cell: cells[i],
+              trials: trials,
+              maxTrials: maxTrials,
+              stopAtCi: stopAtCi,
+              forceRun: forceRun,
+              isolateMode: isolateMode,
+              vmFlags: vmFlags,
+            );
+            if (single.hasFailures) hasFailures = true;
+            return single.suite;
+          }),
+      ],
+      rounds: processes,
+      mode: mode,
+    );
+    for (final warning in scheduledRun.warnings) {
+      stderr.writeln('Warning: $warning');
     }
 
-    final pairing = _createProcessPairing(cellSuites, processes, hasFailures);
+    final pairing = _resolveProcessPairing(
+      scheduledRun,
+      processes,
+      hasFailures,
+    );
     return (
-      suite: _aggregateCellSuites(cellSuites, pairing),
+      suite: _aggregateScheduledArms(scheduledRun, pairing),
       hasFailures: hasFailures,
     );
   }
 
-  static PairingInfo? _createProcessPairing(
-    List<List<BenchmarkSuiteResult>> cellSuites,
+  static PairingInfo? _resolveProcessPairing(
+    ScheduledRun<BenchmarkSuiteResult?> scheduledRun,
     int processes,
     bool hasFailures,
   ) {
-    if (processes <= 1 || hasFailures || cellSuites.isEmpty) return null;
-    if (!cellSuites.every((s) => s.length == processes)) return null;
+    if (processes <= 1 || hasFailures || scheduledRun.arms.isEmpty) return null;
+    final allComplete = scheduledRun.arms.every(
+      (arm) =>
+          arm.samples.length == processes &&
+          arm.samples.every((s) => s != null),
+    );
+    if (!allComplete) return null;
+    final pairing = scheduledRun.pairing;
+    if (pairing.interleaved) return pairing;
     return createPairingInfo(
-      groupId: generatePairingGroupId(),
+      groupId: pairing.groupId,
       schedule: 'abba_baab',
       interleaved: true,
-      rounds: processes,
+      rounds: pairing.rounds,
     );
   }
 
-  BenchmarkSuiteResult? _aggregateCellSuites(
-    List<List<BenchmarkSuiteResult>> cellSuites,
+  BenchmarkSuiteResult? _aggregateScheduledArms(
+    ScheduledRun<BenchmarkSuiteResult?> scheduledRun,
     PairingInfo? pairing,
   ) {
     BenchmarkSuiteResult? fileAccumulated;
-    for (final suites in cellSuites) {
+    for (final arm in scheduledRun.arms) {
+      final suites = arm.samples.nonNulls.toList();
       if (suites.isEmpty) continue;
       final aggregated = aggregateProcessSuites(suites);
       final stamped = pairing == null
@@ -716,42 +784,6 @@ final class RunCommand({
       fileAccumulated = _mergeResults(fileAccumulated, stamped);
     }
     return fileAccumulated;
-  }
-
-  Future<bool> _executeProcessRound({
-    required DiscoveredBenchmarkFile discovered,
-    required List<_CompiledCell> cells,
-    required List<List<BenchmarkSuiteResult>> cellSuites,
-    required int processIndex,
-    required int processes,
-    required int? trials,
-    required int? maxTrials,
-    required double stopAtCi,
-    required bool forceRun,
-    required bool isolateMode,
-    required List<String> vmFlags,
-  }) async {
-    var hasFailures = false;
-    final reverse =
-        processes > 1 && cells.length > 1 && isReversedAbbaRound(processIndex);
-    for (var step = 0; step < cells.length; step++) {
-      final cellIndex = reverse ? (cells.length - 1 - step) : step;
-      final single = await _executeCompiledCell(
-        discovered: discovered,
-        cell: cells[cellIndex],
-        trials: trials,
-        maxTrials: maxTrials,
-        stopAtCi: stopAtCi,
-        forceRun: forceRun,
-        isolateMode: isolateMode,
-        vmFlags: vmFlags,
-      );
-      if (single.hasFailures) hasFailures = true;
-      if (single.suite != null) {
-        cellSuites[cellIndex].add(single.suite!);
-      }
-    }
-    return hasFailures;
   }
 
   Future<({List<_CompiledCell> cells, bool compileFailed})> _compileFileCells({

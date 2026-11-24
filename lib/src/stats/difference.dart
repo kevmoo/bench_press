@@ -241,6 +241,17 @@ final class const DifferenceInterval._({
   /// Whether a valid confidence interval strictly excludes `0.0`.
   bool get isSignificant => isValid && (lowerBound > 0.0 || upperBound < 0.0);
 
+  @override
+  String toString() =>
+      'DifferenceInterval(diff: ${meanDiff.toStringAsFixed(3)}, '
+      'CI_${(confidenceLevel * 100).round()}%: '
+      '[${lowerBound.toStringAsFixed(3)}, ${upperBound.toStringAsFixed(3)}], '
+      'paired: $paired, valid: $isValid)';
+}
+
+/// Internal [DifferenceInterval] helpers kept out of the public `api.txt`
+/// surface.
+extension InternalDifferenceInterval on DifferenceInterval {
   /// Schuirmann's Two One-Sided Tests (TOST) equivalence test at one-sided
   /// significance [alpha] (`0.05` by default, corresponding to the `90%` CI):
   /// returns `true` iff the `1 - 2 * alpha` interval lies completely within
@@ -266,11 +277,4 @@ final class const DifferenceInterval._({
     final hw = t * standardError;
     return (meanDiff - hw) >= -margin && (meanDiff + hw) <= margin;
   }
-
-  @override
-  String toString() =>
-      'DifferenceInterval(diff: ${meanDiff.toStringAsFixed(3)}, '
-      'CI_${(confidenceLevel * 100).round()}%: '
-      '[${lowerBound.toStringAsFixed(3)}, ${upperBound.toStringAsFixed(3)}], '
-      'paired: $paired, valid: $isValid)';
 }

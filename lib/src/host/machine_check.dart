@@ -160,12 +160,6 @@ abstract final class HostEnvironment() {
     CpuAffinity? affinity,
     Duration sampleDuration = const Duration(milliseconds: 200),
   }) => runHostCheck(affinity: affinity, sampleDuration: sampleDuration);
-
-  /// Synchronous counterpart to [check] for synchronous CLI harnesses.
-  static HostCheckResult checkSync({
-    CpuAffinity? affinity,
-    Duration sampleDuration = const Duration(milliseconds: 200),
-  }) => runHostCheckSync(affinity: affinity, sampleDuration: sampleDuration);
 }
 
 String? _defaultReadFile(String path) {
@@ -237,33 +231,6 @@ Future<HostCheckResult> runHostCheck({
   Map<int, _CpuTimes>? afterStat;
   if (staticState.beforeStat != null && sampleDuration > Duration.zero) {
     await (delay ?? Future<void>.delayed)(sampleDuration);
-    afterStat = _parseProcStat(reader('/proc/stat'));
-  }
-
-  return _finalizeLinuxCheck(effectiveOs, affinity, staticState, afterStat);
-}
-
-/// Testable sync host preflight check kept internal to `lib/src/host/`.
-HostCheckResult runHostCheckSync({
-  CpuAffinity? affinity,
-  Duration sampleDuration = const Duration(milliseconds: 200),
-  String? os,
-  String? Function(String path)? readFile,
-  void Function(Duration)? sleepFor,
-}) {
-  final effectiveOs = os ?? Platform.operatingSystem;
-  if (effectiveOs != 'linux') {
-    return HostCheckResult._(os: effectiveOs, isSupported: false);
-  }
-  final reader = readFile ?? _defaultReadFile;
-  final staticState = _collectStaticLinuxState(affinity, reader);
-  if (!staticState.supported) {
-    return HostCheckResult._(os: effectiveOs, isSupported: false);
-  }
-
-  Map<int, _CpuTimes>? afterStat;
-  if (staticState.beforeStat != null && sampleDuration > Duration.zero) {
-    (sleepFor ?? sleep)(sampleDuration);
     afterStat = _parseProcStat(reader('/proc/stat'));
   }
 

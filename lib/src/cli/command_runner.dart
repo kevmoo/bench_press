@@ -429,7 +429,7 @@ final class ReportCommand() extends Command<int> {
     final scale = tryParseComparisonScale(argResults!.option('scale')!)!;
 
     try {
-      final suite = BenchmarkSuiteResult.loadFromFile(file);
+      final suite = loadSuiteFromFile(file);
       final report = MarkdownReporter.renderSuite(
         suite,
         title: title,
@@ -609,7 +609,7 @@ final class DiffCommand() extends Command<int> {
         scale: scale,
       );
     } else {
-      final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
+      final currentSuite = loadSuiteFromFile(currentFile);
       report = GitDiffReporter.renderGitDiffReport(
         gitRef: baseline,
         filePath: targetFileArg,

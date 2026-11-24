@@ -5,10 +5,11 @@ import 'package:bench_press/src/schedule/pairing.dart' show createPairingInfo;
 import 'package:bench_press/src/telemetry/markdown_reporter.dart'
     show
         renderDeltaFromFiles,
+        renderDeltaTable,
         renderGroupComparisonTable,
         renderSuiteSummaryTable;
 import 'package:bench_press/src/telemetry/schema.dart'
-    show InternalBenchmarkEntry, createBenchmarkEntry;
+    show InternalBenchmarkEntry, createBenchmarkEntry, loadSuiteFromFile;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
@@ -101,7 +102,7 @@ void main() {
         benchmarks: [curEntry1, curEntry2],
       );
 
-      final deltaReport = MarkdownReporter.renderDeltaTable(
+      final deltaReport = renderDeltaTable(
         baseline: baseline,
         current: current,
       );
@@ -146,7 +147,7 @@ void main() {
       curSuite.saveToFile(curFile);
 
       final rehydratedReport = MarkdownReporter.renderSuite(
-        BenchmarkSuiteResult.loadFromFile(curFile),
+        loadSuiteFromFile(curFile),
       );
       check(rehydratedReport).contains('# Benchmark Suite Results');
       check(rehydratedReport).contains('crypto_sign');
@@ -315,10 +316,7 @@ void main() {
         benchmarks: [curEntry],
       );
 
-      final delta = MarkdownReporter.renderDeltaTable(
-        baseline: baseSuite,
-        current: curSuite,
-      );
+      final delta = renderDeltaTable(baseline: baseSuite, current: curSuite);
 
       check(delta).contains('| Throughput |');
       check(delta).contains('2.00x');
@@ -387,7 +385,7 @@ void main() {
         benchmarks: [curEntry1, curEntry2, curEntry3],
       );
 
-      final deltaReport = MarkdownReporter.renderDeltaTable(
+      final deltaReport = renderDeltaTable(
         baseline: baseline,
         current: current,
       );
@@ -599,10 +597,7 @@ void main() {
         benchmarks: [validCur, invalidCur],
       );
 
-      final gated = MarkdownReporter.renderDeltaTable(
-        baseline: baseSuite,
-        current: curSuite,
-      );
+      final gated = renderDeltaTable(baseline: baseSuite, current: curSuite);
       check(gated).contains(
         '| unbounded_bench | `jit` | 139.0 ns | 100.0 ns | -39.0 ns | '
         '-28.1% | unresolved | [N/A] | ❓ Unresolved |',
@@ -614,7 +609,7 @@ void main() {
       check(gated)
           .contains('> ❓ **Unresolved**: Speedup omitted due to unbounded CI.');
 
-      final ungated = MarkdownReporter.renderDeltaTable(
+      final ungated = renderDeltaTable(
         baseline: baseSuite,
         current: curSuite,
         gate: false,
@@ -714,10 +709,7 @@ void main() {
           ],
         );
 
-        final delta = MarkdownReporter.renderDeltaTable(
-          baseline: baseSuite,
-          current: curSuite,
-        );
+        final delta = renderDeltaTable(baseline: baseSuite, current: curSuite);
         check(delta).not(.it()..contains('NaN'));
         check(delta).contains(
           'No resolved measurements to compute Geometric Mean Speedup',
@@ -891,7 +883,7 @@ void main() {
             ],
           );
 
-      final delta = MarkdownReporter.renderDeltaTable(
+      final delta = renderDeltaTable(
         baseline: suite(100.0, 100.0),
         current: suite(100.0, 200.0),
         baselineLabel: 'Before',
@@ -962,7 +954,7 @@ void main() {
 
       test('pairs a name reused across groups by group, not by first '
           'match, and labels rows with their coordinates', () {
-        final delta = MarkdownReporter.renderDeltaTable(
+        final delta = renderDeltaTable(
           baseline: suite([
             cell('encode', 'A', 100.0),
             cell('encode', 'B', 1000.0),
@@ -984,7 +976,7 @@ void main() {
       });
 
       test('on duplicate keys within a run, the last entry wins', () {
-        final delta = MarkdownReporter.renderDeltaTable(
+        final delta = renderDeltaTable(
           baseline: suite([
             cell('encode', 'A', 999.0),
             cell('encode', 'A', 100.0),
@@ -1002,7 +994,7 @@ void main() {
       });
 
       test('lists cells present in only one run', () {
-        final delta = MarkdownReporter.renderDeltaTable(
+        final delta = renderDeltaTable(
           baseline: suite([cell('keep', 'A', 100.0), cell('gone', 'A', 100.0)]),
           current: suite([cell('keep', 'A', 50.0), cell('keep', 'B', 50.0)]),
           baselineLabel: 'Before',
@@ -1018,7 +1010,7 @@ void main() {
       });
 
       test('still lists unmatched cells when nothing pairs', () {
-        final delta = MarkdownReporter.renderDeltaTable(
+        final delta = renderDeltaTable(
           baseline: suite([cell('encode', 'A', 100.0)]),
           current: suite([cell('encode', 'B', 100.0)]),
         );
@@ -1097,7 +1089,7 @@ void main() {
         environment: env,
         benchmarks: [cell('after', meanNs)],
       );
-      final delta = MarkdownReporter.renderDeltaTable(
+      final delta = renderDeltaTable(
         baseline: suite(100.0),
         current: suite(95.0),
       );
@@ -1454,7 +1446,7 @@ void main() {
         environment: env,
         benchmarks: [equiv, faster, slower, inconclusive],
       );
-      final deltaReport = MarkdownReporter.renderDeltaTable(
+      final deltaReport = renderDeltaTable(
         baseline: baseSuite,
         current: curSuite,
         threshold: 0.02,

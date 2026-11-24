@@ -48,7 +48,7 @@ void main() {
         check(exitCode).equals(0);
         check(outputFile.existsSync()).isTrue;
 
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final suite = loadSuiteFromFile(outputFile);
         check(suite.benchmarks.length).equals(1);
         check(suite.benchmarks.first.name).equals('calc_workload');
         check(suite.benchmarks.first.target).equals('jit');
@@ -87,7 +87,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
       check(exitCode).equals(0);
       check(outputFile.existsSync()).isTrue;
 
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.length).equals(2);
       check(suite.groups).contains('String Group');
 
@@ -283,7 +283,7 @@ void main(List<String> args) => mainBenchmarkSuite(benchmarks, args);
 
       check(exitCode).equals(ExitCode.software.code);
       check(outputFile.existsSync()).isTrue;
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.length).equals(1);
       check(suite.benchmarks.first.name).equals('good_bench');
     });
@@ -338,7 +338,7 @@ matrix:
       ]);
       check(exitCode).equals(ExitCode.success.code);
 
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks).isNotEmpty;
       check(
         because: 'the aot coordinate was not requested and must not run',
@@ -578,7 +578,7 @@ matrix:
         ]);
 
         check(exitCode).equals(ExitCode.success.code);
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final suite = loadSuiteFromFile(outputFile);
         check(suite.benchmarks.map((b) => b.name).toList())
             .deepEquals(['first_workload', 'second_workload']);
       },
@@ -648,7 +648,7 @@ matrix:
         benchFile.path,
       ]);
       check(exitCode).equals(ExitCode.success.code);
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       final entry = suite.benchmarks.single;
       check(entry.processes).equals(2);
       check(entry.processMeansNs.length).equals(2);
@@ -719,18 +719,71 @@ matrix:
           check(code).equals(ExitCode.success.code);
         }
 
-        final mergedSuite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final mergedSuite = loadSuiteFromFile(outputFile);
         check(mergedSuite.benchmarks.length).equals(2);
         check(mergedSuite.benchmarks[0].pairing).isNotNull();
         check(mergedSuite.benchmarks[1].pairing).isNotNull();
         check(
-          BenchmarkEntry.canPair(
-            mergedSuite.benchmarks[0],
-            mergedSuite.benchmarks[1],
-          ),
+          canPairEntries(mergedSuite.benchmarks[0], mergedSuite.benchmarks[1]),
         ).isFalse;
       },
     );
+
+    test('multi-cell --processes 2 pairs coordinates and validates --pin-cpu / '
+        'host_check telemetry', () async {
+      final configFile = writeBenchPressYaml('''
+matrix:
+  baseline:
+    runtime: jit
+    flags: --define=ARM=0
+  axes:
+    runtime: [jit]
+    flags: [--define=ARM=0, --define=ARM=1]
+''');
+      final benchFile = writeSyncBenchmark(
+        subDir: 'benchmark',
+        fileName: 'pair_matrix_bench.dart',
+        className: 'PairMatrixBenchmark',
+        name: 'pair_matrix_workload',
+        body: 'Blackhole.consume(42);',
+      );
+      final outputFile = File(d.path('pair_matrix_results.json'));
+      final runner = BenchPressCommandRunner();
+
+      if (Platform.isLinux) {
+        final invalidCoreCode = await runner.run([
+          'run',
+          '--pin-cpu',
+          '99999',
+          benchFile.path,
+        ]);
+        check(invalidCoreCode).equals(ExitCode.usage.code);
+      }
+
+      final exitCode = await runner.run([
+        'run',
+        '-c',
+        configFile.path,
+        '--trials',
+        '1',
+        '--processes',
+        '2',
+        '--force-run',
+        '-o',
+        outputFile.path,
+        benchFile.path,
+      ]);
+      check(exitCode).equals(ExitCode.success.code);
+
+      final suite = loadSuiteFromFile(outputFile);
+      check(suite.benchmarks.length).equals(2);
+      check(canPairEntries(suite.benchmarks[0], suite.benchmarks[1])).isTrue;
+      check(suite.benchmarks[0].pairing!.schedule).equals('abba_baab');
+      if (Platform.isLinux) {
+        check(suite.environment.extra['host_check'])
+            .isA<Map<String, Object?>>();
+      }
+    });
 
     test(
       'run subcommand forwards --stop-at-ci and rejects invalid values',
@@ -769,7 +822,7 @@ matrix:
           benchFile.path,
         ]);
         check(exitCode).equals(ExitCode.success.code);
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final suite = loadSuiteFromFile(outputFile);
         check(suite.benchmarks.single.samples).equals(8);
       },
     );

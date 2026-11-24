@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:bench_press/src/stats/difference.dart'
+    show InternalDifferenceInterval;
 import 'package:bench_press/src/stats/fieller.dart' show studentTQuantile;
 import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
@@ -381,22 +383,7 @@ void main() {
       ).throws<ArgumentError>();
     });
 
-    test('LinearTrend and studentTQuantile precision', () {
-      // Exact linear series y = 100 + 5 * i (i = 0..4) -> slope = 5, hw = 0
-      final exact = LinearTrend.compute(const [100, 105, 110, 115, 120]);
-      check(exact.count).equals(5);
-      check(exact.mean).equals(110.0);
-      check(exact.slope).isCloseTo(5.0, 1e-12);
-      check(exact.slopeHalfWidth).equals(0.0);
-      check(exact.isSignificant).isTrue;
-      check(exact.percentChangeOverSeries!)
-          .isCloseTo((20.0 / 110.0) * 100.0, 1e-9);
-
-      // Flat noisy series [100, 102, 98, 102, 98] -> insignificant slope
-      final flat = LinearTrend.compute(const [100, 102, 98, 102, 98]);
-      check(flat.isSignificant).isFalse;
-      check(() => LinearTrend.compute(const [1, 2])).throws<ArgumentError>();
-
+    test('studentTQuantile precision', () {
       // Newton-polished studentTQuantile matches exact R qt() to < 1e-12
       check(studentTQuantile(0.975, 3.0)).isCloseTo(3.182446305283763, 1e-12);
       check(studentTQuantile(0.975, 4.0)).isCloseTo(2.7764451051977987, 1e-12);

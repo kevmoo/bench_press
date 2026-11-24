@@ -4,8 +4,14 @@ import 'package:bench_press/report.dart';
 import 'package:bench_press/schedule.dart';
 import 'package:bench_press/src/cli/command_runner.dart';
 import 'package:bench_press/src/schedule/pairing.dart' show createPairingInfo;
+import 'package:bench_press/src/telemetry/markdown_reporter.dart'
+    show renderDeltaTable;
 import 'package:bench_press/src/telemetry/schema.dart'
-    show InternalBenchmarkEntry, createBenchmarkEntry;
+    show
+        InternalBenchmarkEntry,
+        InternalBenchmarkSuiteResult,
+        canPairEntries,
+        createBenchmarkEntry;
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 import 'package:test_descriptor/test_descriptor.dart' as d;
@@ -15,14 +21,12 @@ void main() {
     test(
       'nanosecond entries without pairing serialize identically to v0.4.2',
       () {
-        final entry = BenchmarkEntry.fromDurations(
+        final entry = BenchmarkEntry.fromSamples(
           name: 'warm_startup',
-          durations: [
-            const Duration(milliseconds: 250),
-            const Duration(milliseconds: 252),
-            const Duration(milliseconds: 248),
-          ],
+          samples: const [250, 252, 248],
+          scaleToCanonical: 1e6,
           target: 'aot',
+          mode: 'async',
         );
 
         final json = entry.toJson();
@@ -33,59 +37,15 @@ void main() {
         check(json['samples']).equals(3);
 
         final parsed = BenchmarkEntry.fromJson(json);
-        check(parsed.unit).equals(MetricUnit.nanoseconds);
         check(parsed.pairing).isNull;
         check(parsed.metrics.meanNs).equals(250e6);
-      },
-    );
-
-    test(
-      'fromBytes serializes unit=bytes, zeros opsPerSec, and formats KiB/MiB',
-      () {
-        final baseMem = BenchmarkEntry.fromBytes(
-          name: 'rss_peak',
-          bytes: [10 * 1024 * 1024, 10 * 1024 * 1024, 10 * 1024 * 1024],
-          isBaseline: true,
-          coordinates: const {'group': 'mem'},
-        );
-        final candMem = BenchmarkEntry.fromBytes(
-          name: 'rss_peak_opt',
-          bytes: [8 * 1024 * 1024, 8 * 1024 * 1024, 8 * 1024 * 1024],
-          coordinates: const {'group': 'mem'},
-        );
-
-        check(baseMem.metrics.opsPerSec).equals(0.0);
-        check(baseMem.toJson()['unit']).equals('bytes');
-
-        final suite = BenchmarkSuiteResult(
-          timestamp: DateTime.utc(2026, 11, 22),
-          environment: const EnvironmentInfo(
-            dartVersion: '3.13.0',
-            os: 'linux',
-            arch: 'x64',
-          ),
-          benchmarks: [baseMem, candMem],
-        );
-        final roundTrip = BenchmarkSuiteResult.fromJsonString(
-          suite.toFormattedJson(),
-        );
-        check(roundTrip.benchmarks.first.unit).equals(MetricUnit.bytes);
-
-        final md = MarkdownReporter.renderSuite(
-          roundTrip,
-          scale: ComparisonScale.difference,
-        );
-        check(md).contains('Mean Size');
-        check(md).contains('10.0 MiB');
-        check(md).contains('8.0 MiB');
-        check(md).contains('**-2.0 MiB**');
-        check(md).contains('🚀 🥇 Peak');
       },
     );
   });
 
   group('PairingInfo gating and ComparisonScale reporting', () {
-    test('fromScheduledDurations pairs arms and renders overhead', () async {
+    test('ScheduledRun pairs arms via BenchmarkEntry.fromSamples and renders '
+        'overhead', () async {
       // Simulate Konstantin's warm startup benchmark with shared round drift
       // [0, +4, +8, +12 ms]: each arm stays within the 5% CV stability gate
       // while paired CIs cancel the drift (~±1.8 ms vs ~±8.6 ms unpaired).
@@ -126,18 +86,34 @@ void main() {
         mode: const ScheduleMode.sequential(),
       );
 
-      final suite = BenchmarkSuiteResult.fromScheduledDurations(
-        run,
-        group: 'packages=25',
-      );
-      final sequentialSuite = BenchmarkSuiteResult.fromScheduledDurations(
-        sequentialRun,
-        group: 'packages=25',
-      );
-      check(BenchmarkEntry.canPair(suite.benchmarks[0], suite.benchmarks[1]))
-          .isTrue;
+      BenchmarkSuiteResult buildSuite(ScheduledRun<Duration> scheduled) =>
+          BenchmarkSuiteResult(
+            timestamp: DateTime.utc(2026, 11, 22),
+            environment: const EnvironmentInfo(
+              dartVersion: '3.13.0',
+              os: 'linux',
+              arch: 'x64',
+            ),
+            benchmarks: [
+              for (final arm in scheduled.arms)
+                BenchmarkEntry.fromSamples(
+                  name: arm.name,
+                  samples: [
+                    for (final d in arm.samples) d.inMicroseconds * 1000.0,
+                  ],
+                  mode: 'async',
+                  coordinates: const {'group': 'packages=25'},
+                  isBaseline: arm.isBaseline,
+                  pairing: scheduled.pairing,
+                ),
+            ],
+          );
+
+      final suite = buildSuite(run);
+      final sequentialSuite = buildSuite(sequentialRun);
+      check(canPairEntries(suite.benchmarks[0], suite.benchmarks[1])).isTrue;
       check(
-        BenchmarkEntry.canPair(
+        canPairEntries(
           sequentialSuite.benchmarks[0],
           sequentialSuite.benchmarks[1],
         ),
@@ -220,9 +196,9 @@ void main() {
         );
 
         // Same interleaved run pairs across different `sdk` coordinates!
-        check(BenchmarkEntry.canPair(stock, patchedSameRun)).isTrue;
+        check(canPairEntries(stock, patchedSameRun)).isTrue;
         // Separate merged run with different groupId MUST NOT pair!
-        check(BenchmarkEntry.canPair(stock, patchedSeparateRun)).isFalse;
+        check(canPairEntries(stock, patchedSeparateRun)).isFalse;
       },
     );
 
@@ -258,7 +234,7 @@ void main() {
         coordinates: const {'group': 'aligned_grp'},
         pairing: run.pairing,
       );
-      check(BenchmarkEntry.canPair(e0, e1)).isTrue;
+      check(canPairEntries(e0, e1)).isTrue;
 
       // Single-cell multi-process runs merged via deepMerge carry distinct
       // groupIds and must use unpaired Welch-Fieller in MarkdownReporter.
@@ -315,8 +291,7 @@ void main() {
         ],
       );
       final merged = suite1.deepMerge(suite2);
-      check(BenchmarkEntry.canPair(merged.benchmarks[0], merged.benchmarks[1]))
-          .isFalse;
+      check(canPairEntries(merged.benchmarks[0], merged.benchmarks[1])).isFalse;
       final mergedMd = MarkdownReporter.renderSuite(
         merged,
         scale: ComparisonScale.difference,
@@ -390,7 +365,7 @@ void main() {
           benchmarks: [curSingle, curNoisy, curUnconverged],
         );
 
-        final gatedDelta = MarkdownReporter.renderDeltaTable(
+        final gatedDelta = renderDeltaTable(
           baseline: baseSuite,
           current: curSuite,
           scale: ComparisonScale.difference,
@@ -416,7 +391,7 @@ void main() {
           'unbounded CI.',
         );
 
-        final ungatedDelta = MarkdownReporter.renderDeltaTable(
+        final ungatedDelta = renderDeltaTable(
           baseline: baseSuite,
           current: curSuite,
           scale: ComparisonScale.difference,
@@ -466,13 +441,11 @@ void main() {
         timestamp: DateTime.utc(2026, 11, 22),
         environment: env,
         benchmarks: [
-          BenchmarkEntry.fromDurations(
+          BenchmarkEntry.fromSamples(
             name: 'WarmAnalysis',
-            durations: const [
-              Duration(milliseconds: 500),
-              Duration(milliseconds: 502),
-              Duration(milliseconds: 498),
-            ],
+            samples: const [500, 502, 498],
+            scaleToCanonical: 1e6,
+            mode: 'async',
           ),
         ],
       ).saveToFile(baseFile);
@@ -481,13 +454,11 @@ void main() {
         timestamp: DateTime.utc(2026, 11, 22, 1),
         environment: env,
         benchmarks: [
-          BenchmarkEntry.fromDurations(
+          BenchmarkEntry.fromSamples(
             name: 'WarmAnalysis',
-            durations: const [
-              Duration(milliseconds: 300),
-              Duration(milliseconds: 301),
-              Duration(milliseconds: 299),
-            ],
+            samples: const [300, 301, 299],
+            scaleToCanonical: 1e6,
+            mode: 'async',
           ),
         ],
       ).saveToFile(curFile);
@@ -558,7 +529,7 @@ void main() {
         check(ungatedSuite.contains('[N/A]')).isFalse;
         check(ungatedSuite).contains('➖ ⚪ Neutral');
 
-        final ungatedDelta = MarkdownReporter.renderDeltaTable(
+        final ungatedDelta = renderDeltaTable(
           baseline: BenchmarkSuiteResult(
             timestamp: DateTime.utc(2026, 11, 22),
             environment: env,
@@ -594,30 +565,27 @@ void main() {
         );
         final entries = <BenchmarkEntry>[
           for (final pkgCount in [25, 50, 100]) ...[
-            BenchmarkEntry.fromDurations(
+            BenchmarkEntry.fromSamples(
               name: 'lsp_no_excludes',
-              durations: [
-                Duration(milliseconds: pkgCount * 4),
-                Duration(milliseconds: pkgCount * 4 + 1),
-              ],
+              samples: [pkgCount * 4, pkgCount * 4 + 1],
+              scaleToCanonical: 1e6,
+              mode: 'async',
               coordinates: {'group': 'packages=$pkgCount'},
               isBaseline: true,
             ),
-            BenchmarkEntry.fromDurations(
+            BenchmarkEntry.fromSamples(
               name: 'lsp_3p_excludes',
-              durations: [
-                Duration(milliseconds: pkgCount * 5),
-                Duration(milliseconds: pkgCount * 5 + 1),
-              ],
+              samples: [pkgCount * 5, pkgCount * 5 + 1],
+              scaleToCanonical: 1e6,
+              mode: 'async',
               coordinates: {'group': 'packages=$pkgCount'},
             ),
           ],
-          BenchmarkEntry.fromDurations(
+          BenchmarkEntry.fromSamples(
             name: 'UniqueBench',
-            durations: const [
-              Duration(milliseconds: 10),
-              Duration(milliseconds: 10),
-            ],
+            samples: const [10, 10],
+            scaleToCanonical: 1e6,
+            mode: 'async',
           ),
         ];
         final suite = BenchmarkSuiteResult(

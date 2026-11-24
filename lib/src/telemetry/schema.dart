@@ -3,35 +3,8 @@ import 'dart:io';
 
 import '../runner.dart';
 import '../schedule/pairing.dart';
-import '../schedule/round_scheduler.dart';
 import '../stats/metrics.dart';
 import '../throughput.dart';
-
-/// Physical dimension recorded by a canonical [BenchmarkEntry].
-///
-/// Restricted strictly to physical latency (stored in nanoseconds) and memory /
-/// artifact size (stored in bytes) so all entries share lower-is-better
-/// directionality without profiler counter creep.
-enum MetricUnit() {
-  /// Elapsed time or per-operation latency normalized to nanoseconds (`'ns'`).
-  nanoseconds,
-
-  /// Memory footprint or artifact size in bytes (`'bytes'`).
-  bytes,
-}
-
-String _metricUnitJsonValue(MetricUnit unit) => switch (unit) {
-  MetricUnit.nanoseconds => 'ns',
-  MetricUnit.bytes => 'bytes',
-};
-
-MetricUnit _parseMetricUnit(Object? value) => switch (value) {
-  null || 'ns' => MetricUnit.nanoseconds,
-  'bytes' => MetricUnit.bytes,
-  final other => throw FormatException(
-    'Invalid "unit": "$other" (expected "ns" or "bytes")',
-  ),
-};
 
 /// The current telemetry schema version.
 const int currentTelemetrySchemaVersion = 1;
@@ -200,36 +173,19 @@ final class const BenchmarkEntry._({
   /// [processes] > 1.
   final List<List<double>> processTrialsNs = const [],
 
-  /// Physical unit of [metrics] and [rawTrialsNs] (default:
-  /// [MetricUnit.nanoseconds]).
-  final MetricUnit unit = MetricUnit.nanoseconds,
-
   /// Optional round-pairing provenance from `RoundScheduler` or multi-process
   /// interleaved execution.
   final PairingInfo? pairing,
 }) {
-  /// Whether [a] and [b] share the same [MetricUnit], were collected in the
-  /// same interleaved multi-round schedule, and have equal surviving round
-  /// counts (`2 <= length <= pairing.rounds`) suitable for paired confidence
-  /// intervals.
-  static bool canPair(BenchmarkEntry a, BenchmarkEntry b) {
-    if (a.unit != b.unit) return false;
-    if (!canPairInfo(a.pairing, b.pairing)) return false;
-    final lenA = a.effectiveSamplesNs.length;
-    final lenB = b.effectiveSamplesNs.length;
-    return lenA >= 2 && lenA == lenB && lenA <= a.pairing!.rounds;
-  }
-
   /// Constructs a [BenchmarkEntry] directly from raw numeric [samples] without
   /// requiring a microbenchmark `CalibratedBatch` or `WarmupResult`.
   ///
-  /// When [unit] is [MetricUnit.nanoseconds], each sample is multiplied by
-  /// [scaleToCanonical] (e.g. `1e6` when [samples] are in milliseconds, `1e3`
-  /// when in microseconds).
+  /// Each sample is multiplied by [scaleToCanonical] to normalize to canonical
+  /// nanoseconds (e.g. `1e6` when [samples] are in milliseconds, `1e3` when in
+  /// microseconds).
   factory fromSamples({
     required String name,
     required List<num> samples,
-    MetricUnit unit = MetricUnit.nanoseconds,
     double scaleToCanonical = 1.0,
     String target = 'aot',
     String mode = 'sync',
@@ -248,80 +204,30 @@ final class const BenchmarkEntry._({
         'Must be finite and > 0.',
       );
     }
-    final factor = unit == MetricUnit.nanoseconds ? scaleToCanonical : 1.0;
     final scaled = List<double>.unmodifiable([
-      for (final s in samples) s.toDouble() * factor,
+      for (final s in samples) s.toDouble() * scaleToCanonical,
     ]);
-    final rawMetrics = BenchmarkMetrics.fromSamples(scaled, isStable: true);
-    final effectiveMetrics = unit == MetricUnit.bytes
-        ? _zeroOpsMetrics(rawMetrics)
-        : rawMetrics;
+    final metrics = BenchmarkMetrics.fromSamples(scaled, isStable: true);
 
     return BenchmarkEntry._(
       name: name,
       target: target,
       mode: mode,
       samples: scaled.length,
-      metrics: effectiveMetrics,
+      metrics: metrics,
       rawTrialsNs: scaled,
       coordinates: Map<String, String>.unmodifiable(coordinates),
       isBaseline: isBaseline,
       throughput: throughput,
-      unit: unit,
       pairing: pairing,
     );
   }
-
-  /// Constructs a [BenchmarkEntry] from single-shot or episode [durations]
-  /// converted to canonical nanoseconds.
-  factory fromDurations({
-    required String name,
-    required List<Duration> durations,
-    String target = 'aot',
-    String mode = 'async',
-    Map<String, String> coordinates = const {},
-    bool isBaseline = false,
-    Throughput? throughput,
-    PairingInfo? pairing,
-  }) => BenchmarkEntry.fromSamples(
-    name: name,
-    samples: [for (final d in durations) d.inMicroseconds * 1000.0],
-    unit: MetricUnit.nanoseconds,
-    target: target,
-    mode: mode,
-    coordinates: coordinates,
-    isBaseline: isBaseline,
-    throughput: throughput,
-    pairing: pairing,
-  );
-
-  /// Constructs a [BenchmarkEntry] from memory or artifact size observations in
-  /// [bytes] ([MetricUnit.bytes]).
-  factory fromBytes({
-    required String name,
-    required List<num> bytes,
-    String target = 'aot',
-    String mode = 'sync',
-    Map<String, String> coordinates = const {},
-    bool isBaseline = false,
-    PairingInfo? pairing,
-  }) => BenchmarkEntry.fromSamples(
-    name: name,
-    samples: bytes,
-    unit: MetricUnit.bytes,
-    target: target,
-    mode: mode,
-    coordinates: coordinates,
-    isBaseline: isBaseline,
-    pairing: pairing,
-  );
 
   /// Converts the entry to a canonical JSON map.
   Map<String, Object?> toJson() => {
     'name': name,
     'target': target,
     'mode': mode,
-    if (unit != MetricUnit.nanoseconds) 'unit': _metricUnitJsonValue(unit),
     'samples': samples,
     'metrics': metrics.toJson(),
     if (coordinates.isNotEmpty) 'coordinates': coordinates,
@@ -360,7 +266,6 @@ final class const BenchmarkEntry._({
     final metrics = BenchmarkMetrics.fromJson(rawMetrics);
 
     final mode = _parseMode(json['mode'], rawName);
-    final unit = _parseMetricUnit(json['unit']);
     final rawTrials = _parseRawTrials(json['raw_trials_ns'], rawName);
     final samples = _parseSamples(json['samples'], rawTrials.length, rawName);
     final coordinates = _parseCoordinates(json['coordinates'], rawName);
@@ -402,7 +307,6 @@ final class const BenchmarkEntry._({
       processes: processes,
       processMeansNs: processMeans,
       processTrialsNs: processTrials,
-      unit: unit,
       pairing: pairing,
     );
   }
@@ -577,23 +481,16 @@ final class const BenchmarkEntry._({
       '${metrics.opsPerSec.toStringAsFixed(0)} ops/s)';
 }
 
-BenchmarkMetrics _zeroOpsMetrics(BenchmarkMetrics m) => BenchmarkMetrics(
-  meanNs: m.meanNs,
-  medianNs: m.medianNs,
-  minNs: m.minNs,
-  maxNs: m.maxNs,
-  stddevNs: m.stddevNs,
-  cv: m.cv,
-  madNs: m.madNs,
-  robustCv: m.robustCv,
-  iqrNs: m.iqrNs,
-  isRobustStable: m.isRobustStable,
-  p95Ns: m.p95Ns,
-  p99Ns: m.p99Ns,
-  opsPerSec: 0.0,
-  isStable: m.isStable,
-  varianceComponents: m.varianceComponents,
-);
+/// Whether [a] and [b] were collected in the same interleaved multi-round
+/// schedule and have equal surviving round counts
+/// (`2 <= length <= pairing.rounds`) suitable for paired confidence intervals
+/// (internal to `lib/src/`).
+bool canPairEntries(BenchmarkEntry a, BenchmarkEntry b) {
+  if (!canPairInfo(a.pairing, b.pairing)) return false;
+  final lenA = a.effectiveSamplesNs.length;
+  final lenB = b.effectiveSamplesNs.length;
+  return lenA >= 2 && lenA == lenB && lenA <= a.pairing!.rounds;
+}
 
 double _entryMeanOf(List<double> values) {
   var sum = 0.0;
@@ -619,7 +516,6 @@ BenchmarkEntry createBenchmarkEntry({
   int processes = 1,
   List<double> processMeansNs = const [],
   List<List<double>> processTrialsNs = const [],
-  MetricUnit unit = MetricUnit.nanoseconds,
   PairingInfo? pairing,
 }) => BenchmarkEntry._(
   name: name,
@@ -636,7 +532,6 @@ BenchmarkEntry createBenchmarkEntry({
   processes: processes,
   processMeansNs: processMeansNs,
   processTrialsNs: processTrialsNs,
-  unit: unit,
   pairing: pairing,
 );
 
@@ -668,12 +563,11 @@ extension InternalBenchmarkEntry on BenchmarkEntry {
     return '$name:$target:$coordStr';
   }
 
-  /// Creates a shallow copy with updated coordinates, baseline, unit, or
-  /// pairing provenance.
+  /// Creates a shallow copy with updated coordinates, baseline, or pairing
+  /// provenance.
   BenchmarkEntry copyWith({
     Map<String, String>? coordinates,
     bool? isBaseline,
-    MetricUnit? unit,
     PairingInfo? pairing,
   }) => BenchmarkEntry._(
     name: name,
@@ -690,7 +584,6 @@ extension InternalBenchmarkEntry on BenchmarkEntry {
     processes: processes,
     processMeansNs: processMeansNs,
     processTrialsNs: processTrialsNs,
-    unit: unit ?? this.unit,
     pairing: pairing ?? this.pairing,
   );
 }
@@ -759,13 +652,10 @@ BenchmarkEntry aggregateProcessEntries(List<BenchmarkEntry> processEntries) {
   final allStable = processEntries.every(
     (e) => (e.warmup?['is_stable'] as bool?) ?? e.metrics.isStable,
   );
-  final rawMetrics = BenchmarkMetrics.fromProcesses(
+  final metrics = BenchmarkMetrics.fromProcesses(
     processTrials,
     isStable: allStable,
   );
-  final metrics = first.unit == MetricUnit.bytes
-      ? _zeroOpsMetrics(rawMetrics)
-      : rawMetrics;
 
   return BenchmarkEntry._(
     name: first.name,
@@ -782,7 +672,6 @@ BenchmarkEntry aggregateProcessEntries(List<BenchmarkEntry> processEntries) {
     processes: processEntries.length,
     processMeansNs: processMeans,
     processTrialsNs: processTrials,
-    unit: first.unit,
     pairing: first.pairing,
   );
 }
@@ -850,97 +739,6 @@ final class const BenchmarkSuiteResult({
       timestamp: timestamp ?? DateTime.now().toUtc(),
       environment: environment ?? EnvironmentInfo.current(),
       benchmarks: entries,
-    );
-  }
-
-  /// Constructs a [BenchmarkSuiteResult] directly from a [ScheduledRun] of
-  /// [Duration] episodes, preserving arm baselines, coordinates, and
-  /// [PairingInfo].
-  static BenchmarkSuiteResult fromScheduledDurations(
-    ScheduledRun<Duration> run, {
-    String target = 'aot',
-    String mode = 'async',
-    String? group,
-    Throughput? throughput,
-    EnvironmentInfo? environment,
-    DateTime? timestamp,
-  }) => fromScheduledSamples<Duration>(
-    run,
-    valueOf: (d) => d.inMicroseconds * 1000.0,
-    unit: MetricUnit.nanoseconds,
-    target: target,
-    mode: mode,
-    group: group,
-    throughput: throughput,
-    environment: environment,
-    timestamp: timestamp,
-  );
-
-  /// Constructs a [BenchmarkSuiteResult] from a generic [ScheduledRun], mapping
-  /// each sample via [valueOf] and preserving [PairingInfo].
-  static BenchmarkSuiteResult fromScheduledSamples<T>(
-    ScheduledRun<T> run, {
-    required double Function(T sample) valueOf,
-    MetricUnit unit = MetricUnit.nanoseconds,
-    String target = 'aot',
-    String mode = 'sync',
-    String? group,
-    Throughput? throughput,
-    EnvironmentInfo? environment,
-    DateTime? timestamp,
-  }) {
-    final entries = <BenchmarkEntry>[
-      for (final arm in run.arms)
-        BenchmarkEntry.fromSamples(
-          name: arm.name,
-          samples: [for (final s in arm.samples) valueOf(s)],
-          unit: unit,
-          target: target,
-          mode: mode,
-          coordinates: {
-            ...arm.coordinates,
-            if (group != null && group.isNotEmpty)
-              BenchmarkCoordinates.groupKey: group,
-          },
-          isBaseline: arm.isBaseline,
-          throughput: throughput,
-          pairing: run.pairing,
-        ),
-    ];
-    return BenchmarkSuiteResult(
-      timestamp: timestamp ?? DateTime.now().toUtc(),
-      environment: environment ?? EnvironmentInfo.current(),
-      benchmarks: entries,
-    );
-  }
-
-  /// Performs a deterministic deep-merge of [other] into this suite result.
-  ///
-  /// Matching entries (keyed by `name:target` or `name:target:coordStr`)
-  /// from [other] replace existing entries. New entries are appended. The
-  /// resulting entries are sorted deterministically by benchmark name and
-  /// then target name.
-  BenchmarkSuiteResult deepMerge(BenchmarkSuiteResult other) {
-    final map = <String, BenchmarkEntry>{};
-    for (final entry in benchmarks) {
-      map[entry.key] = entry;
-    }
-    for (final entry in other.benchmarks) {
-      map[entry.key] = entry;
-    }
-
-    final mergedList = map.values.toList()
-      ..sort((a, b) {
-        final nameComp = a.name.compareTo(b.name);
-        if (nameComp != 0) return nameComp;
-        return a.target.compareTo(b.target);
-      });
-
-    return BenchmarkSuiteResult(
-      version: currentTelemetrySchemaVersion,
-      timestamp: other.timestamp,
-      environment: other.environment,
-      benchmarks: mergedList,
     );
   }
 
@@ -1016,35 +814,6 @@ final class const BenchmarkSuiteResult({
     file.writeAsStringSync('${toFormattedJson()}\n');
   }
 
-  /// Loads a [BenchmarkSuiteResult] from [file].
-  static BenchmarkSuiteResult loadFromFile(File file) {
-    if (!file.existsSync()) {
-      throw FileSystemException('Telemetry file does not exist', file.path);
-    }
-    final content = file.readAsStringSync();
-    return BenchmarkSuiteResult.fromJsonString(content);
-  }
-
-  /// Merges this result into [file] if it exists, or saves it fresh.
-  /// Returns the resulting merged [BenchmarkSuiteResult].
-  BenchmarkSuiteResult mergeAndSave(File file) {
-    if (file.existsSync()) {
-      try {
-        final existing = loadFromFile(file);
-        final merged = existing.deepMerge(this);
-        merged.saveToFile(file);
-        return merged;
-      } on FormatException {
-        // If existing file is corrupted or incompatible, overwrite with fresh
-        saveToFile(file);
-        return this;
-      }
-    } else {
-      saveToFile(file);
-      return this;
-    }
-  }
-
   @override
   String toString() {
     final targetSet = <String>{for (final b in benchmarks) b.target}.toList()
@@ -1052,6 +821,15 @@ final class const BenchmarkSuiteResult({
     return 'BenchmarkSuiteResult(v$version, ${benchmarks.length} benchmarks, '
         'targets: ${targetSet.join(",")})';
   }
+}
+
+/// Loads a [BenchmarkSuiteResult] from [file] (internal to `lib/src/`).
+BenchmarkSuiteResult loadSuiteFromFile(File file) {
+  if (!file.existsSync()) {
+    throw FileSystemException('Telemetry file does not exist', file.path);
+  }
+  final content = file.readAsStringSync();
+  return BenchmarkSuiteResult.fromJsonString(content);
 }
 
 /// Aggregates [processSuites] from `P` independent OS process invocations into
@@ -1087,8 +865,59 @@ BenchmarkSuiteResult aggregateProcessSuites(
   );
 }
 
-/// Internal suite lookup helpers kept out of the public `api.txt` surface.
+/// Internal suite lookup and merge helpers kept out of the public `api.txt`
+/// surface.
 extension InternalBenchmarkSuiteResult on BenchmarkSuiteResult {
+  /// Performs a deterministic deep-merge of [other] into this suite result.
+  ///
+  /// Matching entries (keyed by `name:target` or `name:target:coordStr`)
+  /// from [other] replace existing entries. New entries are appended. The
+  /// resulting entries are sorted deterministically by benchmark name and
+  /// then target name.
+  BenchmarkSuiteResult deepMerge(BenchmarkSuiteResult other) {
+    final map = <String, BenchmarkEntry>{};
+    for (final entry in benchmarks) {
+      map[entry.key] = entry;
+    }
+    for (final entry in other.benchmarks) {
+      map[entry.key] = entry;
+    }
+
+    final mergedList = map.values.toList()
+      ..sort((a, b) {
+        final nameComp = a.name.compareTo(b.name);
+        if (nameComp != 0) return nameComp;
+        return a.target.compareTo(b.target);
+      });
+
+    return BenchmarkSuiteResult(
+      version: currentTelemetrySchemaVersion,
+      timestamp: other.timestamp,
+      environment: other.environment,
+      benchmarks: mergedList,
+    );
+  }
+
+  /// Merges this result into [file] if it exists, or saves it fresh.
+  /// Returns the resulting merged [BenchmarkSuiteResult].
+  BenchmarkSuiteResult mergeAndSave(File file) {
+    if (file.existsSync()) {
+      try {
+        final existing = loadSuiteFromFile(file);
+        final merged = existing.deepMerge(this);
+        merged.saveToFile(file);
+        return merged;
+      } on FormatException {
+        // If existing file is corrupted or incompatible, overwrite with fresh
+        saveToFile(file);
+        return this;
+      }
+    } else {
+      saveToFile(file);
+      return this;
+    }
+  }
+
   /// Finds an entry matching [name] and [target], or returns `null`.
   BenchmarkEntry? findEntry(String name, String target) {
     for (final entry in benchmarks) {
