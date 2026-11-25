@@ -170,15 +170,15 @@ final lowerBound = (r - halfWidth) / (1.0 - g);
 final upperBound = (r + halfWidth) / (1.0 - g);
 ```
 
-If `g >= 1.0` (indicating the denominator variance is too high for a bounded
-ratio), or if either sample is not stable (`isStable`: warmup converged and
-either CV `<= 5%` or robust stability holds; the same test behind the
-`✅ Stable` badge), `bench_press` gates the published speedup ratio as
-`unresolved` (`❓ Unresolved`, overrideable via `--no-gate`). Because every
-candidate row in a group or matrix comparison table is evaluated against the
-table's baseline entry, a single unstable baseline (`baseline samples unstable`)
-gates all candidate speedup ratios in that table even when individual candidate
-samples are stable.
+If `g >= 1.0` (denominator variance too high for a bounded ratio), fewer than 2
+samples were recorded, or either cell's warmup phase failed to converge
+(`warmup.is_stable == false`), `bench_press` gates the comparison as
+`unresolved` (`❓ Unresolved`, overrideable via `--no-gate`). Sample dispersion
+above 5% (`cv > 5%` and `robustCv > 5%`, evaluated on pairwise ratios when
+paired via `PairingInfo` or per cell when unpaired) does not censor a bounded
+interval; instead, `MarkdownReporter` publishes the 95% CI, lets the interval
+and `--threshold` decide the verdict, and emits a `⚠️ High variance` footnote
+when residual dispersion exceeds 5%.
 
 A resolved interval that contains `1.00x` is reported as `➖ ⚪ Neutral`
 whatever the point estimate, because the data cannot tell a speedup from a

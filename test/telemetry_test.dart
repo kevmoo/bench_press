@@ -83,14 +83,14 @@ void main() {
         isStable: true,
       );
 
-      const entry = BenchmarkEntry(
+      final entry = createBenchmarkEntry(
         name: 'crypto/sha256',
         target: 'wasm',
         mode: 'sync',
         samples: 15,
         metrics: metrics,
-        rawTrialsNs: [480.0, 490.0, 500.0, 510.0, 520.0],
-        warmup: {'is_stable': true, 'total_iterations': 45},
+        rawTrialsNs: const [480.0, 490.0, 500.0, 510.0, 520.0],
+        warmup: const {'is_stable': true, 'total_iterations': 45},
         calibratedBatchIterations: 2000,
       );
 
@@ -248,7 +248,7 @@ void main() {
       initialSuite.saveToFile(telemetryFile);
       check(telemetryFile.existsSync()).isTrue;
 
-      final loaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
+      final loaded = loadSuiteFromFile(telemetryFile);
       check(loaded.benchmarks.length).equals(1);
       check(loaded.benchmarks.first.key).equals('workload_a:jit');
 
@@ -263,7 +263,7 @@ void main() {
       final mergedResult = secondSuite.mergeAndSave(telemetryFile);
       check(mergedResult.benchmarks.length).equals(2);
 
-      final reloaded = BenchmarkSuiteResult.loadFromFile(telemetryFile);
+      final reloaded = loadSuiteFromFile(telemetryFile);
       check(reloaded.benchmarks.length).equals(2);
       check(reloaded.findEntry('workload_a', 'jit')).isNotNull();
       check(reloaded.findEntry('workload_a', 'aot')).isNotNull();
@@ -322,21 +322,21 @@ void main() {
           isStable: true,
         );
 
-        const entry = BenchmarkEntry(
+        final entry = createBenchmarkEntry(
           name: 'grouped_task',
           target: 'aot',
           mode: 'sync',
           samples: 10,
           metrics: metrics,
-          coordinates: BenchmarkCoordinates({
+          coordinates: const {
             BenchmarkCoordinates.groupKey: 'CryptoGroup',
             BenchmarkCoordinates.sdkKey: 'stock',
             BenchmarkCoordinates.runtimeKey: 'aot',
             BenchmarkCoordinates.compilerFlagsKey: '-O3',
             BenchmarkCoordinates.vmFlagsKey: '--test',
-          }),
+          },
           isBaseline: true,
-          throughput: Throughput.bytes(1024),
+          throughput: const Throughput.bytes(1024),
         );
 
         check(entry.coordinates.group).equals('CryptoGroup');
@@ -372,7 +372,7 @@ void main() {
         final result = await BenchmarkRunner.runAsync(benchmark);
         check(result.mode).equals('async');
 
-        final entry = BenchmarkEntry.fromResult(result, target: 'jit');
+        final entry = benchmarkEntryFromResult(result, target: 'jit');
         check(entry.mode).equals('async');
 
         final json = entry.toJson();
@@ -395,15 +395,15 @@ void main() {
       final resultWarmup = result.toJson()['warmup'] as Map;
       check(resultWarmup['estimated_op_ns']).equals(estimate);
 
-      final json = BenchmarkEntry.fromResult(result, target: 'jit').toJson();
+      final json = benchmarkEntryFromResult(result, target: 'jit').toJson();
       check((json['warmup'] as Map)['estimated_op_ns']).equals(estimate);
       final decoded = jsonDecode(jsonEncode(json)) as Map<String, dynamic>;
       check(BenchmarkEntry.fromJson(decoded).warmup?['estimated_op_ns'])
           .equals(estimate);
     });
 
-    test('BenchmarkEntry.fromProcesses and '
-        'BenchmarkSuiteResult.aggregateProcesses aggregate multi-process runs '
+    test('aggregateProcessEntries and '
+        'aggregateProcessSuites aggregate multi-process runs '
         'and round-trip JSON', () {
       const env = EnvironmentInfo(
         dartVersion: '3.14.0',
@@ -430,11 +430,7 @@ void main() {
         benchmarks: [p3],
       );
 
-      final aggregated = BenchmarkSuiteResult.aggregateProcesses([
-        suite1,
-        suite2,
-        suite3,
-      ]);
+      final aggregated = aggregateProcessSuites([suite1, suite2, suite3]);
       final entry = aggregated.benchmarks.single;
       check(entry.processes).equals(3);
       check(entry.processMeansNs.length).equals(3);
@@ -452,12 +448,150 @@ void main() {
       check(rtEntry.metrics.varianceComponents).isNotNull();
 
       // Single-process passthrough and empty-list ArgumentError:
-      check(identical(BenchmarkEntry.fromProcesses([p1]), p1)).isTrue;
-      check(() => BenchmarkEntry.fromProcesses(const []))
-          .throws<ArgumentError>();
-      check(() => BenchmarkSuiteResult.aggregateProcesses(const []))
-          .throws<ArgumentError>();
+      check(identical(aggregateProcessEntries([p1]), p1)).isTrue;
+      check(() => aggregateProcessEntries(const [])).throws<ArgumentError>();
+      check(() => aggregateProcessSuites(const [])).throws<ArgumentError>();
+
+      // Entries without rawTrialsNs fall back to metrics.meanNs per process.
+      final noRaw1 = createBenchmarkEntry(
+        name: 'noraw',
+        target: 'aot',
+        mode: 'sync',
+        samples: 1,
+        metrics: BenchmarkMetrics.fromSamples(const [100.0]),
+      );
+      final noRaw2 = createBenchmarkEntry(
+        name: 'noraw',
+        target: 'aot',
+        mode: 'sync',
+        samples: 1,
+        metrics: BenchmarkMetrics.fromSamples(const [110.0]),
+      );
+      final aggNoRaw = aggregateProcessEntries([noRaw1, noRaw2]);
+      check(aggNoRaw.processMeansNs).deepEquals([100.0, 110.0]);
+      check(aggNoRaw.processTrialsNs).deepEquals([
+        [100.0],
+        [110.0],
+      ]);
     });
+
+    test(
+      'BenchmarkEntry/BenchmarkSuiteResult validation, recovery, and lookups',
+      () {
+        check(() => BenchmarkEntry.fromSamples(name: '', samples: const [1.0]))
+            .throws<ArgumentError>();
+        check(
+          () => BenchmarkEntry.fromSamples(
+            name: 'x',
+            samples: const [1.0],
+            scaleToCanonical: 0.0,
+          ),
+        ).throws<ArgumentError>();
+        check(
+          () => BenchmarkEntry.fromSamples(
+            name: 'x',
+            samples: const [1.0],
+            scaleToCanonical: double.nan,
+          ),
+        ).throws<ArgumentError>();
+
+        final metricsJson = BenchmarkMetrics.fromSamples(const [100.0])
+            .toJson();
+        final validBase = <String, Object?>{
+          'name': 'foo',
+          'target': 'jit',
+          'metrics': metricsJson,
+        };
+        for (final bad in <Map<String, Object?>>[
+          {...validBase, 'pairing': 'bad'},
+          {...validBase, 'processes': 0},
+          {...validBase, 'processes': 'bad'},
+          {...validBase, 'process_means_ns': 'bad'},
+          {
+            ...validBase,
+            'process_means_ns': ['bad'],
+          },
+          {...validBase, 'process_trials_ns': 'bad'},
+        ]) {
+          check(() => BenchmarkEntry.fromJson(bad)).throws<FormatException>();
+        }
+
+        // Derives processMeansNs and processes from process_trials_ns when
+        // omitted, and effectiveSamplesNs falls back to processTrialsNs.
+        final derived = BenchmarkEntry.fromJson({
+          ...validBase,
+          'process_trials_ns': [
+            [100.0, 102.0],
+            [200.0, 202.0],
+          ],
+        });
+        check(derived.processes).equals(2);
+        check(derived.processMeansNs).deepEquals([101.0, 201.0]);
+
+        final trialsOnly = createBenchmarkEntry(
+          name: 'trials_only',
+          target: 'aot',
+          mode: 'sync',
+          samples: 4,
+          metrics: BenchmarkMetrics.fromSamples(const [150.0]),
+          processes: 2,
+          processTrialsNs: const [
+            [10.0, 14.0],
+            [20.0, 24.0],
+          ],
+        );
+        check(trialsOnly.effectiveSamplesNs).deepEquals([12.0, 22.0]);
+
+        check(() => loadSuiteFromFile(File(d.path('does_not_exist.json'))))
+            .throws<FileSystemException>();
+        check(() => BenchmarkSuiteResult.fromJsonString('[]'))
+            .throws<FormatException>();
+        check(() => BenchmarkSuiteResult.fromJson(const {'version': 1}))
+            .throws<FormatException>();
+        check(
+          () => BenchmarkSuiteResult.fromJson(const {
+            'version': 1,
+            'timestamp': '2026-08-30T00:00:00.000Z',
+          }),
+        ).throws<FormatException>();
+        check(
+          () => BenchmarkSuiteResult.fromJson(const {
+            'version': 1,
+            'timestamp': '2026-08-30T00:00:00.000Z',
+            'environment': {
+              'dart_version': '3.14.0',
+              'os': 'linux',
+              'arch': 'x64',
+            },
+          }),
+        ).throws<FormatException>();
+
+        // mergeAndSave overwrites an existing corrupted JSON file cleanly.
+        final corruptFile = File(d.path('corrupt_telemetry.json'))
+          ..writeAsStringSync('{not valid json');
+        const env = EnvironmentInfo(
+          dartVersion: '3.14.0',
+          os: 'linux',
+          arch: 'x64',
+        );
+        final entryGrp = createBenchmarkEntry(
+          name: 'g_work',
+          target: 'aot',
+          mode: 'sync',
+          samples: 2,
+          metrics: BenchmarkMetrics.fromSamples(const [50.0, 52.0]),
+          coordinates: const {'sdk': 'patched'},
+        );
+        final freshSuite = BenchmarkSuiteResult(
+          timestamp: DateTime.utc(2026, 8, 30),
+          environment: env,
+          benchmarks: [entryGrp],
+        );
+        final saved = freshSuite.mergeAndSave(corruptFile);
+        check(saved.benchmarks.length).equals(1);
+        check(saved.getEntriesForGroup('patched').single.name).equals('g_work');
+      },
+    );
   });
 }
 
@@ -492,7 +626,7 @@ BenchmarkEntry _createEntry(String name, String target, double meanNs) {
     opsPerSec: 1e9 / meanNs,
     isStable: true,
   );
-  return BenchmarkEntry(
+  return createBenchmarkEntry(
     name: name,
     target: target,
     mode: 'sync',

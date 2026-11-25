@@ -174,37 +174,25 @@ void main() {
           'wire',
           13,
           50000.0,
-          coordinates: const BenchmarkCoordinates({
-            'group': '13b',
-            'sdk': 'stock',
-          }),
+          coordinates: const {'group': '13b', 'sdk': 'stock'},
         ),
         _entry(
           'wire',
           256 * 1024,
           2000000.0,
-          coordinates: const BenchmarkCoordinates({
-            'group': '256k',
-            'sdk': 'stock',
-          }),
+          coordinates: const {'group': '256k', 'sdk': 'stock'},
         ),
         _entry(
           'wire',
           13,
           1250.0,
-          coordinates: const BenchmarkCoordinates({
-            'group': '13b',
-            'sdk': 'fork',
-          }),
+          coordinates: const {'group': '13b', 'sdk': 'fork'},
         ),
         _entry(
           'wire',
           256 * 1024,
           50000.0,
-          coordinates: const BenchmarkCoordinates({
-            'group': '256k',
-            'sdk': 'fork',
-          }),
+          coordinates: const {'group': '256k', 'sdk': 'fork'},
         ),
       ]);
 
@@ -383,7 +371,7 @@ void main() {
   });
 }
 
-BenchmarkCoordinates _g(String group) => BenchmarkCoordinates({'group': group});
+Map<String, String> _g(String group) => {'group': group};
 
 BenchmarkSuiteResult _suite(List<BenchmarkEntry> benchmarks) =>
     BenchmarkSuiteResult(
@@ -401,8 +389,8 @@ BenchmarkEntry _entry(
   int? bytes,
   double meanNs, {
   String target = 'exe',
-  BenchmarkCoordinates coordinates = const BenchmarkCoordinates(),
-}) => BenchmarkEntry(
+  Map<String, String> coordinates = const {},
+}) => createBenchmarkEntry(
   name: name,
   target: target,
   mode: 'sync',

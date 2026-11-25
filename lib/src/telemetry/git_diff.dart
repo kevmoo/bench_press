@@ -155,6 +155,7 @@ abstract final class GitDiffReporter() {
     String? title,
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final diff = loadDiff(
       gitRef: gitRef,
@@ -164,7 +165,7 @@ abstract final class GitDiffReporter() {
     );
 
     if (diff.hasBaseline) {
-      return MarkdownReporter.renderDeltaTable(
+      return renderDeltaTable(
         baseline: diff.baseline!,
         current: current,
         title: title ?? 'Git Baseline Delta: `$gitRef` ($filePath)',
@@ -172,6 +173,7 @@ abstract final class GitDiffReporter() {
         currentLabel: 'Current',
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     } else {
       final buffer = StringBuffer();

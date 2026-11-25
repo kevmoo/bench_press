@@ -187,7 +187,7 @@ abstract final class ThroughputPlausibility() {
     return findings;
   }
 
-  static String _nonGroupCoordKey(BenchmarkCoordinates coordinates) {
+  static String _nonGroupCoordKey(Map<String, String> coordinates) {
     if (coordinates.isEmpty) return '';
     final entries = [
       for (final entry in coordinates.entries)

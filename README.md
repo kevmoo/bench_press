@@ -16,7 +16,7 @@ Dart and Flutter.
 - **PayloadPlausibility & Fieller Gating**: Formats `Throughput.bytes` and
   `Throughput.elements` rates (`MB/s`, `GB/s`, `items/s`), flags implausible
   rates (`> 100 GB/s` or size-invariant latencies across `>= 8x` payload
-  spreads), and gates speedups on `isStable` and 95% Fieller confidence
+  spreads), and gates speedups on warmup convergence and 95% Fieller confidence
   intervals.
 
 ## Quickstart

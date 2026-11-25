@@ -1,9 +1,29 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import '../stats/difference.dart';
 import '../stats/fieller.dart';
+import '../stats/metrics.dart';
+import '../stats/sample_summary.dart';
 import 'plausibility.dart';
 import 'schema.dart';
+
+/// Scale used when comparing candidate benchmark cells against a baseline.
+enum ComparisonScale() {
+  /// Multiplicative speedup ratio (`baseline / candidate`, Fieller 95% CI).
+  ratio,
+
+  /// Additive delta (`candidate - baseline`, Student/Welch 95% CI).
+  difference,
+
+  /// Both additive delta CI and multiplicative Fieller ratio CI.
+  both,
+}
+
+/// Parses [raw] (`'ratio'`, `'difference'`, or `'both'`), returning `null` if
+/// unrecognized (internal to `lib/src/`).
+ComparisonScale? tryParseComparisonScale(String raw) =>
+    ComparisonScale.values.asNameMap()[raw.trim().toLowerCase()];
 
 /// Generates formatted Markdown tables and performance telemetry reports.
 abstract final class MarkdownReporter() {
@@ -13,6 +33,7 @@ abstract final class MarkdownReporter() {
     String? title,
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final buffer = StringBuffer();
     final heading = title ?? 'Benchmark Suite Results';
@@ -40,7 +61,12 @@ abstract final class MarkdownReporter() {
 
     if (isLegacyGrouped) {
       buffer.write(
-        _renderLegacyGroupedSuite(suite, gate: gate, threshold: threshold),
+        _renderLegacyGroupedSuite(
+          suite,
+          gate: gate,
+          threshold: threshold,
+          scale: scale,
+        ),
       );
       return buffer.toString().trimRight();
     }
@@ -58,12 +84,13 @@ abstract final class MarkdownReporter() {
                 ? 'Benchmark: `$workloadName` (`$target`)'
                 : 'Benchmark: `$workloadName`');
       buffer.writeln(
-        renderMatrixComparisonTable(
+        _renderMatrixComparisonTable(
           workloadName: workloadName,
           entries: workload.value,
           title: defaultTitle,
           gate: gate,
           threshold: threshold,
+          scale: scale,
         ),
       );
       buffer.writeln();
@@ -77,17 +104,21 @@ abstract final class MarkdownReporter() {
     BenchmarkSuiteResult suite, {
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final buffer = StringBuffer();
-    final suiteSummary = renderSuiteSummaryTable(suite, gate: gate);
-    if (suiteSummary.isNotEmpty) {
-      buffer.writeln(suiteSummary);
-      buffer.writeln();
+    if (scale != ComparisonScale.difference) {
+      final suiteSummary = renderSuiteSummaryTable(suite, gate: gate);
+      if (suiteSummary.isNotEmpty) {
+        buffer.writeln(suiteSummary);
+        buffer.writeln();
+      }
     }
-    final groupTables = renderAllGroupComparisonTables(
+    final groupTables = _renderAllGroupComparisonTables(
       suite,
       gate: gate,
       threshold: threshold,
+      scale: scale,
     );
     if (groupTables.isNotEmpty) {
       buffer.write(groupTables);
@@ -112,46 +143,6 @@ abstract final class MarkdownReporter() {
       _recordDrift(notes, entry.name, entry);
     }
     _writeDriftNotes(buffer, notes);
-  }
-
-  /// Renders a top-level Suite Summary table rolling up candidate performance
-  /// across multiple `coordinates.group` comparison groups using geometric mean
-  /// speedup.
-  ///
-  /// Returns an empty string when there are fewer than 2 distinct comparison
-  /// groups with a baseline and at least one candidate participating across
-  /// multiple groups.
-  static String renderSuiteSummaryTable(
-    BenchmarkSuiteResult suite, {
-    String? title,
-    bool gate = true,
-  }) {
-    final (distinctGroupCount, candidateSpeedups) =
-        _collectCandidateGroupSpeedups(suite, gate: gate);
-    if (distinctGroupCount < 2 || candidateSpeedups.isEmpty) {
-      return '';
-    }
-
-    final buffer = StringBuffer();
-    final heading = title ?? 'Suite Summary';
-    buffer.writeln('### $heading\n');
-    buffer.writeln(
-      '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
-      'Max Speedup | Groups |',
-    );
-    buffer.writeln('| :--- | :--- | :---: | :---: | :---: | :---: |');
-
-    final targets = <String>{for (final key in candidateSpeedups.keys) key.$2};
-    for (final target in targets) {
-      for (final key in candidateSpeedups.keys) {
-        if (key.$2 == target) {
-          buffer.writeln(
-            _formatSuiteSummaryRow(key.$1, target, candidateSpeedups[key]!),
-          );
-        }
-      }
-    }
-    return buffer.toString().trimRight();
   }
 
   static (int, Map<(String, String), List<double>>)
@@ -253,12 +244,13 @@ abstract final class MarkdownReporter() {
     return map;
   }
 
-  static String renderMatrixComparisonTable({
+  static String _renderMatrixComparisonTable({
     required String workloadName,
     required List<BenchmarkEntry> entries,
     String? title,
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     if (entries.isEmpty) return '';
 
@@ -292,15 +284,12 @@ abstract final class MarkdownReporter() {
       'Ops/sec',
       if (hasThroughput) 'Throughput',
       'Mean Latency',
-      'vs. Baseline (`$baselineLabel`)',
-      'Speedup Ratio',
-      '95% Confidence Interval',
-      'Status',
+      ..._matrixScaleHeaders(baselineLabel, scale),
     ];
     buffer.writeln('| ${headerRow.join(' | ')} |');
 
     final dimCount = axesList.length + (includeNameCol ? 1 : 0);
-    final metricCount = hasThroughput ? 7 : 6;
+    final metricCount = headerRow.length - dimCount;
     final sepRow = <String>[
       for (var i = 0; i < dimCount; i++) ':---',
       for (var i = 0; i < metricCount; i++) ':---:',
@@ -321,6 +310,7 @@ abstract final class MarkdownReporter() {
           stats,
           includeNameCol: includeNameCol,
           threshold: threshold,
+          scale: scale,
         ),
       );
       _recordDrift(
@@ -330,12 +320,37 @@ abstract final class MarkdownReporter() {
       );
     }
     if (orderedEntries.length > 1) {
-      _writeDeltaFooter(buffer, stats);
+      _writeDeltaFooter(buffer, stats, scale: scale);
     } else {
-      _writeAdvisoryNotes(buffer, stats);
+      _writeAdvisoryNotes(buffer, stats, scale: scale);
     }
     return buffer.toString().trimRight();
   }
+
+  static List<String> _matrixScaleHeaders(
+    String baselineLabel,
+    ComparisonScale scale,
+  ) => switch (scale) {
+    ComparisonScale.ratio => [
+      'vs. Baseline (`$baselineLabel`)',
+      'Speedup Ratio',
+      '95% Confidence Interval',
+      'Status',
+    ],
+    ComparisonScale.difference => [
+      'Delta vs. Baseline (`$baselineLabel`)',
+      'Delta (%)',
+      '95% CI (Diff)',
+      'Status',
+    ],
+    ComparisonScale.both => [
+      'Delta vs. Baseline (`$baselineLabel`)',
+      '95% CI (Diff)',
+      'Speedup Ratio',
+      '95% CI (Fieller)',
+      'Status',
+    ],
+  };
 
   static List<String> _extractSortedAxes(List<BenchmarkEntry> entries) {
     final axes = <String>{};
@@ -394,6 +409,7 @@ abstract final class MarkdownReporter() {
     _DeltaStats stats, {
     required bool includeNameCol,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final curMeanNs = entry.metrics.meanNs;
     final prefixCols = <String>[
@@ -409,20 +425,97 @@ abstract final class MarkdownReporter() {
     ];
 
     if (identical(entry, baselineEntry)) {
-      final cols = [
-        ...prefixCols,
-        '1.00x (ref)',
-        '1.00x',
-        '[1.00x – 1.00x]',
-        'Ref',
-      ];
-      return '| ${cols.join(' | ')} |';
+      final baseCols = [...prefixCols, ..._matrixBaselineSuffix(scale)];
+      return '| ${baseCols.join(' | ')} |';
     }
 
+    final prevUnresolved = stats.unresolvedCount;
+    final suffix = switch (scale) {
+      ComparisonScale.ratio => _formatMatrixRatioSuffix(
+        entry,
+        baselineEntry,
+        baseMeanNs,
+        gate: gate,
+        threshold: threshold,
+        stats: stats,
+      ),
+      ComparisonScale.difference => _formatMatrixDiffSuffix(
+        entry,
+        baselineEntry,
+        baseMeanNs,
+        gate: gate,
+        threshold: threshold,
+        stats: stats,
+      ),
+      ComparisonScale.both => _formatMatrixBothSuffix(
+        entry,
+        baselineEntry,
+        baseMeanNs,
+        gate: gate,
+        threshold: threshold,
+        stats: stats,
+      ),
+    };
+    if (stats.unresolvedCount == prevUnresolved) {
+      final baseLabel = _formatBaselineLabel(
+        baselineEntry,
+        axes,
+        includeNameCol: includeNameCol,
+      );
+      final curLabel = _formatBaselineLabel(
+        entry,
+        axes,
+        includeNameCol: includeNameCol,
+      );
+      _recordComparisonVariance(
+        stats.varianceNotes,
+        base: baselineEntry,
+        cur: entry,
+        baseLabel: baseLabel,
+        curLabel: curLabel,
+        pairLabel: curLabel,
+        isDelta: false,
+      );
+    }
+    return '| ${[...prefixCols, ...suffix].join(' | ')} |';
+  }
+
+  static List<String> _matrixBaselineSuffix(ComparisonScale scale) =>
+      switch (scale) {
+        ComparisonScale.ratio => const [
+          '1.00x (ref)',
+          '1.00x',
+          '[1.00x – 1.00x]',
+          'Ref',
+        ],
+        ComparisonScale.difference => const [
+          '0.0 ns (ref)',
+          '0.0%',
+          '[0.0 ns – 0.0 ns]',
+          'Ref',
+        ],
+        ComparisonScale.both => const [
+          '0.0 ns (ref)',
+          '[0.0 ns – 0.0 ns]',
+          '1.00x',
+          '[1.00x – 1.00x]',
+          'Ref',
+        ],
+      };
+
+  static List<String> _formatMatrixRatioSuffix(
+    BenchmarkEntry entry,
+    BenchmarkEntry baselineEntry,
+    double baseMeanNs, {
+    required bool gate,
+    required double threshold,
+    required _DeltaStats stats,
+  }) {
+    final curMeanNs = entry.metrics.meanNs;
     final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
         ? (baseMeanNs / curMeanNs)
         : 1.0;
-    final verdict = _computeFiellerVerdict(baselineEntry, entry);
+    final verdict = _computeFiellerVerdict(baselineEntry, entry, gate: gate);
     final isUnresolved = gate && !verdict.resolved;
     final movement = _classifyMovement(
       speedup,
@@ -430,17 +523,15 @@ abstract final class MarkdownReporter() {
       isDelta: false,
       threshold: threshold,
     );
-    _tally(stats, verdict, speedup, movement, unresolved: isUnresolved);
+    _tally(stats, verdict.reasons, speedup, movement, unresolved: isUnresolved);
 
     if (isUnresolved) {
-      final cols = [
-        ...prefixCols,
+      return [
         'unresolved',
         'unresolved',
         verdict.matrixCiString,
         '❓ Unresolved',
       ];
-      return '| ${cols.join(' | ')} |';
     }
 
     final ratioText = speedup >= 1.0
@@ -450,9 +541,108 @@ abstract final class MarkdownReporter() {
     final ratioStr = '${speedup.toStringAsFixed(2)}x';
     final ci = verdict.matrixCiString;
     final ciStr = verdict.resolved && movement.$2 != 0 ? '**$ci**' : ci;
-    final cols = [...prefixCols, diffStr, ratioStr, ciStr, movement.$1];
+    return [diffStr, ratioStr, ciStr, movement.$1];
+  }
 
-    return '| ${cols.join(' | ')} |';
+  static List<String> _formatMatrixDiffSuffix(
+    BenchmarkEntry entry,
+    BenchmarkEntry baselineEntry,
+    double baseMeanNs, {
+    required bool gate,
+    required double threshold,
+    required _DeltaStats stats,
+  }) {
+    final curMeanNs = entry.metrics.meanNs;
+    final rawDiff = curMeanNs - baseMeanNs;
+    final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
+        ? (baseMeanNs / curMeanNs)
+        : 1.0;
+    final diffVerdict = _computeDiffVerdict(baselineEntry, entry, gate: gate);
+    final isUnresolved = gate && !diffVerdict.resolved;
+    final movement = isUnresolved
+        ? ('❓ Unresolved', 0)
+        : _classifyDiffMovement(
+            diffVerdict,
+            rawDiff: rawDiff,
+            baseMeanNs: baseMeanNs,
+            isDelta: false,
+            threshold: threshold,
+          );
+    _tally(
+      stats,
+      diffVerdict.reasons,
+      speedup,
+      movement,
+      unresolved: isUnresolved,
+    );
+
+    if (isUnresolved) {
+      return [
+        'unresolved',
+        'unresolved',
+        diffVerdict.matrixCiString,
+        '❓ Unresolved',
+      ];
+    }
+
+    final diffText = _formatSignedDelta(rawDiff);
+    final diffStr = movement.$2 != 0 ? '**$diffText**' : diffText;
+    final deltaPct = baseMeanNs > 0.0 ? (rawDiff / baseMeanNs) * 100.0 : 0.0;
+    final pctStr = _formatPercent(deltaPct);
+    final ci = diffVerdict.matrixCiString;
+    final ciStr = diffVerdict.resolved && movement.$2 != 0 ? '**$ci**' : ci;
+    return [diffStr, pctStr, ciStr, movement.$1];
+  }
+
+  static List<String> _formatMatrixBothSuffix(
+    BenchmarkEntry entry,
+    BenchmarkEntry baselineEntry,
+    double baseMeanNs, {
+    required bool gate,
+    required double threshold,
+    required _DeltaStats stats,
+  }) {
+    final curMeanNs = entry.metrics.meanNs;
+    final speedup = (curMeanNs > 0.0 && baseMeanNs > 0.0)
+        ? (baseMeanNs / curMeanNs)
+        : 1.0;
+    final fieller = _computeFiellerVerdict(baselineEntry, entry, gate: gate);
+    final diffVerdict = _computeDiffVerdict(baselineEntry, entry, gate: gate);
+    final bothResolved = fieller.resolved && diffVerdict.resolved;
+    final isUnresolved = gate && !bothResolved;
+    final reasons = <String>[...fieller.reasons, ...diffVerdict.reasons];
+    final movement = _classifyMovement(
+      speedup,
+      fieller,
+      isDelta: false,
+      threshold: threshold,
+    );
+    _tally(stats, reasons, speedup, movement, unresolved: isUnresolved);
+
+    if (isUnresolved) {
+      return [
+        'unresolved',
+        diffVerdict.matrixCiString,
+        'unresolved',
+        fieller.matrixCiString,
+        '❓ Unresolved',
+      ];
+    }
+
+    final rawDiff = curMeanNs - baseMeanNs;
+    final deltaPct = baseMeanNs > 0.0 ? (rawDiff / baseMeanNs) * 100.0 : 0.0;
+    final diffText =
+        '${_formatSignedDelta(rawDiff)} '
+        '(${_formatPercent(deltaPct)})';
+    final diffStr = movement.$2 != 0 ? '**$diffText**' : diffText;
+    final diffCi = movement.$2 != 0
+        ? '**${diffVerdict.matrixCiString}**'
+        : diffVerdict.matrixCiString;
+    final ratioStr = '${speedup.toStringAsFixed(2)}x';
+    final fiellerCi = movement.$2 != 0
+        ? '**${fieller.matrixCiString}**'
+        : fieller.matrixCiString;
+    return [diffStr, diffCi, ratioStr, fiellerCi, movement.$1];
   }
 
   static List<String> _formatDimensionCols(
@@ -477,10 +667,11 @@ abstract final class MarkdownReporter() {
     ];
   }
 
-  static String renderAllGroupComparisonTables(
+  static String _renderAllGroupComparisonTables(
     BenchmarkSuiteResult suite, {
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final buffer = StringBuffer();
     final map = <(String, String), List<BenchmarkEntry>>{};
@@ -491,15 +682,7 @@ abstract final class MarkdownReporter() {
       }
     }
 
-    final keys = map.keys.toList()
-      ..sort((a, b) {
-        final g = a.$1.compareTo(b.$1);
-        if (g != 0) return g;
-        return a.$2.compareTo(b.$2);
-      });
-
-    for (final key in keys) {
-      final entries = map[key]!;
+    for (final MapEntry(:key, value: entries) in map.entries) {
       buffer.writeln(
         renderGroupComparisonTable(
           groupName: key.$1,
@@ -507,36 +690,12 @@ abstract final class MarkdownReporter() {
           entries: entries,
           gate: gate,
           threshold: threshold,
+          scale: scale,
         ),
       );
       buffer.writeln();
     }
     return buffer.toString();
-  }
-
-  /// Renders a Model 1 direct variant comparison table for a specific group.
-  static String renderGroupComparisonTable({
-    required String groupName,
-    required String target,
-    required List<BenchmarkEntry> entries,
-    String? title,
-    bool gate = true,
-    double threshold = 0.0,
-  }) {
-    if (entries.isEmpty) return '';
-    final strippedEntries = entries.map((e) {
-      final newCoords = Map<String, String>.from(e.coordinates);
-      newCoords.remove(BenchmarkCoordinates.groupKey);
-      return e.copyWith(coordinates: newCoords);
-    }).toList();
-    final legacyHeading = 'Group: $groupName (`$target`)';
-    return renderMatrixComparisonTable(
-      workloadName: groupName,
-      entries: strippedEntries,
-      title: title ?? legacyHeading,
-      gate: gate,
-      threshold: threshold,
-    );
   }
 
   /// Renders a single-run summary table for all benchmarks in [suite].
@@ -552,6 +711,7 @@ abstract final class MarkdownReporter() {
 
     final hasThroughput = suite.benchmarks.any((b) => b.throughput != null);
     final hasMultiProcess = suite.benchmarks.any((b) => b.processes > 1);
+    final collidingKeys = _duplicateSummaryKeys(suite.benchmarks);
     final headers = <String>[
       'Benchmark',
       'Target',
@@ -578,6 +738,7 @@ abstract final class MarkdownReporter() {
           b,
           hasThroughput: hasThroughput,
           hasMultiProcess: hasMultiProcess,
+          disambiguateName: collidingKeys.contains((b.name, b.target)),
         ),
       );
     }
@@ -585,10 +746,22 @@ abstract final class MarkdownReporter() {
     return buffer.toString();
   }
 
+  static Set<(String, String)> _duplicateSummaryKeys(
+    List<BenchmarkEntry> entries,
+  ) {
+    final seen = <(String, String)>{};
+    final duplicates = <(String, String)>{};
+    for (final e in entries) {
+      if (!seen.add((e.name, e.target))) duplicates.add((e.name, e.target));
+    }
+    return duplicates;
+  }
+
   static String _formatSummaryRow(
     BenchmarkEntry b, {
     required bool hasThroughput,
     required bool hasMultiProcess,
+    bool disambiguateName = false,
   }) {
     final m = b.metrics;
     final cvPct = (m.cv * 100).toStringAsFixed(1);
@@ -597,7 +770,7 @@ abstract final class MarkdownReporter() {
         ? '${(vc.betweenProcessShare * 100.0).toStringAsFixed(1)}%'
         : '-';
     final cols = <String>[
-      b.name,
+      disambiguateName ? _deltaRowLabel(b) : b.name,
       '`${b.target}`',
       _formatOps(m.opsPerSec),
       if (hasThroughput) b.throughput?.formatRate(m.meanNs) ?? '-',
@@ -611,46 +784,9 @@ abstract final class MarkdownReporter() {
     return '| ${cols.join(' | ')} |';
   }
 
-  /// Renders an isolated Before-vs-After delta comparison table comparing
-  /// [baseline] to [current].
-  static String renderDeltaTable({
-    required BenchmarkSuiteResult baseline,
-    required BenchmarkSuiteResult current,
-    String? title,
-    String baselineLabel = 'Baseline',
-    String currentLabel = 'Current',
-    bool gate = true,
-    double threshold = 0.0,
-  }) {
-    final buffer = StringBuffer();
-    final heading = title ?? 'Before vs. After Delta Comparison';
-    buffer.writeln('### $heading');
-    buffer.writeln();
-
-    final pairing = _pairByKey(baseline, current);
-    if (pairing.matched.isEmpty) {
-      buffer.writeln(
-        '_No matching benchmarks found between baseline and current results._',
-      );
-    } else {
-      buffer.write(
-        _renderDeltaRows(
-          pairing.matched,
-          baselineLabel: baselineLabel,
-          currentLabel: currentLabel,
-          gate: gate,
-          threshold: threshold,
-        ),
-      );
-    }
-    _writeUnmatchedNotes(buffer, pairing, baselineLabel, currentLabel);
-
-    return buffer.toString();
-  }
-
-  /// Pairs cells by [BenchmarkEntry.key] (name, target, and every
-  /// coordinate, including group), so a benchmark name reused across groups
-  /// or matrix cells is never compared against the wrong cell.
+  /// Pairs cells by composite key (name, target, and every coordinate,
+  /// including group), so a benchmark name reused across groups or matrix
+  /// cells is never compared against the wrong cell.
   ///
   /// On a duplicate key within one run, the last entry wins, matching
   /// `deepMerge`.
@@ -722,38 +858,57 @@ abstract final class MarkdownReporter() {
     required String currentLabel,
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final buffer = StringBuffer();
     final hasThroughput = matched.any(
       (p) => p.$1.throughput != null || p.$2.throughput != null,
     );
 
-    var stats = _DeltaStats();
+    final stats = _DeltaStats();
 
-    _writeDeltaHeader(buffer, hasThroughput, baselineLabel, currentLabel);
+    _writeDeltaHeader(
+      buffer,
+      hasThroughput,
+      baselineLabel,
+      currentLabel,
+      scale,
+    );
 
     for (final (base, cur) in matched) {
-      final (rowStr, speedup, movement, verdict) = _formatDeltaRow(
+      final (
+        :row,
+        :speedup,
+        :movement,
+        :reasons,
+        :unresolved,
+      ) = _formatDeltaRow(
         base,
         cur,
         hasThroughput: hasThroughput,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
-      buffer.writeln(rowStr);
-      _tally(
-        stats,
-        verdict,
-        speedup,
-        movement,
-        unresolved: gate && !verdict.resolved,
-      );
+      buffer.writeln(row);
+      _tally(stats, reasons, speedup, movement, unresolved: unresolved);
       final rowLabel = '${_deltaRowLabel(cur)}, ${cur.target}';
+      if (!unresolved) {
+        _recordComparisonVariance(
+          stats.varianceNotes,
+          base: base,
+          cur: cur,
+          baseLabel: '$rowLabel, $baselineLabel',
+          curLabel: '$rowLabel, $currentLabel',
+          pairLabel: rowLabel,
+          isDelta: true,
+        );
+      }
       _recordDrift(stats.driftNotes, '$rowLabel, $baselineLabel', base);
       _recordDrift(stats.driftNotes, '$rowLabel, $currentLabel', cur);
     }
 
-    _writeDeltaFooter(buffer, stats);
+    _writeDeltaFooter(buffer, stats, scale: scale);
 
     return buffer.toString();
   }
@@ -763,27 +918,30 @@ abstract final class MarkdownReporter() {
     bool hasThroughput,
     String baselineLabel,
     String currentLabel,
+    ComparisonScale scale,
   ) {
-    if (hasThroughput) {
-      buffer.writeln(
-        '| Benchmark | Target | Throughput | $baselineLabel | '
-        '$currentLabel | Absolute Delta | Delta (%) | Speedup | '
-        '95% CI (Fieller) | Status |',
-      );
-      buffer.writeln(
-        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: | :---: |',
-      );
-    } else {
-      buffer.writeln(
-        '| Benchmark | Target | $baselineLabel | $currentLabel | '
-        'Absolute Delta | Delta (%) | Speedup | 95% CI (Fieller) | Status |',
-      );
-      buffer.writeln(
-        '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | '
-        ':---: |',
-      );
-    }
+    final cols = <String>[
+      'Benchmark',
+      'Target',
+      if (hasThroughput) 'Throughput',
+      baselineLabel,
+      currentLabel,
+      'Absolute Delta',
+      'Delta (%)',
+      if (scale != ComparisonScale.ratio) '95% CI (Diff)',
+      if (scale != ComparisonScale.difference) ...[
+        'Speedup',
+        '95% CI (Fieller)',
+      ],
+      'Status',
+    ];
+    final aligns = <String>[
+      ':---',
+      ':---',
+      for (var i = 2; i < cols.length; i++) ':---:',
+    ];
+    buffer.writeln('| ${cols.join(' | ')} |');
+    buffer.writeln('| ${aligns.join(' | ')} |');
   }
 
   /// Adds one comparison to [stats]: unresolved cells record their reasons;
@@ -791,18 +949,20 @@ abstract final class MarkdownReporter() {
   /// inconclusive counts by [movement].
   static void _tally(
     _DeltaStats stats,
-    _Verdict verdict,
+    List<String> reasons,
     double speedup,
     (String, int) movement, {
     required bool unresolved,
   }) {
     if (unresolved) {
       stats.unresolvedCount++;
-      stats.reasons.addAll(verdict.reasons);
+      stats.reasons.addAll(reasons);
       return;
     }
-    stats.logSum += math.log(speedup);
-    stats.includedInGeoMean++;
+    if (speedup > 0.0 && speedup.isFinite) {
+      stats.logSum += math.log(speedup);
+      stats.includedInGeoMean++;
+    }
     final (status, trend) = movement;
     if (trend > 0) stats.fasterCount++;
     if (trend < 0) stats.slowerCount++;
@@ -903,14 +1063,32 @@ abstract final class MarkdownReporter() {
     return '$bytes B';
   }
 
-  static void _writeAdvisoryNotes(StringBuffer buffer, _DeltaStats stats) {
+  static void _writeAdvisoryNotes(
+    StringBuffer buffer,
+    _DeltaStats stats, {
+    ComparisonScale scale = ComparisonScale.ratio,
+  }) {
     _writeDriftNotes(buffer, stats.driftNotes);
+    _writeVarianceNotes(buffer, stats.varianceNotes);
     if (stats.reasons.isNotEmpty) {
       final joinedReasons = (stats.reasons.toList()..sort()).join(' and ');
+      final what = scale == ComparisonScale.difference ? 'Delta' : 'Speedup';
       buffer.writeln();
       buffer.writeln(
-        '> ❓ **Unresolved**: Speedup omitted due to $joinedReasons.',
+        '> ❓ **Unresolved**: $what omitted due to $joinedReasons.',
       );
+    }
+  }
+
+  static void _writeVarianceNotes(StringBuffer buffer, Set<String> notes) {
+    if (notes.isEmpty) return;
+    buffer.writeln();
+    buffer.writeln(
+      '> ⚠️ **High variance**: sample dispersion exceeded 5% on one or more '
+      'resolved comparisons; confidence intervals reflect the wider spread.',
+    );
+    for (final note in notes) {
+      buffer.writeln('> - $note');
     }
   }
 
@@ -932,16 +1110,35 @@ abstract final class MarkdownReporter() {
     );
   }
 
-  static void _writeDeltaFooter(StringBuffer buffer, _DeltaStats stats) {
-    _writeAdvisoryNotes(buffer, stats);
+  static void _writeDeltaFooter(
+    StringBuffer buffer,
+    _DeltaStats stats, {
+    ComparisonScale scale = ComparisonScale.ratio,
+  }) {
+    _writeAdvisoryNotes(buffer, stats, scale: scale);
     buffer.writeln();
+
+    final inconclusiveStr = stats.inconclusiveCount > 0
+        ? ' | ⚪ **${stats.inconclusiveCount}** Inconclusive'
+        : '';
+
+    if (scale == ComparisonScale.difference) {
+      final unresolvedStr = stats.unresolvedCount > 0
+          ? ' | ❓ **${stats.unresolvedCount}** Unresolved'
+          : '';
+      buffer.writeln(
+        '> **Summary**: '
+        '🚀 **${stats.fasterCount}** Faster | '
+        '⚠️ **${stats.slowerCount}** Slower | '
+        '➖ **${stats.neutralCount}** Neutral'
+        '$inconclusiveStr$unresolvedStr',
+      );
+      return;
+    }
 
     if (stats.includedInGeoMean > 0) {
       final geomean = math.exp(stats.logSum / stats.includedInGeoMean);
       final geomeanStr = geomean.toStringAsFixed(2);
-      final inconclusiveStr = stats.inconclusiveCount > 0
-          ? ' | ⚪ **${stats.inconclusiveCount}** Inconclusive'
-          : '';
       final unresolvedStr = stats.unresolvedCount > 0
           ? ' | ❓ **${stats.unresolvedCount}** Unresolved '
                 '(excluded from GeoMean)'
@@ -962,106 +1159,155 @@ abstract final class MarkdownReporter() {
     }
   }
 
-  static (String, double, (String, int), _Verdict) _formatDeltaRow(
+  static ({
+    String row,
+    double speedup,
+    (String, int) movement,
+    List<String> reasons,
+    bool unresolved,
+  })
+  _formatDeltaRow(
     BenchmarkEntry base,
     BenchmarkEntry cur, {
     bool hasThroughput = false,
     bool gate = true,
     double threshold = 0.0,
+    ComparisonScale scale = ComparisonScale.ratio,
   }) {
     final baseMean = base.metrics.meanNs;
     final curMean = cur.metrics.meanNs;
-    final diffNs = curMean - baseMean;
-    final deltaPct = baseMean > 0.0 ? (diffNs / baseMean) * 100.0 : 0.0;
+    final diffVal = curMean - baseMean;
+    final deltaPct = baseMean > 0.0 ? (diffVal / baseMean) * 100.0 : 0.0;
     final speedup = (curMean > 0.0 && baseMean > 0.0)
         ? (baseMean / curMean)
         : 1.0;
 
-    final verdict = _computeFiellerVerdict(base, cur, isDelta: true);
-    final isUnresolved = gate && !verdict.resolved;
-
-    final movement = isUnresolved
-        ? ('❓ Unresolved', 0)
-        : _classifyMovement(
-            speedup,
-            verdict,
-            isDelta: true,
-            threshold: threshold,
-          );
-    final statusStr = movement.$1;
-
-    final baseStr = _formatLatency(baseMean);
-    final curStr = _formatLatency(curMean);
-    final diffStr = diffNs.abs() < 1e-9
-        ? '0.0 ns'
-        : '${diffNs > 0 ? '+' : '-'}${_formatLatency(diffNs.abs())}';
-    final pctStr = _formatPercent(deltaPct);
-    final speedupStr = isUnresolved
-        ? 'unresolved'
-        : '${speedup.toStringAsFixed(2)}x';
-    final ciStr = verdict.ciString;
-
-    final label = _deltaRowLabel(cur);
-    if (hasThroughput) {
-      final tp = cur.throughput ?? base.throughput;
-      final tpStr = tp?.formatRate(curMean) ?? '-';
-      final row =
-          '| $label | `${cur.target}` | $tpStr | $baseStr | '
-          '$curStr | $diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
-      return (row, speedup, movement, verdict);
-    }
-
-    final row =
-        '| $label | `${cur.target}` | $baseStr | $curStr | '
-        '$diffStr | $pctStr | $speedupStr | $ciStr | $statusStr |';
-
-    return (row, speedup, movement, verdict);
-  }
-
-  /// Renders a Markdown summary report directly from a stored JSON file.
-  static String renderFromFile(
-    File file, {
-    String? title,
-    bool gate = true,
-    double threshold = 0.0,
-  }) {
-    final suite = BenchmarkSuiteResult.loadFromFile(file);
-    return renderSuite(suite, title: title, gate: gate, threshold: threshold);
-  }
-
-  /// Renders a Markdown summary report directly from a stored JSON file path.
-  static String renderFromPath(
-    String path, {
-    String? title,
-    bool gate = true,
-    double threshold = 0.0,
-  }) => renderFromFile(
-    File(path),
-    title: title,
-    gate: gate,
-    threshold: threshold,
-  );
-
-  /// Renders an isolated delta comparison table comparing two stored JSON
-  /// files.
-  static String renderDeltaFromFiles({
-    required File baselineFile,
-    required File currentFile,
-    String? title,
-    String baselineLabel = 'Baseline',
-    String currentLabel = 'Current',
-    bool gate = true,
-    double threshold = 0.0,
-  }) {
-    final baseline = BenchmarkSuiteResult.loadFromFile(baselineFile);
-    final current = BenchmarkSuiteResult.loadFromFile(currentFile);
-    return renderDeltaTable(
-      baseline: baseline,
-      current: current,
-      title: title,
-      baselineLabel: baselineLabel,
-      currentLabel: currentLabel,
+    final eval = _evaluateDeltaVerdicts(
+      base,
+      cur,
+      speedup: speedup,
       gate: gate,
+      threshold: threshold,
+      scale: scale,
+    );
+    final diffCells = _formatDeltaDiffCells(
+      diffVal: diffVal,
+      deltaPct: deltaPct,
+      scale: scale,
+      unresolved: eval.unresolved,
+    );
+
+    final cols = <String>[
+      _deltaRowLabel(cur),
+      '`${cur.target}`',
+      if (hasThroughput) _formatDeltaThroughputCell(base, cur),
+      _formatLatency(baseMean),
+      _formatLatency(curMean),
+      ...diffCells,
+      if (eval.diffCi != null) eval.diffCi!,
+      if (eval.ratioCi != null) ...[
+        eval.unresolved ? 'unresolved' : '${speedup.toStringAsFixed(2)}x',
+        eval.ratioCi!,
+      ],
+      eval.movement.$1,
+    ];
+
+    return (
+      row: '| ${cols.join(' | ')} |',
+      speedup: speedup,
+      movement: eval.movement,
+      reasons: eval.reasons,
+      unresolved: eval.unresolved,
+    );
+  }
+
+  static List<String> _formatDeltaDiffCells({
+    required double diffVal,
+    required double deltaPct,
+    required ComparisonScale scale,
+    required bool unresolved,
+  }) {
+    if (scale == ComparisonScale.difference && unresolved) {
+      return const ['unresolved', 'unresolved'];
+    }
+    return [_formatSignedDelta(diffVal), _formatPercent(deltaPct)];
+  }
+
+  static String _formatDeltaThroughputCell(
+    BenchmarkEntry base,
+    BenchmarkEntry cur,
+  ) {
+    final tp = cur.throughput ?? base.throughput;
+    return tp?.formatRate(cur.metrics.meanNs) ?? '-';
+  }
+
+  static ({
+    String? ratioCi,
+    String? diffCi,
+    bool unresolved,
+    List<String> reasons,
+    (String, int) movement,
+  })
+  _evaluateDeltaVerdicts(
+    BenchmarkEntry base,
+    BenchmarkEntry cur, {
+    required double speedup,
+    required bool gate,
+    required double threshold,
+    required ComparisonScale scale,
+  }) {
+    final fieller = scale != ComparisonScale.difference
+        ? _computeFiellerVerdict(base, cur, isDelta: true, gate: gate)
+        : null;
+    final diffVerdict = scale != ComparisonScale.ratio
+        ? _computeDiffVerdict(base, cur, isDelta: true, gate: gate)
+        : null;
+    final resolved =
+        (fieller?.resolved ?? true) && (diffVerdict?.resolved ?? true);
+    final isUnresolved = gate && !resolved;
+    final movement = _selectDeltaMovement(
+      isUnresolved: isUnresolved,
+      scale: scale,
+      speedup: speedup,
+      rawDiff: cur.metrics.meanNs - base.metrics.meanNs,
+      baseMeanNs: base.metrics.meanNs,
+      threshold: threshold,
+      fieller: fieller,
+      diffVerdict: diffVerdict,
+    );
+    return (
+      ratioCi: fieller?.ciString,
+      diffCi: diffVerdict?.ciString,
+      unresolved: isUnresolved,
+      reasons: <String>[...?fieller?.reasons, ...?diffVerdict?.reasons],
+      movement: movement,
+    );
+  }
+
+  static (String, int) _selectDeltaMovement({
+    required bool isUnresolved,
+    required ComparisonScale scale,
+    required double speedup,
+    required double rawDiff,
+    required double baseMeanNs,
+    required double threshold,
+    required _Verdict? fieller,
+    required _DiffVerdict? diffVerdict,
+  }) {
+    if (isUnresolved) return ('❓ Unresolved', 0);
+    if (scale == ComparisonScale.difference) {
+      return _classifyDiffMovement(
+        diffVerdict!,
+        rawDiff: rawDiff,
+        baseMeanNs: baseMeanNs,
+        isDelta: true,
+        threshold: threshold,
+      );
+    }
+    return _classifyMovement(
+      speedup,
+      fieller!,
+      isDelta: true,
       threshold: threshold,
     );
   }
@@ -1112,6 +1358,11 @@ abstract final class MarkdownReporter() {
     return ('➖ ⚪ Inconclusive', 0);
   }
 
+  static String _formatSignedDelta(double diff) {
+    if (diff.abs() < 1e-9) return '0.0 ns';
+    return '${diff > 0 ? '+' : '-'}${_formatLatency(diff.abs())}';
+  }
+
   static String _formatLatency(double ns) => switch (ns) {
     < 1000.0 => '${ns.toStringAsFixed(1)} ns',
     < 1000000.0 => '${(ns / 1000.0).toStringAsFixed(2)} µs',
@@ -1137,41 +1388,215 @@ abstract final class MarkdownReporter() {
     return '$formatted ops/s';
   }
 
+  static (String, int) _classifyDiffMovement(
+    _DiffVerdict verdict, {
+    required double rawDiff,
+    required double baseMeanNs,
+    required bool isDelta,
+    required double threshold,
+  }) {
+    final interval = verdict.interval;
+    if (threshold > 0.0) {
+      return _classifyThresholdDiffMovement(
+        interval,
+        margin: threshold * baseMeanNs.abs(),
+        isDelta: isDelta,
+      );
+    }
+    if (interval != null && !interval.isSignificant) return ('➖ ⚪ Neutral', 0);
+    final estimate = interval?.meanDiff ?? rawDiff;
+    final defaultBand = 0.05 * baseMeanNs.abs();
+    if (estimate <= -defaultBand) return _fasterMovement(isDelta);
+    if (estimate >= defaultBand) return _slowerMovement(isDelta);
+    return ('➖ ⚪ Neutral', 0);
+  }
+
+  static (String, int) _classifyThresholdDiffMovement(
+    DifferenceInterval? interval, {
+    required double margin,
+    required bool isDelta,
+  }) {
+    if (interval == null) return ('➖ ⚪ Inconclusive', 0);
+    if (interval.upperBound <= -margin) return _fasterMovement(isDelta);
+    if (interval.lowerBound >= margin) return _slowerMovement(isDelta);
+    if (interval.isEquivalentWithin(margin)) return ('✅ Equivalent', 0);
+    return ('➖ ⚪ Inconclusive', 0);
+  }
+
+  static (String, int) _fasterMovement(bool isDelta) =>
+      (isDelta ? '🚀 Faster' : '🚀 🥇 Peak', 1);
+
+  static (String, int) _slowerMovement(bool isDelta) =>
+      (isDelta ? '⚠️ Regression' : '⚠️ 🔴 Slow', -1);
+
+  static bool _shouldUsePairedComparison(
+    BenchmarkEntry base,
+    BenchmarkEntry cur, {
+    required bool isDelta,
+  }) {
+    if (base.pairing != null || cur.pairing != null) {
+      return canPairEntries(base, cur);
+    }
+    if (isDelta) return false;
+    return base.processes > 1 &&
+        base.processes == cur.processes &&
+        _sharedProcessLaunchCoordinates(base, cur);
+  }
+
+  static List<String>? _checkCompatibilityAndStability(
+    BenchmarkEntry base,
+    BenchmarkEntry cur,
+  ) {
+    final baseUnconverged = base.warmup?['is_stable'] == false;
+    final curUnconverged = cur.warmup?['is_stable'] == false;
+    if (baseUnconverged || curUnconverged) {
+      return [
+        if (baseUnconverged) 'baseline warmup did not converge',
+        if (curUnconverged) 'candidate warmup did not converge',
+      ];
+    }
+    return null;
+  }
+
+  static void _recordComparisonVariance(
+    Set<String> notes, {
+    required BenchmarkEntry base,
+    required BenchmarkEntry cur,
+    required String baseLabel,
+    required String curLabel,
+    required String pairLabel,
+    required bool isDelta,
+  }) {
+    if (_shouldUsePairedComparison(base, cur, isDelta: isDelta)) {
+      final pairedCv = _pairedHighVarianceCv(base, cur);
+      if (pairedCv != null) {
+        final pct = (pairedCv * 100).toStringAsFixed(1);
+        notes.add('`$pairLabel`: paired ratio CV $pct%');
+      }
+      return;
+    }
+    if (_hasHighSoloVariance(base)) {
+      final pct = (base.metrics.cv * 100).toStringAsFixed(1);
+      notes.add('`$baseLabel`: CV $pct%');
+    }
+    if (_hasHighSoloVariance(cur)) {
+      final pct = (cur.metrics.cv * 100).toStringAsFixed(1);
+      notes.add('`$curLabel`: CV $pct%');
+    }
+  }
+
+  static double? _pairedHighVarianceCv(
+    BenchmarkEntry base,
+    BenchmarkEntry cur,
+  ) {
+    final a = base.effectiveSamplesNs;
+    final b = cur.effectiveSamplesNs;
+    if (a.length < 2 || a.length != b.length) return null;
+    final ratios = <double>[];
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] <= 0.0 || b[i] <= 0.0) return null;
+      ratios.add(b[i] / a[i]);
+    }
+    final summary = SampleSummary.fromSamples(ratios);
+    if (summary.cv <= BenchmarkMetrics.maxCvThreshold ||
+        summary.robustCv <= BenchmarkMetrics.maxCvThreshold) {
+      return null;
+    }
+    return summary.cv;
+  }
+
+  static bool _hasHighSoloVariance(BenchmarkEntry entry) =>
+      !entry.metrics.isStable && entry.warmup?['is_stable'] != false;
+
+  static _DiffVerdict _computeDiffVerdict(
+    BenchmarkEntry base,
+    BenchmarkEntry cur, {
+    bool isDelta = false,
+    bool gate = true,
+  }) {
+    final reasons = _checkCompatibilityAndStability(base, cur);
+    final interval = _tryComputeDiffInterval(base, cur, isDelta: isDelta);
+    if (interval == null) {
+      return (
+        resolved: false,
+        interval: null,
+        ciString: '[N/A]',
+        matrixCiString: '[N/A]',
+        reasons: reasons ?? const ['unbounded CI'],
+      );
+    }
+    final resolved = reasons == null;
+    final showCi = resolved || !gate;
+    final low = _formatSignedDelta(interval.lowerBound);
+    final high = _formatSignedDelta(interval.upperBound);
+    return (
+      resolved: resolved,
+      interval: interval,
+      ciString: showCi ? '[$low, $high]' : '[N/A]',
+      matrixCiString: showCi ? '[$low – $high]' : '[N/A]',
+      reasons: reasons ?? const [],
+    );
+  }
+
+  static DifferenceInterval? _tryComputeDiffInterval(
+    BenchmarkEntry base,
+    BenchmarkEntry cur, {
+    required bool isDelta,
+  }) {
+    final sampleA = base.effectiveSamplesNs;
+    final sampleB = cur.effectiveSamplesNs;
+    if (sampleA.length < 2 || sampleB.length < 2) return null;
+    final interval = DifferenceInterval.compute(
+      baseline: sampleA,
+      candidate: sampleB,
+      paired: _shouldUsePairedComparison(base, cur, isDelta: isDelta),
+    );
+    if (!interval.isValid ||
+        interval.lowerBound.isNaN ||
+        interval.upperBound.isNaN) {
+      return null;
+    }
+    return interval;
+  }
+
   static _Verdict _computeFiellerVerdict(
     BenchmarkEntry base,
     BenchmarkEntry cur, {
     bool isDelta = false,
+    bool gate = true,
   }) {
-    // Same stability test as the "✅ Stable" badge in `### All Benchmarks`,
-    // so both tables judge each cell's stability the same way.
-    final baseUnstable = !base.metrics.isStable;
-    final curUnstable = !cur.metrics.isStable;
-    if (baseUnstable || curUnstable) {
-      return (
-        resolved: false,
-        straddlesOne: false,
-        lowerBound: double.nan,
-        upperBound: double.nan,
-        lowerBound90: double.nan,
-        upperBound90: double.nan,
-        ciString: '[N/A]',
-        matrixCiString: '[N/A]',
-        reasons: [
-          if (baseUnstable) 'baseline samples unstable',
-          if (curUnstable) 'candidate samples unstable',
-        ],
-      );
+    final reasons = _checkCompatibilityAndStability(base, cur);
+    final intervals = _tryComputeFiellerIntervals(base, cur, isDelta: isDelta);
+    if (intervals == null) {
+      return _emptyFiellerVerdict(reasons ?? const ['unbounded CI']);
     }
+    final (interval, interval90) = intervals;
+    final resolved = reasons == null;
+    final showCi = resolved || !gate;
+    final low = interval.lowerBound.toStringAsFixed(2);
+    final high = interval.upperBound.toStringAsFixed(2);
+    return (
+      resolved: resolved,
+      straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
+      lowerBound: interval.lowerBound,
+      upperBound: interval.upperBound,
+      lowerBound90: interval90.lowerBound,
+      upperBound90: interval90.upperBound,
+      ciString: showCi ? '[$low x, $high x]' : '[N/A]',
+      matrixCiString: showCi ? '[${low}x – ${high}x]' : '[N/A]',
+      reasons: reasons ?? const [],
+    );
+  }
+
+  static (FiellerInterval, FiellerInterval)? _tryComputeFiellerIntervals(
+    BenchmarkEntry base,
+    BenchmarkEntry cur, {
+    required bool isDelta,
+  }) {
     final sampleA = base.effectiveSamplesNs;
     final sampleB = cur.effectiveSamplesNs;
-    if (sampleA.length < 2 || sampleB.length < 2) {
-      return _unboundedVerdict;
-    }
-    final usePaired =
-        !isDelta &&
-        base.processes > 1 &&
-        base.processes == cur.processes &&
-        _sharedProcessLaunchCoordinates(base, cur);
+    if (sampleA.length < 2 || sampleB.length < 2) return null;
+    final usePaired = _shouldUsePairedComparison(base, cur, isDelta: isDelta);
     final interval = FiellerInterval.compute(
       sampleA: sampleA,
       sampleB: sampleB,
@@ -1180,7 +1605,7 @@ abstract final class MarkdownReporter() {
     if (!interval.isValid ||
         interval.lowerBound.isNaN ||
         interval.upperBound.isNaN) {
-      return _unboundedVerdict;
+      return null;
     }
     final interval90 = FiellerInterval.compute(
       sampleA: sampleA,
@@ -1188,20 +1613,20 @@ abstract final class MarkdownReporter() {
       confidenceLevel: 0.90,
       paired: usePaired,
     );
-    final low = interval.lowerBound.toStringAsFixed(2);
-    final high = interval.upperBound.toStringAsFixed(2);
-    return (
-      resolved: true,
-      straddlesOne: interval.lowerBound <= 1.0 && interval.upperBound >= 1.0,
-      lowerBound: interval.lowerBound,
-      upperBound: interval.upperBound,
-      lowerBound90: interval90.lowerBound,
-      upperBound90: interval90.upperBound,
-      ciString: '[$low x, $high x]',
-      matrixCiString: '[${low}x – ${high}x]',
-      reasons: const [],
-    );
+    return (interval, interval90);
   }
+
+  static _Verdict _emptyFiellerVerdict(List<String> reasons) => (
+    resolved: false,
+    straddlesOne: false,
+    lowerBound: double.nan,
+    upperBound: double.nan,
+    lowerBound90: double.nan,
+    upperBound90: double.nan,
+    ciString: '[N/A]',
+    matrixCiString: '[N/A]',
+    reasons: reasons,
+  );
 
   /// Returns `true` when [a] and [b] executed inside the same `P` shared OS
   /// process launches (same target and identical matrix coordinates except for
@@ -1221,18 +1646,6 @@ abstract final class MarkdownReporter() {
     }
     return true;
   }
-
-  static const _Verdict _unboundedVerdict = (
-    resolved: false,
-    straddlesOne: false,
-    lowerBound: double.nan,
-    upperBound: double.nan,
-    lowerBound90: double.nan,
-    upperBound90: double.nan,
-    ciString: '[N/A]',
-    matrixCiString: '[N/A]',
-    reasons: ['unbounded CI'],
-  );
 }
 
 typedef _Pairing = ({
@@ -1255,6 +1668,14 @@ typedef _Verdict = ({
   List<String> reasons,
 });
 
+typedef _DiffVerdict = ({
+  bool resolved,
+  DifferenceInterval? interval,
+  String ciString,
+  String matrixCiString,
+  List<String> reasons,
+});
+
 final class _DeltaStats() {
   int fasterCount = 0;
   int slowerCount = 0;
@@ -1264,5 +1685,144 @@ final class _DeltaStats() {
   double logSum = 0.0;
   int includedInGeoMean = 0;
   final List<String> driftNotes = [];
+  final Set<String> varianceNotes = {};
   Set<String> reasons = {};
+}
+
+/// Renders a top-level Suite Summary table rolling up candidate performance
+/// across multiple `coordinates.group` comparison groups using geometric mean
+/// speedup (internal to `lib/src/`).
+String renderSuiteSummaryTable(
+  BenchmarkSuiteResult suite, {
+  String? title,
+  bool gate = true,
+}) {
+  final (distinctGroupCount, candidateSpeedups) =
+      MarkdownReporter._collectCandidateGroupSpeedups(suite, gate: gate);
+  if (distinctGroupCount < 2 || candidateSpeedups.isEmpty) {
+    return '';
+  }
+
+  final buffer = StringBuffer();
+  final heading = title ?? 'Suite Summary';
+  buffer.writeln('### $heading\n');
+  buffer.writeln(
+    '| Candidate | Target | Geometric Mean Speedup | Min Speedup | '
+    'Max Speedup | Groups |',
+  );
+  buffer.writeln('| :--- | :--- | :---: | :---: | :---: | :---: |');
+
+  final targets = <String>{for (final key in candidateSpeedups.keys) key.$2};
+  for (final target in targets) {
+    for (final key in candidateSpeedups.keys) {
+      if (key.$2 == target) {
+        buffer.writeln(
+          MarkdownReporter._formatSuiteSummaryRow(
+            key.$1,
+            target,
+            candidateSpeedups[key]!,
+          ),
+        );
+      }
+    }
+  }
+  return buffer.toString().trimRight();
+}
+
+/// Renders a direct variant comparison table for a single `group` (internal to
+/// `lib/src/`).
+String renderGroupComparisonTable({
+  required String groupName,
+  required String target,
+  required List<BenchmarkEntry> entries,
+  String? title,
+  bool gate = true,
+  double threshold = 0.0,
+  ComparisonScale scale = ComparisonScale.ratio,
+}) {
+  if (entries.isEmpty) return '';
+  final strippedEntries = entries.map((e) {
+    final newCoords = Map<String, String>.from(e.coordinates);
+    newCoords.remove(BenchmarkCoordinates.groupKey);
+    return e.copyWith(coordinates: newCoords);
+  }).toList();
+  final legacyHeading = 'Group: $groupName (`$target`)';
+  return MarkdownReporter._renderMatrixComparisonTable(
+    workloadName: groupName,
+    entries: strippedEntries,
+    title: title ?? legacyHeading,
+    gate: gate,
+    threshold: threshold,
+    scale: scale,
+  );
+}
+
+/// Renders an isolated Before-vs-After delta comparison table comparing
+/// [baseline] to [current] (internal to `lib/src/`).
+String renderDeltaTable({
+  required BenchmarkSuiteResult baseline,
+  required BenchmarkSuiteResult current,
+  String? title,
+  String baselineLabel = 'Baseline',
+  String currentLabel = 'Current',
+  bool gate = true,
+  double threshold = 0.0,
+  ComparisonScale scale = ComparisonScale.ratio,
+}) {
+  final buffer = StringBuffer();
+  final heading = title ?? 'Before vs. After Delta Comparison';
+  buffer.writeln('### $heading');
+  buffer.writeln();
+
+  final pairing = MarkdownReporter._pairByKey(baseline, current);
+  if (pairing.matched.isEmpty) {
+    buffer.writeln(
+      '_No matching benchmarks found between baseline and current results._',
+    );
+  } else {
+    buffer.write(
+      MarkdownReporter._renderDeltaRows(
+        pairing.matched,
+        baselineLabel: baselineLabel,
+        currentLabel: currentLabel,
+        gate: gate,
+        threshold: threshold,
+        scale: scale,
+      ),
+    );
+  }
+  MarkdownReporter._writeUnmatchedNotes(
+    buffer,
+    pairing,
+    baselineLabel,
+    currentLabel,
+  );
+
+  return buffer.toString();
+}
+
+/// Renders an isolated delta comparison table comparing two stored JSON files
+/// (internal to `lib/src/`).
+String renderDeltaFromFiles({
+  required File baselineFile,
+  required File currentFile,
+  String? title,
+  String baselineLabel = 'Baseline',
+  String currentLabel = 'Current',
+  bool gate = true,
+  double threshold = 0.0,
+  ComparisonScale scale = ComparisonScale.ratio,
+}) {
+  final baseline = loadSuiteFromFile(baselineFile);
+  final current = loadSuiteFromFile(currentFile);
+  return renderDeltaTable(
+    baseline: baseline,
+    current: current,
+    title: title,
+    baselineLabel: baselineLabel,
+    currentLabel: currentLabel,
+    gate: gate,
+    threshold: threshold,
+    scale: scale,
+  );
 }

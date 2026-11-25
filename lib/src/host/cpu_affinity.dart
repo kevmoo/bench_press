@@ -25,22 +25,21 @@ final class const CpuAffinity._(
     r'^\d+(-\d+(:[1-9]\d*)?)?(,\d+(-\d+(:[1-9]\d*)?)?)*$',
   );
 
+  /// Constructs a [CpuAffinity] pinned to a single logical [core] (`>= 0`).
+  factory singleCore(int core) {
+    if (core < 0) {
+      throw RangeError.value(core, 'core', 'CPU index must be >= 0.');
+    }
+    return CpuAffinity._('$core');
+  }
+
   /// Parses a `--pin-cpu` value in `taskset -c` list syntax.
   ///
   /// Accepts a single CPU (`2`), a comma-separated list (`0,2,4`), a range
   /// (`0-3`), a strided range (`0-7:2`), and any combination (`0-3,8`).
   ///
   /// Throws [FormatException] if [spec] is not that syntax, if a range runs
-  /// backwards, or if a CPU index does not fit in an `int`. Validating here
-  /// keeps a malformed value attached to the flag the user typed instead of
-  /// surfacing later as a `taskset` error.
-  ///
-  /// This checks *syntax* only. Whether the named CPUs exist on this host is
-  /// left to `taskset`, because the process may be confined to a cpuset
-  /// narrower than the machine, so a bound taken from
-  /// `Platform.numberOfProcessors` would reject sets that are in fact valid.
-  /// A nonexistent CPU therefore still fails after compilation, with
-  /// `taskset: failed to set pid's affinity: Invalid argument`.
+  /// backwards, or if a CPU index does not fit in an `int`.
   factory parse(String spec) {
     final trimmed = spec.trim();
     if (trimmed.isEmpty) {
@@ -54,9 +53,6 @@ final class const CpuAffinity._(
       );
     }
     for (final part in trimmed.split(',')) {
-      // Bound every numeric token, including the stride and a bare CPU index.
-      // Checking only range endpoints lets a value wider than an int through to
-      // taskset, and lets Dart's own overflow wording leak into the flag error.
       for (final token in part.split(RegExp('[-:]'))) {
         if (int.tryParse(token) == null) {
           throw FormatException('CPU index "$token" is too large.', spec);
@@ -70,44 +66,100 @@ final class const CpuAffinity._(
         );
       }
     }
+    final single = int.tryParse(trimmed);
+    if (single != null && '$single' == trimmed) {
+      return CpuAffinity.singleCore(single);
+    }
     return CpuAffinity._(trimmed);
   }
 
+  /// Reason why `taskset` CPU pinning is unavailable on the current host, or
+  /// `null` when available.
+  static String? get unsupportedReason => checkHostCpuPinningSupport();
+
   /// Wraps [executable] and [args] so the process runs pinned to [cpuList].
-  ///
-  /// This is unconditional: callers decide whether pinning is supported before
-  /// wrapping, so that an unsupported host reports one clear warning instead of
-  /// a `taskset` lookup failure per benchmark target.
   (String executable, List<String> args) wrap(
     String executable,
     List<String> args,
   ) => ('taskset', <String>['-c', cpuList, executable, ...args]);
 
   @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CpuAffinity && other.cpuList == cpuList);
+
+  @override
+  int get hashCode => cpuList.hashCode;
+
+  @override
   String toString() => 'CpuAffinity($cpuList)';
+}
+
+/// Internal [CpuAffinity] helpers kept out of the public `api.txt` surface.
+extension InternalCpuAffinity on CpuAffinity {
+  /// Sorted, deduplicated list of logical CPU indices expanded from [cpuList].
+  List<int> get cpus => expandCpuList(cpuList);
+}
+
+/// Expands a Linux CPU list string (such as `"0-3,8"` or `"0-7:2"`) into a
+/// sorted, deduplicated list of CPU indices, ignoring malformed fragments.
+List<int> expandCpuList(String spec) {
+  final seen = <int>{};
+  for (final rawPart in spec.split(',')) {
+    final part = rawPart.trim();
+    if (part.isEmpty) continue;
+    _expandPartInto(part, seen);
+  }
+  return List<int>.unmodifiable(seen.toList()..sort());
+}
+
+void _expandPartInto(String part, Set<int> out) {
+  final colonIdx = part.indexOf(':');
+  final rangePart = colonIdx >= 0 ? part.substring(0, colonIdx) : part;
+  final stride = colonIdx >= 0
+      ? (int.tryParse(part.substring(colonIdx + 1)) ?? 1)
+      : 1;
+  if (stride <= 0) return;
+
+  final dashIdx = rangePart.indexOf('-');
+  if (dashIdx < 0) {
+    final single = int.tryParse(rangePart);
+    if (single != null && single >= 0) out.add(single);
+    return;
+  }
+  final low = int.tryParse(rangePart.substring(0, dashIdx));
+  final high = int.tryParse(rangePart.substring(dashIdx + 1));
+  if (low == null || high == null || low < 0 || high < low) return;
+  for (var cpu = low; cpu <= high; cpu += stride) {
+    out.add(cpu);
+  }
+}
+
+/// CLI-free check returning why `taskset` CPU pinning is unavailable, or `null`
+/// when available.
+String? checkHostCpuPinningSupport({String? os, bool Function()? hasTaskset}) {
+  final host = os ?? Platform.operatingSystem;
+  if (host != 'linux') {
+    return 'CPU pinning via taskset is only supported on Linux '
+        '(current OS: "$host").';
+  }
+  if (!(hasTaskset ?? _tasksetOnPath)()) {
+    return 'CPU pinning requires "taskset" (util-linux) on PATH.';
+  }
+  return null;
 }
 
 /// Explains why CPU pinning is unavailable on this host, or `null` when it is
 /// available.
-///
-/// The returned message names the specific obstacle and what to do instead, so
-/// a suite that silently ran unpinned is distinguishable in the logs from one
-/// that was pinned as asked.
-///
-/// [os] (a [Platform.operatingSystem] value) and [hasTaskset] exist so every
-/// branch is testable from any host, rather than only the one the tests happen
-/// to run on.
 String? cpuPinningUnsupportedReason({String? os, bool Function()? hasTaskset}) {
+  if (os == null &&
+      hasTaskset == null &&
+      CpuAffinity.unsupportedReason == null) {
+    return null;
+  }
   final host = os ?? Platform.operatingSystem;
   if (host != 'linux') {
     if (host == 'windows') {
-      // Windows is the common Dart/Flutter development host, and unlike macOS
-      // it does have affinity control — it is simply not wired up here, since
-      // the mask is a hex bitmap rather than a taskset CPU list.
-      //
-      // Deliberately no copy-paste command: nothing here has been exercised on
-      // Windows, and an incantation that does not do what it claims is worse
-      // than none at the moment someone is already blocked.
       return 'CPU pinning is not supported on Windows. Windows does have '
           'processor affinity, but it is a bitmask rather than a CPU list, so '
           '--pin-cpu does not map onto it. Set affinity on the bench_press '
@@ -134,10 +186,6 @@ String? cpuPinningUnsupportedReason({String? os, bool Function()? hasTaskset}) {
 
 bool _tasksetOnPath() {
   try {
-    // Only whether the binary launched matters, never its exit status.
-    // BusyBox's taskset supports `-c` but has no `--version` and exits 1, so
-    // testing the exit code reports a working taskset as missing — and does it
-    // precisely in the minimal container images where pinning is most wanted.
     Process.runSync('taskset', const ['--version']);
     return true;
   } on ProcessException {

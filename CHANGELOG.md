@@ -1,5 +1,40 @@
 ## 0.4.3-wip
 
+- Added four opt-in toolkit sub-libraries for custom macro, subprocess, and AOT
+  snapshot benchmark harnesses:
+  - `package:bench_press/host.dart`: `CpuAffinity` (`parse`, `singleCore`,
+    `wrap`, `unsupportedReason`) and `HostEnvironment` (`validateAffinity`,
+    `check`) Linux preflight diagnostics (virtualization, CPU frequency
+    governor, turbo boost, transparent huge pages, load average, SMT sibling
+    overlap, and `/proc/stat` core busy/steal).
+  - `package:bench_press/schedule.dart`: runner-agnostic `RoundScheduler.run`,
+    `ScheduleMode` (`abbaBaab`, `randomized`, `sequential`), and `PairingInfo`
+    provenance for sync or async callbacks.
+  - `package:bench_press/stats.dart`: unit-agnostic `SampleSummary` and additive
+    paired/Welch-Satterthwaite `DifferenceInterval` alongside
+    `BenchmarkMetrics`, `FiellerInterval`, and `ProcessVarianceComponents`.
+  - `package:bench_press/report.dart`: public nanosecond telemetry schema
+    (`BenchmarkSuiteResult`, `BenchmarkEntry.fromSamples`, `PairingInfo`),
+    `MarkdownReporter` (`renderSuite`, `renderSummaryTable`), and
+    `ComparisonScale`.
+- `bench_press run` now validates `--pin-cpu` logical cores upfront via
+  `HostEnvironment.validateAffinity`, records `HostEnvironment.check` preflight
+  diagnostics under `EnvironmentInfo.extra['host_check']` (emitting host noise
+  warnings to `stderr`), and drives multi-process rounds through
+  `RoundScheduler.run`.
+- `MarkdownReporter` comparison tables (`run`, `report`, and `diff`) now gate
+  rows as `❓ Unresolved` only on unconverged warmup
+  (`warmup.is_stable == false`) or invalid/unbounded confidence intervals
+  (`n < 2` or Fieller `g >= 1.0`). Sample dispersion above 5% no longer censors
+  bounded confidence intervals; instead, the 95% CI and `--threshold` govern the
+  verdict and a `⚠️ High variance` footnote flags comparisons whose solo or
+  paired-ratio dispersion exceeds 5%. `BenchmarkMetrics.isStable`, summary-table
+  `⚠️ Unstable` badges, and `--fail-on-unstable` remain unchanged.
+- Added `--scale` (`ratio`, `difference`, `both`) to `bench_press report`,
+  `bench_press diff`, and `bench_press run`.
+- Stamped explicit `PairingInfo` provenance on multi-process interleaved runs so
+  paired confidence intervals pair matrix axes (`sdk`) within the same run and
+  never falsely pair entries merged across separate runs.
 - Added opt-in early stopping (`--stop-at-ci <fraction>` on `bench_press run`
   and benchmark entrypoints, and `BenchmarkConfig.stopAtCi`). Once a cell has at
   least 8 trials, collection stops as soon as the 95% CI half-width

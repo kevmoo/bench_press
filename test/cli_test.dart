@@ -40,7 +40,7 @@ void main() {
         check(result.exitCode).equals(0);
         check(resultsFile.existsSync()).isTrue;
 
-        final suite = BenchmarkSuiteResult.loadFromFile(resultsFile);
+        final suite = loadSuiteFromFile(resultsFile);
         check(suite.benchmarks.length).equals(1);
         check(suite.benchmarks.first.name).equals('e2e_calc');
 

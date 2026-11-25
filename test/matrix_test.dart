@@ -258,7 +258,7 @@ void main() {
       await mainBenchmarkSuite(matrix, args);
 
       check(outputFile.existsSync()).isTrue;
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.length).equals(4);
 
       final miniBase = suite.benchmarks.any(
@@ -305,7 +305,7 @@ void main() {
         await mainBenchmarkSuite([singleVariant, matrix], args);
 
         check(outputFile.existsSync()).isTrue;
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final suite = loadSuiteFromFile(outputFile);
         check(suite.benchmarks.length).equals(3); // 1 standalone + 2 matrix
         check(suite.findEntry('standalone_var', 'jit')).isNotNull();
 
@@ -342,7 +342,7 @@ void main() {
         await mainBenchmarkMatrix(matrix, args);
 
         check(outputFile.existsSync()).isTrue;
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final suite = loadSuiteFromFile(outputFile);
         check(suite.benchmarks.length).equals(2);
       },
     );

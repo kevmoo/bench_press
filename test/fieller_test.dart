@@ -246,6 +246,15 @@ void main() {
       );
       check(mismatched.isValid).isTrue;
       check(mismatched.paired).isFalse;
+
+      // Paired NaN numerator with finite low-variance denominator (g < 1.0)
+      // hits the NaN discriminant guard cleanly.
+      final nanPaired = FiellerInterval.compute(
+        sampleA: const [double.nan, 50.0],
+        sampleB: const [100.0, 102.0],
+        paired: true,
+      );
+      check(nanPaired.isValid).isFalse;
     });
   });
 }

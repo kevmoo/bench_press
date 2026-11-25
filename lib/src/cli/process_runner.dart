@@ -4,9 +4,9 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
+import '../host/cpu_affinity.dart';
 import '../telemetry/schema.dart';
 import 'compiler.dart';
-import 'cpu_affinity.dart';
 import 'sdk.dart';
 import 'suite_runner.dart';
 
@@ -195,7 +195,7 @@ final class const BenchmarkProcessRunner({
     }
     totalStopwatch.stop();
 
-    final aggregated = BenchmarkSuiteResult.aggregateProcesses(processSuites);
+    final aggregated = aggregateProcessSuites(processSuites);
     return ProcessExecutionResult(
       success: true,
       runtime: runtime,
@@ -449,7 +449,7 @@ final class const BenchmarkProcessRunner({
   static BenchmarkSuiteResult? _loadSuiteResultSafe(File tempJsonFile) {
     if (!tempJsonFile.existsSync()) return null;
     try {
-      return BenchmarkSuiteResult.loadFromFile(tempJsonFile);
+      return loadSuiteFromFile(tempJsonFile);
     } on Object {
       return null;
     }
@@ -486,7 +486,7 @@ final class const BenchmarkProcessRunner({
   ) {
     if (tempJsonFile.existsSync() && tempJsonFile.lengthSync() > 0) {
       try {
-        return BenchmarkSuiteResult.loadFromFile(tempJsonFile);
+        return loadSuiteFromFile(tempJsonFile);
       } on Object {
         // Fall back to stdout parsing
       }

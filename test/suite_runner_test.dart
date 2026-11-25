@@ -96,7 +96,7 @@ void main() {
         ], args);
 
         check(outputFile.existsSync()).isTrue;
-        final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+        final suite = loadSuiteFromFile(outputFile);
         check(suite.benchmarks.length).equals(3);
         check(suite.findEntry('sample_sync', 'jit')).isNotNull();
         check(suite.findEntry('sample_async', 'jit')).isNotNull();
@@ -139,7 +139,7 @@ void main() {
       check(syncWarmupCompleteCalls).equals(1);
       check(asyncWarmupCompleteCalls).equals(1);
 
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       final syncEntry = suite.findEntry('sample_sync', 'jit')!;
       final asyncEntry = suite.findEntry('sample_async', 'jit')!;
       check(syncEntry.throughput).equals(const ByteThroughput(1024));
@@ -180,7 +180,7 @@ void main() {
         ['--json-output', outputFile.path],
       );
 
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.length).equals(5);
       for (final entry in suite.benchmarks) {
         check(entry.samples).equals(2);
@@ -195,7 +195,7 @@ void main() {
         '--trials',
         '3',
       ]);
-      final overrideSuite = BenchmarkSuiteResult.loadFromFile(overrideFile);
+      final overrideSuite = loadSuiteFromFile(overrideFile);
       check(overrideSuite.benchmarks.single.samples).equals(3);
     });
 
@@ -205,11 +205,11 @@ void main() {
 
       mainBenchmark(_SampleBench(), args);
       check(outputFile.existsSync()).isTrue;
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.first.samples).equals(1);
 
       await mainAsyncBenchmark(_SampleAsyncBench(), args);
-      final asyncSuite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final asyncSuite = loadSuiteFromFile(outputFile);
       check(asyncSuite.benchmarks.first.samples).equals(1);
     });
 
@@ -256,7 +256,7 @@ void main() {
       await mainBenchmarkSuite(group, args);
 
       check(outputFile.existsSync()).isTrue;
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.length).equals(2);
       check(suite.findEntry('g_var1', 'jit')).isNotNull();
       check(suite.findEntry('g_var2', 'jit')).isNotNull();
@@ -324,7 +324,7 @@ void main() {
         ],
       );
       check(exitCode).equals(0);
-      final suite = BenchmarkSuiteResult.loadFromFile(outputFile);
+      final suite = loadSuiteFromFile(outputFile);
       check(suite.benchmarks.single.samples).equals(8);
     });
 

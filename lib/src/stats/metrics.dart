@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'sample_summary.dart';
+
 /// One-way variance decomposition across `P` independent OS processes.
 ///
 /// Uses a first-difference within-process estimator (`msWithin`) so slow
@@ -233,53 +235,25 @@ final class const BenchmarkMetrics({
       );
     }
 
-    final sorted = List<double>.of(samplesNs)..sort();
-    final n = sorted.length;
-
-    final mean = _meanOf(sorted);
-    final median = n.isOdd
-        ? sorted[n ~/ 2]
-        : (sorted[n ~/ 2 - 1] + sorted[n ~/ 2]) / 2.0;
-
-    final min = sorted.first;
-    final max = sorted.last;
-
-    var sumSqDiff = 0.0;
-    for (final s in sorted) {
-      final diff = s - mean;
-      sumSqDiff += diff * diff;
-    }
-    final stddev = n > 1 ? math.sqrt(sumSqDiff / (n - 1)) : 0.0;
-    final cv = mean > 0.0 ? stddev / mean : 0.0;
-
-    final mad = computeMad(sorted);
-    final robustCv = median > 0.0 ? (1.4826 * mad) / median : 0.0;
-
-    final q1 = _percentile(sorted, 0.25);
-    final q3 = _percentile(sorted, 0.75);
-    final iqr = q3 - q1;
-
-    final p95 = _percentile(sorted, 0.95);
-    final p99 = _percentile(sorted, 0.99);
-
-    final opsPerSec = mean > 0.0 ? (1e9 / mean) : 0.0;
-
-    final robustStable = isStable && (robustCv <= maxCvThreshold);
-    final effectiveStable = isStable && (cv <= maxCvThreshold || robustStable);
+    final summary = SampleSummary.fromSamples(samplesNs);
+    final opsPerSec = summary.mean > 0.0 ? (1e9 / summary.mean) : 0.0;
+    final robustStable = isStable && (summary.robustCv <= maxCvThreshold);
+    final effectiveStable =
+        isStable && (summary.cv <= maxCvThreshold || robustStable);
 
     return BenchmarkMetrics(
-      meanNs: mean,
-      medianNs: median,
-      minNs: min,
-      maxNs: max,
-      stddevNs: stddev,
-      cv: cv,
-      madNs: mad,
-      robustCv: robustCv,
-      iqrNs: iqr,
+      meanNs: summary.mean,
+      medianNs: summary.median,
+      minNs: summary.min,
+      maxNs: summary.max,
+      stddevNs: summary.stddev,
+      cv: summary.cv,
+      madNs: summary.mad,
+      robustCv: summary.robustCv,
+      iqrNs: summary.iqr,
       isRobustStable: robustStable,
-      p95Ns: p95,
-      p99Ns: p99,
+      p95Ns: summary.p95,
+      p99Ns: summary.p99,
       opsPerSec: opsPerSec,
       isStable: effectiveStable,
       varianceComponents: varianceComponents,

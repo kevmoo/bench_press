@@ -1,4 +1,11 @@
-import 'package:bench_press/bench_press.dart';
+import 'dart:math' as math;
+
+import 'package:bench_press/src/stats/difference.dart'
+    show InternalDifferenceInterval;
+import 'package:bench_press/src/stats/fieller.dart' show studentTQuantile;
+import 'package:bench_press/src/stats/sample_summary.dart'
+    show meanOfDoubles, medianOfSorted, sampleVarianceOfDoubles;
+import 'package:bench_press/stats.dart';
 import 'package:checks/checks.dart';
 import 'package:test/scaffolding.dart';
 
@@ -260,7 +267,198 @@ void main() {
             [50.0, 50.0],
           ]).varianceComponents,
         ).isNull;
+
+        check(
+          () => BenchmarkMetrics.fromJson({
+            ...metrics.toJson(),
+            'variance_components': 'bad',
+          }),
+        ).throws<FormatException>();
+        check(() => ProcessVarianceComponents.fromJson(const {'processes': 2}))
+            .throws<FormatException>();
       },
     );
+  });
+
+  group('Toolkit stats.dart', () {
+    test('SampleSummary handles empty, single, and signed sample series', () {
+      final empty = SampleSummary.fromSamples(const []);
+      check(empty.count).equals(0);
+      check(empty.mean).equals(0.0);
+      check(empty.cv).equals(0.0);
+      check(meanOfDoubles(const [])).equals(0.0);
+      check(sampleVarianceOfDoubles(const [5.0], 5.0)).equals(0.0);
+      check(medianOfSorted(const [])).equals(0.0);
+
+      final single = SampleSummary.fromSamples(const [42]);
+      check(single.count).equals(1);
+      check(single.mean).equals(42.0);
+      check(single.stddev).equals(0.0);
+
+      final zeroCentered = SampleSummary.fromSamples(const [-5, 0, 5]);
+      check(zeroCentered.mean).equals(0.0);
+      check(zeroCentered.cv).equals(0.0);
+      check(zeroCentered.robustCv).equals(0.0);
+
+      // Signed series verifies cv and robustCv normalize by |mean|/|median|.
+      final signed = SampleSummary.fromSamples(const [-110, -100, -90]);
+      check(signed.count).equals(3);
+      check(signed.mean).equals(-100.0);
+      check(signed.median).equals(-100.0);
+      check(signed.stddev).equals(10.0);
+      check(signed.cv).isCloseTo(0.10, 1e-12);
+      check(signed.mad).equals(10.0);
+      check(signed.robustCv).isCloseTo(0.14826, 1e-12);
+      check(signed.toString()).equals(
+        'SampleSummary(n: 3, mean: -100.000, median: -100.000, '
+        'stddev: 10.000)',
+      );
+    });
+
+    test('DifferenceInterval cancels shared drift in paired mode', () {
+      // Shared per-round drift [0, +50, +100, +150] plus +250 ms overhead with
+      // small ±2 ms jitter: unpaired variance is huge; paired variance is tiny.
+      final baseline = [200.0, 250.0, 300.0, 350.0];
+      final candidate = [448.0, 502.0, 552.0, 598.0];
+
+      final unpaired = DifferenceInterval.compute(
+        baseline: baseline,
+        candidate: candidate,
+      );
+      final paired = DifferenceInterval.compute(
+        baseline: baseline,
+        candidate: candidate,
+        paired: true,
+      );
+
+      check(paired.isValid).isTrue;
+      check(paired.paired).isTrue;
+      check(paired.meanDiff).isCloseTo(250.0, 1e-9);
+      // Sample medians are 275.0 and 527.0 (527 - 275 = 252.0), whereas the
+      // median of pairwise differences [248, 252, 252, 248] is 250.0.
+      check(paired.medianDiff).isCloseTo(252.0, 1e-9);
+      check(paired.pairedMedianDiff!).isCloseTo(250.0, 1e-9);
+      check(paired.degreesOfFreedom).equals(3.0);
+      // Pairwise diffs: [248, 252, 252, 248] -> sample variance = 16/3,
+      // SE = sqrt(16/3) / 2 = 2 / sqrt(3).
+      check(paired.standardError).isCloseTo(2.0 / math.sqrt(3.0), 1e-9);
+      check(paired.halfWidth).isLessThan(unpaired.halfWidth / 10.0);
+      check(paired.isSignificant).isTrue;
+      check(paired.percentDiff!).isCloseTo((250.0 / 275.0) * 100.0, 1e-9);
+    });
+
+    test('DifferenceInterval uses Welch-Satterthwaite for unequal n', () {
+      // Heteroscedastic: zero-variance control (n=3) vs noisy candidate (n=5).
+      // Exact Welch-Satterthwaite df must equal nB - 1 = 4.0.
+      final baseline = [100.0, 100.0, 100.0];
+      final candidate = [88.0, 89.0, 90.0, 91.0, 92.0];
+
+      final diff = DifferenceInterval.compute(
+        baseline: baseline,
+        candidate: candidate,
+        paired: true, // unequal length -> automatically falls back to unpaired
+      );
+
+      check(diff.isValid).isTrue;
+      check(diff.paired).isFalse;
+      check(diff.meanDiff).isCloseTo(-10.0, 1e-9);
+      check(diff.degreesOfFreedom).isCloseTo(4.0, 1e-9);
+      check(diff.upperBound).isLessThan(0.0);
+      check(diff.isSignificant).isTrue;
+    });
+
+    test('DifferenceInterval handles edge cases and TOST equivalence', () {
+      // n < 2 -> invalid
+      final tooFew = DifferenceInterval.compute(
+        baseline: const [100.0],
+        candidate: const [110.0, 112.0],
+      );
+      check(tooFew.isValid).isFalse;
+      check(tooFew.lowerBound.isNaN).isTrue;
+      check(tooFew.isEquivalentWithin(50.0)).isFalse;
+
+      // Zero variance on both arms -> exact zero-width valid interval
+      final constant = DifferenceInterval.compute(
+        baseline: const [100.0, 100.0, 100.0],
+        candidate: const [101.0, 101.0, 101.0],
+      );
+      check(constant.isValid).isTrue;
+      check(constant.halfWidth).equals(0.0);
+      check(constant.isEquivalentWithin(2.0)).isTrue;
+      check(constant.isEquivalentWithin(0.5)).isFalse;
+
+      // TOST equivalence at 90% CI vs 95% CI boundary
+      final nearZero = DifferenceInterval.compute(
+        baseline: const [100.0, 101.0, 99.0, 100.0, 100.5, 99.5],
+        candidate: const [100.5, 101.5, 99.5, 100.5, 101.0, 100.0],
+        paired: true,
+      );
+      // Constant +0.5 shift -> zero diff variance -> exact +0.5
+      check(nearZero.isEquivalentWithin(1.0)).isTrue;
+      check(nearZero.isEquivalentWithin(0.25)).isFalse;
+
+      // Non-zero standardError TOST equivalence (df = 3, t_0.95 = 2.3534):
+      // pairwise diffs [0.5, -0.5, 1.5, 0.5] -> meanDiff = 0.5, se = 0.4082,
+      // 90% CI = [-0.461, +1.461] -> inside [-2, +2], outside [-1, +1].
+      final noisyNearZero = DifferenceInterval.compute(
+        baseline: const [100.0, 102.0, 98.0, 100.0],
+        candidate: const [100.5, 101.5, 99.5, 100.5],
+        paired: true,
+      );
+      check(noisyNearZero.standardError).isGreaterThan(0.0);
+      check(noisyNearZero.isEquivalentWithin(2.0)).isTrue;
+      check(noisyNearZero.isEquivalentWithin(1.0)).isFalse;
+      check(noisyNearZero.percentHalfWidth).isNotNull();
+      check(noisyNearZero.toString())
+        ..contains('DifferenceInterval(diff: 0.500')
+        ..contains('paired: true, valid: true)');
+
+      // Negative baseline normalizes percentHalfWidth by |baselineMean|;
+      // zero baseline and invalid intervals return null for percent getters.
+      final negBase = DifferenceInterval.compute(
+        baseline: const [-102.0, -100.0, -98.0],
+        candidate: const [-92.0, -90.0, -88.0],
+      );
+      check(negBase.percentHalfWidth!).isGreaterThan(0.0);
+      final zeroBase = DifferenceInterval.compute(
+        baseline: const [-10.0, 10.0],
+        candidate: const [5.0, 15.0],
+      );
+      check(zeroBase.percentDiff).isNull;
+      check(zeroBase.percentHalfWidth).isNull;
+      check(tooFew.percentHalfWidth).isNull;
+
+      // Non-finite samples yield an invalid interval with NaN summary fields.
+      final nonFinite = DifferenceInterval.compute(
+        baseline: const [double.nan, 10.0],
+        candidate: const [10.0, 12.0],
+      );
+      check(nonFinite.isValid).isFalse;
+      check(nonFinite.baselineMean.isNaN).isTrue;
+
+      check(() => noisyNearZero.isEquivalentWithin(-0.1))
+          .throws<ArgumentError>();
+      check(() => noisyNearZero.isEquivalentWithin(double.infinity))
+          .throws<ArgumentError>();
+      check(() => noisyNearZero.isEquivalentWithin(1.0, alpha: 0.0))
+          .throws<ArgumentError>();
+      check(() => noisyNearZero.isEquivalentWithin(1.0, alpha: 0.5))
+          .throws<ArgumentError>();
+
+      check(
+        () => DifferenceInterval.compute(
+          baseline: const [1, 2],
+          candidate: const [1, 2],
+          confidenceLevel: 1.0,
+        ),
+      ).throws<ArgumentError>();
+    });
+
+    test('studentTQuantile precision', () {
+      // Newton-polished studentTQuantile matches exact R qt() to < 1e-12
+      check(studentTQuantile(0.975, 3.0)).isCloseTo(3.182446305283763, 1e-12);
+      check(studentTQuantile(0.975, 4.0)).isCloseTo(2.7764451051977987, 1e-12);
+      check(studentTQuantile(0.975, double.infinity)).isCloseTo(1.95996, 1e-4);
+    });
   });
 }

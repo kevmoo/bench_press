@@ -368,9 +368,9 @@ final class ReportCommand() extends Command<int> {
         'gate',
         defaultsTo: true,
         help:
-            'Withhold speedup ratios whose confidence interval is unbounded '
-            'or whose samples are not stable. Pass --no-gate to '
-            'publish them anyway (exploration only).',
+            'Withhold comparisons whose confidence interval is unbounded or '
+            'whose warmup did not converge. Pass --no-gate to publish point '
+            'estimates anyway (exploration only).',
       )
       ..addOption(
         'threshold',
@@ -378,6 +378,14 @@ final class ReportCommand() extends Command<int> {
         help:
             'Practical significance / equivalence threshold as a relative '
             'fraction (e.g. 0.02 for ±2%).',
+      )
+      ..addOption(
+        'scale',
+        defaultsTo: 'ratio',
+        allowed: ['ratio', 'difference', 'both'],
+        help:
+            'Comparison scale against baseline (multiplicative ratio, '
+            'additive difference, or both).',
       )
       ..addOption(
         'from-json',
@@ -418,13 +426,16 @@ final class ReportCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
+    final scale = tryParseComparisonScale(argResults!.option('scale')!)!;
 
     try {
-      final report = MarkdownReporter.renderFromFile(
-        file,
+      final suite = loadSuiteFromFile(file);
+      final report = MarkdownReporter.renderSuite(
+        suite,
         title: title,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
       if (outputPath != null && outputPath.isNotEmpty) {
         final outFile = File(outputPath);
@@ -461,9 +472,9 @@ final class DiffCommand() extends Command<int> {
         'gate',
         defaultsTo: true,
         help:
-            'Withhold speedup ratios whose confidence interval is unbounded '
-            'or whose samples are not stable. Pass --no-gate to '
-            'publish them anyway (exploration only).',
+            'Withhold comparisons whose confidence interval is unbounded or '
+            'whose warmup did not converge. Pass --no-gate to publish point '
+            'estimates anyway (exploration only).',
       )
       ..addOption(
         'threshold',
@@ -471,6 +482,14 @@ final class DiffCommand() extends Command<int> {
         help:
             'Practical significance / equivalence threshold as a relative '
             'fraction (e.g. 0.02 for ±2%).',
+      )
+      ..addOption(
+        'scale',
+        defaultsTo: 'ratio',
+        allowed: ['ratio', 'difference', 'both'],
+        help:
+            'Comparison scale (multiplicative ratio, additive difference, or '
+            'both).',
       )
       ..addOption(
         'baseline',
@@ -561,6 +580,7 @@ final class DiffCommand() extends Command<int> {
     final title = argResults!.option('title');
     final outputPath = argResults!.option('output');
     final gate = argResults!.flag('gate');
+    final scale = tryParseComparisonScale(argResults!.option('scale')!)!;
     final thresholdRaw = argResults!.option('threshold')!;
     final threshold = DefaultsConfig.tryParseThreshold(thresholdRaw);
     if (threshold == null) {
@@ -580,15 +600,16 @@ final class DiffCommand() extends Command<int> {
     String report;
     final baselineFile = File(baseline);
     if (baselineFile.existsSync()) {
-      report = MarkdownReporter.renderDeltaFromFiles(
+      report = renderDeltaFromFiles(
         baselineFile: baselineFile,
         currentFile: currentFile,
         title: title,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     } else {
-      final currentSuite = BenchmarkSuiteResult.loadFromFile(currentFile);
+      final currentSuite = loadSuiteFromFile(currentFile);
       report = GitDiffReporter.renderGitDiffReport(
         gitRef: baseline,
         filePath: targetFileArg,
@@ -596,6 +617,7 @@ final class DiffCommand() extends Command<int> {
         title: title,
         gate: gate,
         threshold: threshold,
+        scale: scale,
       );
     }
 

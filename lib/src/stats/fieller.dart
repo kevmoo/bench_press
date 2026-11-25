@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'warmup.dart';
+import 'sample_summary.dart';
 
 /// Represents Fieller's confidence interval for a ratio of two means
 /// (`meanA / meanB`).
@@ -60,8 +60,8 @@ final class const FiellerInterval({
       );
     }
 
-    final meanA = AdaptiveWarmupDetector.computeMean(sampleA);
-    final meanB = AdaptiveWarmupDetector.computeMean(sampleB);
+    final meanA = meanOfDoubles(sampleA);
+    final meanB = meanOfDoubles(sampleB);
 
     if (meanB == 0.0) {
       return FiellerInterval(
@@ -77,8 +77,8 @@ final class const FiellerInterval({
 
     final ratio = meanA / meanB;
 
-    final varA = _sampleVariance(sampleA, meanA);
-    final varB = _sampleVariance(sampleB, meanB);
+    final varA = sampleVarianceOfDoubles(sampleA, meanA);
+    final varB = sampleVarianceOfDoubles(sampleB, meanB);
 
     final vA = varA / nA;
     final vB = varB / nB;
@@ -98,7 +98,7 @@ final class const FiellerInterval({
     final vAB = usePaired
         ? _sampleCovariance(sampleA, meanA, sampleB, meanB) / nA
         : 0.0;
-    final df = _computeDegreesOfFreedom(
+    final df = computeComparisonDegreesOfFreedom(
       nA: nA,
       nB: nB,
       vA: vA,
@@ -167,24 +167,6 @@ final class const FiellerInterval({
     );
   }
 
-  static double _computeDegreesOfFreedom({
-    required int nA,
-    required int nB,
-    required double vA,
-    required double vB,
-    required bool usePaired,
-  }) {
-    if (usePaired) {
-      return (nA - 1.0).clamp(1.0, 10000.0);
-    }
-    final num = (vA + vB) * (vA + vB);
-    final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
-    final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
-    return (denomA + denomB > 0.0)
-        ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
-        : (nA + nB - 2.0).clamp(1.0, 10000.0);
-  }
-
   static double _computeDiscriminant({
     required double vA,
     required double vB,
@@ -200,16 +182,6 @@ final class const FiellerInterval({
         : baseDisc;
     final scale = vA + (ratio * ratio * vB);
     return (rawDisc < 0.0 && rawDisc >= -1e-12 * scale) ? 0.0 : rawDisc;
-  }
-
-  static double _sampleVariance(List<double> samples, double mean) {
-    if (samples.length <= 1) return 0.0;
-    var sumSq = 0.0;
-    for (final s in samples) {
-      final diff = s - mean;
-      sumSq += diff * diff;
-    }
-    return sumSq / (samples.length - 1);
   }
 
   static double _sampleCovariance(
@@ -247,6 +219,27 @@ final class const FiellerInterval({
       'valid: $isValid)';
 }
 
+/// Computes paired (`n - 1`) or unpaired Welch-Satterthwaite degrees of
+/// freedom given sample counts [nA], [nB] and squared standard errors [vA]
+/// (`sA^2 / nA`) and [vB] (`sB^2 / nB`).
+double computeComparisonDegreesOfFreedom({
+  required int nA,
+  required int nB,
+  required double vA,
+  required double vB,
+  required bool usePaired,
+}) {
+  if (usePaired) {
+    return (nA - 1.0).clamp(1.0, 10000.0);
+  }
+  final num = (vA + vB) * (vA + vB);
+  final denomA = (nA > 1 && vA > 0.0) ? (vA * vA) / (nA - 1) : 0.0;
+  final denomB = (nB > 1 && vB > 0.0) ? (vB * vB) / (nB - 1) : 0.0;
+  return (denomA + denomB > 0.0)
+      ? (num / (denomA + denomB)).clamp(1.0, 10000.0)
+      : (nA + nB - 2.0).clamp(1.0, 10000.0);
+}
+
 /// Computes the critical value for Student's $t$-distribution given two-tailed
 /// upper quantile [p] and degrees of freedom [df].
 ///
@@ -263,6 +256,9 @@ double studentTQuantile(double p, double df) {
   }
   final effectiveDf = df < 1.0 ? 1.0 : df;
 
+  if (effectiveDf.isInfinite) {
+    return normalQuantile(p);
+  }
   if (effectiveDf == 1.0) {
     return math.tan(math.pi * (p - 0.5));
   }
@@ -274,7 +270,34 @@ double studentTQuantile(double p, double df) {
     return _studentTQuantileSmallDf(p, effectiveDf);
   }
 
-  return _studentTQuantileHill(p, effectiveDf);
+  return _polishStudentTQuantile(
+    _studentTQuantileHill(p, effectiveDf),
+    p,
+    effectiveDf,
+  );
+}
+
+double _polishStudentTQuantile(double t0, double p, double df) {
+  if (df > 1e5 || !t0.isFinite || t0 <= 0.0) return t0;
+  final halfDf = 0.5 * df;
+  final halfDfPlusHalf = 0.5 * (df + 1.0);
+  final logPdfConst =
+      _logGamma(halfDfPlusHalf) -
+      _logGamma(halfDf) -
+      0.5 * math.log(df * math.pi);
+  var t = t0;
+  for (var i = 0; i < 2; i++) {
+    final x = df / (df + t * t);
+    final cdf = 1.0 - 0.5 * _regularizedIncompleteBeta(x, halfDf, 0.5);
+    final pdf = math.exp(
+      logPdfConst - halfDfPlusHalf * math.log(1.0 + (t * t) / df),
+    );
+    if (!pdf.isFinite || pdf <= 0.0) break;
+    final next = t - (cdf - p) / pdf;
+    if (!next.isFinite || next <= 0.0) break;
+    t = next;
+  }
+  return t;
 }
 
 double _studentTQuantileSmallDf(double p, double df) {

@@ -1,0 +1,318 @@
+import 'dart:io';
+
+import 'package:bench_press/host.dart';
+import 'package:bench_press/src/host/cpu_affinity.dart'
+    show InternalCpuAffinity;
+import 'package:bench_press/src/host/machine_check.dart'
+    show
+        HostWarningKind,
+        InternalHostWarning,
+        runHostCheck,
+        validateAffinityWith,
+        validateCoreWith;
+import 'package:checks/checks.dart';
+import 'package:test/scaffolding.dart';
+
+void main() {
+  group('CpuAffinity extensions', () {
+    test('expands single cores, ranges, strides, and deduplicates', () {
+      check(CpuAffinity.singleCore(7).cpus).deepEquals([7]);
+      check(CpuAffinity.parse('0-3,8').cpus).deepEquals([0, 1, 2, 3, 8]);
+      check(CpuAffinity.parse('0-7:2,9').cpus).deepEquals([0, 2, 4, 6, 9]);
+      check(CpuAffinity.parse('4,2,2-4').cpus).deepEquals([2, 3, 4]);
+      check(CpuAffinity.parse('2,4')).equals(CpuAffinity.parse(' 2,4 '));
+      check(CpuAffinity.parse('2,4').hashCode)
+          .equals(CpuAffinity.parse('2,4').hashCode);
+      check(() => CpuAffinity.singleCore(-1)).throws<RangeError>();
+    });
+  });
+
+  group('HostEnvironment validation and preflight checks', () {
+    test('validateCoreWith and validateAffinityWith detect missing and '
+        'offline CPUs', () {
+      final files = <String, String>{
+        '/sys/devices/system/cpu/present': '0-7',
+        '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list': '2,6',
+        '/sys/devices/system/cpu/cpu2/online': '1',
+        '/sys/devices/system/cpu/cpu3/topology/thread_siblings_list': '3,7',
+        '/sys/devices/system/cpu/cpu3/online': '0',
+      };
+
+      check(validateCoreWith(2, os: 'linux', readFile: (p) => files[p])).isNull;
+      check(validateCoreWith(3, os: 'linux', readFile: (p) => files[p]))
+          .isNotNull()
+          .contains('offline');
+      check(validateCoreWith(99, os: 'linux', readFile: (p) => files[p]))
+          .isNotNull()
+          .contains('0-7');
+      check(
+        validateAffinityWith(
+          CpuAffinity.parse('2,3'),
+          os: 'linux',
+          readFile: (p) => files[p],
+        ),
+      ).isNotNull().contains('CPU 3');
+      // Non-Linux returns null without reading /sys.
+      check(validateCoreWith(99, os: 'macos')).isNull;
+    });
+
+    test(
+      'detects all 8 HostWarningKind conditions from synthetic /proc and /sys',
+      () async {
+        var statCall = 0;
+        final procStatBefore = '''
+cpu  1000 0 0 9000 0 0 0 0 0 0
+cpu2 100 0 0 900 0 0 0 0 0 0
+cpu6 100 0 0 900 0 0 0 0 0 0
+''';
+        // Over 100 ticks: cpu2 busy = 20 (20% > 5%), steal = 5 (5% > 1%);
+        // cpu6 idle = +100 (0% busy, 0% steal).
+        final procStatAfter = '''
+cpu  1020 0 0 9075 0 0 0 5 0 0
+cpu2 120 0 0 975 0 0 0 5 0 0
+cpu6 100 0 0 1000 0 0 0 0 0 0
+''';
+
+        final files = <String, String>{
+          '/proc/cpuinfo': 'flags\t\t: fpu sse2 hypervisor avx2\n',
+          '/sys/devices/system/cpu/cpu2/cpufreq/scaling_governor':
+              'powersave\n',
+          '/sys/devices/system/cpu/cpu6/cpufreq/scaling_governor':
+              'performance\n',
+          '/sys/devices/system/cpu/intel_pstate/no_turbo': '0\n',
+          '/sys/kernel/mm/transparent_hugepage/enabled':
+              '[always] madvise never\n',
+          '/proc/loadavg': '2.50 1.80 1.20 3/500 1234\n',
+          '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list': '2,6\n',
+          '/sys/devices/system/cpu/cpu6/topology/thread_siblings_list': '2,6\n',
+        };
+
+        String? fakeReader(String path) {
+          if (path == '/proc/stat') {
+            return (statCall++ == 0) ? procStatBefore : procStatAfter;
+          }
+          return files[path];
+        }
+
+        final result = await runHostCheck(
+          affinity: CpuAffinity.parse('2,6'),
+          sampleDuration: const Duration(milliseconds: 50),
+          os: 'linux',
+          readFile: fakeReader,
+          delay: (_) async {},
+        );
+
+        check(result.isSupported).isTrue;
+        check(result.isClean).isFalse;
+        check(result.isVirtualMachine).equals(true);
+        check(result.turboBoostEnabled).equals(true);
+        check(result.transparentHugePages).equals('always');
+        check(result.loadAverage1m).equals(2.50);
+        check(result.smtSiblings[2]!).deepEquals([2, 6]);
+        check(result.cpuBusyFraction[2]!).isCloseTo(0.20, 1e-9);
+        check(result.cpuStealFraction[2]!).isCloseTo(0.05, 1e-9);
+
+        final kinds = {for (final w in result.warnings) w.kind};
+        check(kinds).deepEquals(HostWarningKind.values.toSet());
+
+        final json = result.toJson();
+        check(json['os']).equals('linux');
+        check((json['cpu_governors'] as Map<String, Object?>)['2'])
+            .equals('powersave');
+        check((json['warnings'] as List<Object?>).length)
+            .equals(result.warnings.length);
+      },
+    );
+
+    test(
+      'returns clean HostCheckResult on quiet bare-metal Linux configuration',
+      () async {
+        const stat =
+            'cpu2 100 0 0 900 0 0 0 0 0 0\ncpu6 100 0 0 900 0 0 0 0 0 0\n';
+        final files = <String, String>{
+          '/proc/cpuinfo': 'flags\t\t: fpu sse2 avx2\n',
+          '/sys/devices/system/cpu/cpu2/cpufreq/scaling_governor':
+              'performance\n',
+          '/sys/devices/system/cpu/intel_pstate/no_turbo': '1\n',
+          '/sys/kernel/mm/transparent_hugepage/enabled':
+              'always [madvise] never\n',
+          '/proc/loadavg': '0.15 0.10 0.05 1/200 42\n',
+          '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list': '2,6\n',
+          '/proc/stat': stat,
+        };
+
+        final res = await runHostCheck(
+          affinity: CpuAffinity.singleCore(2),
+          os: 'linux',
+          readFile: (p) => files[p],
+          delay: (_) async {},
+        );
+        check(res.isSupported).isTrue;
+        check(res.isClean).isTrue;
+      },
+    );
+
+    test(
+      'degrades gracefully on macOS and Windows and works live on host',
+      () async {
+        final mac = await runHostCheck(os: 'macos');
+        check(mac.os).equals('macos');
+        check(mac.isSupported).isFalse;
+        check(mac.isClean).isTrue;
+
+        // Mocking only no_turbo or only THP (without /proc/*) still reports
+        // isSupported: true.
+        final turboOnly = await runHostCheck(
+          os: 'linux',
+          readFile: (p) => p == '/sys/devices/system/cpu/intel_pstate/no_turbo'
+              ? '0\n'
+              : null,
+          delay: (_) async {},
+        );
+        check(turboOnly.isSupported).isTrue;
+        check(turboOnly.turboBoostEnabled).equals(true);
+
+        final thpOnly = await runHostCheck(
+          os: 'linux',
+          readFile: (p) => p == '/sys/kernel/mm/transparent_hugepage/enabled'
+              ? '[always] madvise never\n'
+              : null,
+          delay: (_) async {},
+        );
+        check(thpOnly.isSupported).isTrue;
+        check(thpOnly.transparentHugePages).equals('always');
+
+        final asyncLive = await HostEnvironment.check(
+          sampleDuration: Duration.zero,
+        );
+        check(asyncLive.os).equals(Platform.operatingSystem);
+        check(HostEnvironment.validateAffinity(CpuAffinity.singleCore(0)))
+            .isNull;
+        if (Platform.isLinux) {
+          check(asyncLive.isSupported).isTrue;
+        }
+      },
+    );
+
+    test('handles unreadable Linux /proc and /sys, unpinned SMT sibling noise, '
+        'and HostWarning / HostCheckResult value semantics', () async {
+      // Negative core index and missing /sys/devices/system/cpu/present.
+      check(validateCoreWith(-1, os: 'linux'))
+          .isNotNull()
+          .contains('must be >= 0');
+      check(validateCoreWith(99, os: 'linux', readFile: (_) => null))
+          .equals('CPU 99 is not a valid logical CPU on this host.');
+
+      // Completely unreadable /proc and /sys on Linux -> isSupported: false.
+      final unreadable = await runHostCheck(os: 'linux', readFile: (_) => null);
+      check(unreadable.isSupported).isFalse;
+      check(unreadable.isClean).isTrue;
+      check(unreadable.toString())
+          .equals('HostCheckResult(os: linux, supported: false, warnings: 0)');
+
+      // Governors-only and siblings-only sysfs still report supported.
+      final govOnly = await runHostCheck(
+        os: 'linux',
+        readFile: (p) =>
+            p == '/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'
+            ? 'performance\n'
+            : null,
+      );
+      check(govOnly.isSupported).isTrue;
+
+      final sibOnly = await runHostCheck(
+        affinity: CpuAffinity.singleCore(2),
+        os: 'linux',
+        // Malformed sysfs omitting CPU 2 itself is normalized to [2, 6].
+        readFile: (p) =>
+            p == '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list'
+            ? '6\n'
+            : null,
+      );
+      check(sibOnly.isSupported).isTrue;
+      check(sibOnly.smtSiblings[2]!).deepEquals([2, 6]);
+
+      // Pinning single core 2 while its unpinned SMT sibling 6 is busy/stolen,
+      // plus /sys/hypervisor/type VM detection, generic cpufreq/boost, and
+      // 4-field /proc/stat fallback.
+      var statCall = 0;
+      const statBefore = '''
+cpu  100 0 0 900
+cpu2 100 0 0 900 0 0 0 0
+cpu6 100 0 0 900 0 0 0 0
+bad_line
+cpuX 1 2 3 4
+cpu9 1 2
+''';
+      const statAfter = '''
+cpu  125 0 0 975
+cpu2 100 0 0 1000 0 0 0 0
+cpu6 125 0 0 970 0 0 0 5
+''';
+      final siblingNoise = await runHostCheck(
+        affinity: CpuAffinity.singleCore(2),
+        sampleDuration: const Duration(milliseconds: 10),
+        os: 'linux',
+        readFile: (p) {
+          if (p == '/proc/stat') {
+            return (statCall++ == 0) ? statBefore : statAfter;
+          }
+          return switch (p) {
+            '/sys/hypervisor/type' => 'xen\n',
+            '/sys/devices/system/cpu/cpufreq/boost' => '1\n',
+            '/sys/kernel/mm/transparent_hugepage/enabled' => '[]\n',
+            '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list' =>
+              '2,6\n',
+            _ => null,
+          };
+        },
+        delay: (_) async {},
+      );
+      check(siblingNoise.isVirtualMachine).equals(true);
+      check(siblingNoise.turboBoostEnabled).equals(true);
+      check(siblingNoise.transparentHugePages).isNull;
+      check(siblingNoise.toString()).contains('supported: true');
+
+      final busyWarn = siblingNoise.warnings.singleWhere(
+        (w) => w.kind == HostWarningKind.busyCpu,
+      );
+      final stealWarn = siblingNoise.warnings.singleWhere(
+        (w) => w.kind == HostWarningKind.hypervisorSteal,
+      );
+      check(busyWarn.cpu).equals(6);
+      check(busyWarn.message).contains('CPU 6 (SMT sibling of CPU 2)');
+      check(stealWarn.message).contains('CPU 6 (SMT sibling of CPU 2)');
+      check(busyWarn.toString()).equals(busyWarn.message);
+
+      // Re-run an identical check to verify HostWarning == and hashCode
+      // symmetry across distinct instances.
+      statCall = 0;
+      final siblingNoiseCopy = await runHostCheck(
+        affinity: CpuAffinity.singleCore(2),
+        sampleDuration: const Duration(milliseconds: 10),
+        os: 'linux',
+        readFile: (p) {
+          if (p == '/proc/stat') {
+            return (statCall++ == 0) ? statBefore : statAfter;
+          }
+          return switch (p) {
+            '/sys/hypervisor/type' => 'xen\n',
+            '/sys/devices/system/cpu/cpufreq/boost' => '0\n',
+            '/sys/devices/system/cpu/cpu2/topology/thread_siblings_list' =>
+              '2,6\n',
+            _ => null,
+          };
+        },
+        delay: (_) async {},
+      );
+      check(siblingNoiseCopy.turboBoostEnabled).equals(false);
+      final busyWarnCopy = siblingNoiseCopy.warnings.singleWhere(
+        (w) => w.kind == HostWarningKind.busyCpu,
+      );
+      check(busyWarn == busyWarnCopy).isTrue;
+      check(busyWarnCopy == busyWarn).isTrue;
+      check(busyWarn.hashCode).equals(busyWarnCopy.hashCode);
+      check(busyWarn == stealWarn).isFalse;
+    });
+  });
+}
